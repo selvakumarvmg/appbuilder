@@ -3,28 +3,18 @@ AppName=PremediaApp
 AppVersion=1.0.0
 DefaultDirName={pf}\PremediaApp
 DefaultGroupName=PremediaApp
-OutputBaseFilename=PremediaApp_Setup_1.0.0
-SetupIconFile=pm.ico
 UninstallDisplayIcon={app}\PremediaApp.exe
+LicenseFile=LICENSE.txt
+InfoBeforeFile=TERMS.txt
+OutputDir=dist
+OutputBaseFilename=PremediaApp_Setup_1.0.0
 Compression=lzma
 SolidCompression=yes
-SignedUninstaller=yes
-
-# Publisher info
-Publisher=Your Company Name
-URL=https://yourcompany.com
-
-# Terms and conditions dialog
-LicenseFile=TERMS.txt
-
-[Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+ArchitecturesInstallIn64BitMode=x64
 
 [Files]
 Source: "dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\PremediaApp.exe"
-
-[Run]
-Filename: "{app}\PremediaApp.exe"; Description: "Launch PremediaApp"; Flags: nowait postinstall skipifsilent
+Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"
+Name: "{group}\Uninstall PremediaApp"; Filename: "{uninstallexe}"
