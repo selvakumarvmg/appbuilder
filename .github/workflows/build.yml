@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -43,7 +43,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -88,7 +88,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -104,24 +104,24 @@ jobs:
           mkdir -p dmg/notifier.app/Contents/MacOS
           cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
           cat > dmg/notifier.app/Contents/Info.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>
-  <string>Notifier</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.yourdomain.notifier</string>
-  <key>CFBundleVersion</key>
-  <string>1.0.0</string>
-  <key>CFBundleExecutable</key>
-  <string>notifier</string>
-  <key>CFBundleIconFile</key>
-  <string>pm.icns</string>
-</dict>
-</plist>
-EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Notifier</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.yourdomain.notifier</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>notifier</string>
+            <key>CFBundleIconFile</key>
+            <string>pm.icns</string>
+          </dict>
+          </plist>
+          EOF
           hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
       - name: Upload macOS dmg artifact
