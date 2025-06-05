@@ -10,11 +10,10 @@ on:
 env:
   APP_NAME: notifier
   APP_VERSION: 1.0.0
-  PUBLISHER: Your Name
-  PUBLISHER_EMAIL: you@example.com
-  PUBLISHER_URL: https://yourdomain.com
-  LICENSE_FILE: LICENSE.txt
-  TERMS_FILE: TERMS.txt
+  PUBLISHER: "Your Name"
+  PUBLISHER_EMAIL: "you@example.com"
+  PUBLISHER_URL: "https://yourwebsite.example"
+  LICENSE_FILE: TERMS.txt
 
 jobs:
   build-windows:
@@ -23,7 +22,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
@@ -86,7 +85,7 @@ jobs:
           echo 'LicenseAccepted=0' >> setup.iss
           echo '' >> setup.iss
           echo '[LicenseFile]' >> setup.iss
-          echo 'Source: "TERMS.txt"' >> setup.iss
+          echo "Source: \"${{ env.LICENSE_FILE }}\"" >> setup.iss
 
       - name: Build Windows installer with Inno Setup
         run: |
@@ -96,9 +95,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: notifier-windows-setup
-          path: ${{
-            env.APP_NAME
-          }}-setup.exe
+          path: ${{ env.APP_NAME }}-setup.exe
 
   build-ubuntu:
     runs-on: ubuntu-22.04
@@ -106,7 +103,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
@@ -124,13 +121,15 @@ jobs:
         run: |
           mkdir -p package/DEBIAN
           mkdir -p package/usr/local/bin
-          echo "Package: ${{ env.APP_NAME }}" > package/DEBIAN/control
-          echo "Version: ${{ env.APP_VERSION }}" >> package/DEBIAN/control
-          echo "Section: utils" >> package/DEBIAN/control
-          echo "Priority: optional" >> package/DEBIAN/control
-          echo "Architecture: amd64" >> package/DEBIAN/control
-          echo "Maintainer: ${{ env.PUBLISHER }} <${{ env.PUBLISHER_EMAIL }}>" >> package/DEBIAN/control
-          echo "Description: Notifier app built with PySide6" >> package/DEBIAN/control
+          cat > package/DEBIAN/control << EOF
+          Package: ${{ env.APP_NAME }}
+          Version: ${{ env.APP_VERSION }}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: ${{ env.PUBLISHER }} <${{ env.PUBLISHER_EMAIL }}>
+          Description: Notifier app built with PySide6
+          EOF
           cp dist/${{ env.APP_NAME }} package/usr/local/bin/${{ env.APP_NAME }}
           chmod 755 package/usr/local/bin/${{ env.APP_NAME }}
 
@@ -151,7 +150,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
@@ -167,32 +166,34 @@ jobs:
 
       - name: Create .dmg installer
         run: |
-          mkdir -p dmg/${{ env.APP_NAME }}.app/Contents/MacOS
-          cp dist/${{ env.APP_NAME }} dmg/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }}
-          mkdir -p dmg/${{ env.APP_NAME }}.app/Contents
+          mkdir -p dmg/notifier.app/Contents/MacOS
+          cp dist/${{ env.APP_NAME }} dmg/notifier.app/Contents/MacOS/${{ env.APP_NAME }}
+          mkdir -p dmg/notifier.app/Contents
 
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '<plist version="1.0">' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '<dict>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <key>CFBundleName</key>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo "  <string>${{ env.APP_NAME }}</string>" >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <key>CFBundleIdentifier</key>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo "  <string>com.yourdomain.${{ env.APP_NAME }}</string>" >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <key>CFBundleVersion</key>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo "  <string>${{ env.APP_VERSION }}</string>" >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <key>CFBundleExecutable</key>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo "  <string>${{ env.APP_NAME }}</string>" >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <key>CFBundleIconFile</key>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '  <string>pm.icns</string>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '</dict>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
-          echo '</plist>' >> dmg/${{ env.APP_NAME }}.app/Contents/Info.plist
+          cat > dmg/notifier.app/Contents/Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Notifier</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.yourdomain.notifier</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>notifier</string>
+            <key>CFBundleIconFile</key>
+            <string>pm.icns</string>
+          </dict>
+          </plist>
+          EOF
 
-          hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder dmg -ov -format UDZO ${{ env.APP_NAME }}-${{ env.APP_VERSION }}.dmg
+          hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
       - name: Upload macOS dmg artifact
         uses: actions/upload-artifact@v4
         with:
           name: notifier-macos-dmg
-          path: ${{ env.APP_NAME }}-${{ env.APP_VERSION }}.dmg
+          path: notifier-1.0.0.dmg
