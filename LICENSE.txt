@@ -1,0 +1,48 @@
+Terms and Conditions for Software Use
+Last Updated: June 5, 2025
+
+Welcome to Premedia app! Please read these Terms and Conditions ("Terms") carefully before using our software ("Software").
+
+By downloading, installing, or using the Software, you agree to be bound by these Terms. If you do not agree, do not use the Software.
+
+1. License Grant
+VMG DIGITAL PVT LTD grants you a non-exclusive, non-transferable, free license to use the Premedia app for your personal or business purposes, subject to these Terms.
+
+2. Restrictions
+You agree not to:
+
+Modify, copy, distribute, sell, or lease any part of the Software.
+
+Reverse engineer, decompile, or attempt to extract the source code of the Software.
+
+Use the Software for any unlawful or unauthorized purpose.
+
+3. Ownership
+The Software and all intellectual property rights belong to VMG DIGITAL PVT LTD or its licensors. This license does not transfer ownership to you.
+
+4. Updates and Support
+We provide support and updates for the Software as part of this license. Updates may be mandatory or optional and are included free of charge.
+
+5. Privacy
+Your use of the Software may involve the collection of certain data. Please review our Privacy Policy at https://create.vmgdigital.com/privacy-policy.html for details.
+
+6. Disclaimer of Warranty
+The Software is provided "as is" without warranties of any kind, either express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.
+
+7. Limitation of Liability
+In no event shall VMG DIGITAL PVT LTD be liable for any damages (including loss of data, profits, or business interruption) arising out of the use or inability to use the Software.
+
+8. Termination
+This license is effective until terminated. You may terminate by deleting the Software. VMG DIGITAL PVT LTD may terminate or suspend your access if you violate these Terms.
+
+9. Governing Law
+These Terms are governed by the laws of India.
+
+10. Changes to Terms
+We reserve the right to modify these Terms at any time. Continued use of the Software after changes constitutes acceptance of the new Terms.
+
+Contact Information:
+VMG DIGITAL PVT LTD
+24, 25 & 26, Taylors Rd, Kilpauk, Chennai, Tamil Nadu 600010
+
+If you have any questions, please contact us at the above address.
