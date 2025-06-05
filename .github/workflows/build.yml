@@ -103,25 +103,26 @@ jobs:
         run: |
           mkdir -p dmg/notifier.app/Contents/MacOS
           cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
-          cat > dmg/notifier.app/Contents/Info.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>Notifier</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.yourdomain.notifier</string>
-            <key>CFBundleVersion</key>
-            <string>1.0.0</string>
-            <key>CFBundleExecutable</key>
-            <string>notifier</string>
-            <key>CFBundleIconFile</key>
-            <string>pm.icns</string>
-          </dict>
-          </plist>
-          EOF
+          mkdir -p dmg/notifier.app/Contents
+
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > dmg/notifier.app/Contents/Info.plist
+          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"' >> dmg/notifier.app/Contents/Info.plist
+          echo '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> dmg/notifier.app/Contents/Info.plist
+          echo '<plist version="1.0">' >> dmg/notifier.app/Contents/Info.plist
+          echo '<dict>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <key>CFBundleName</key>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <string>Notifier</string>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <key>CFBundleIdentifier</key>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <string>com.yourdomain.notifier</string>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <key>CFBundleVersion</key>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <string>1.0.0</string>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <key>CFBundleExecutable</key>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <string>notifier</string>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <key>CFBundleIconFile</key>' >> dmg/notifier.app/Contents/Info.plist
+          echo '  <string>pm.icns</string>' >> dmg/notifier.app/Contents/Info.plist
+          echo '</dict>' >> dmg/notifier.app/Contents/Info.plist
+          echo '</plist>' >> dmg/notifier.app/Contents/Info.plist
+
           hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
       - name: Upload macOS dmg artifact
