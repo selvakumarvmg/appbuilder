@@ -27,7 +27,7 @@ class NotifierApp(QWidget):
 
         # Setup tray icon with your custom PNG icon
         self.tray = QSystemTrayIcon(self)
-        self.tray.setIcon(QIcon("pm.png"))  # <-- Put your icon file here
+        self.tray.setIcon(QIcon("pm.ico"))  # <-- Put your icon file here
         self.tray.setToolTip("Notifier is running in background")
         self.tray.setVisible(True)
 
