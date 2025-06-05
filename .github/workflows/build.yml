@@ -23,32 +23,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r dev-requirements.txt
+          pip install pyinstaller
+
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --noconfirm --windowed --icon=pm.ico --name=notifier app.py
+
+      - name: Create Windows installer using NSIS
+        run: |
           choco install nsis -y
-
-      - name: Build Windows executable
-        run: |
-          pyinstaller --onefile --windowed --icon=pm.ico --name=notifier app.py
-
-      - name: Create NSIS installer
-        run: |
-          echo 'OutFile "notifier_installer.exe"
-          InstallDir "$PROGRAMFILES\\Notifier"
-          Page directory
-          Page instfiles
-          Section "Install"
-          SetOutPath "$INSTDIR"
-          File "dist\\notifier.exe"
-          CreateShortcut "$DESKTOP\\Notifier.lnk" "$INSTDIR\\notifier.exe"
-          CreateDirectory "$SMPROGRAMS\\Notifier"
-          CreateShortcut "$SMPROGRAMS\\Notifier\\Notifier.lnk" "$INSTDIR\\notifier.exe"
-          SectionEnd' > installer.nsi
+          echo 'Outfile "notifier-installer.exe"' > installer.nsi
+          echo 'InstallDir "$PROGRAMFILES\\Notifier"' >> installer.nsi
+          echo 'Page directory' >> installer.nsi
+          echo 'Page instfiles' >> installer.nsi
+          echo 'Section ""' >> installer.nsi
+          echo '  SetOutPath $INSTDIR' >> installer.nsi
+          echo '  File "dist\\notifier.exe"' >> installer.nsi
+          echo '  CreateShortCut "$DESKTOP\\Notifier.lnk" "$INSTDIR\\notifier.exe"' >> installer.nsi
+          echo '  CreateShortCut "$SMPROGRAMS\\Notifier\\Notifier.lnk" "$INSTDIR\\notifier.exe"' >> installer.nsi
+          echo '  WriteUninstaller "$INSTDIR\\uninstall.exe"' >> installer.nsi
+          echo 'SectionEnd' >> installer.nsi
+          echo 'Section "Uninstall"' >> installer.nsi
+          echo '  Delete "$INSTDIR\\notifier.exe"' >> installer.nsi
+          echo '  Delete "$INSTDIR\\uninstall.exe"' >> installer.nsi
+          echo '  RMDir "$INSTDIR"' >> installer.nsi
+          echo '  Delete "$DESKTOP\\Notifier.lnk"' >> installer.nsi
+          echo '  Delete "$SMPROGRAMS\\Notifier\\Notifier.lnk"' >> installer.nsi
+          echo '  RMDir "$SMPROGRAMS\\Notifier"' >> installer.nsi
+          echo 'SectionEnd' >> installer.nsi
           makensis installer.nsi
 
-      - name: Upload Windows installer
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: notifier-windows-installer
-          path: notifier_installer.exe
+          path: notifier-installer.exe
 
   build-ubuntu:
     runs-on: ubuntu-22.04
@@ -64,47 +73,31 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y fakeroot dpkg-dev
+          sudo apt install -y dpkg fakeroot
           python -m pip install --upgrade pip
           pip install -r dev-requirements.txt
+          pip install pyinstaller
 
-      - name: Build Linux executable
+      - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --icon=pm.png --name=notifier app.py
+          pyinstaller --noconfirm --windowed --icon=pm.png --name=notifier app.py
 
-      - name: Create .deb package with shortcut
+      - name: Create Debian package
         run: |
-          mkdir -p package/DEBIAN
-          mkdir -p package/usr/local/bin
-          mkdir -p package/usr/share/applications
-          mkdir -p package/usr/share/icons
-
+          mkdir -p package/DEBIAN package/usr/local/bin
           echo "Package: notifier" > package/DEBIAN/control
           echo "Version: 1.0.0" >> package/DEBIAN/control
           echo "Section: utils" >> package/DEBIAN/control
           echo "Priority: optional" >> package/DEBIAN/control
           echo "Architecture: amd64" >> package/DEBIAN/control
-          echo "Maintainer: Your Name <you@example.com>" >> package/DEBIAN/control
-          echo "Description: Notifier app built with PySide6" >> package/DEBIAN/control
-
+          echo "Maintainer: Notifier Dev <dev@example.com>" >> package/DEBIAN/control
+          echo "Description: Cross-platform system tray notifier." >> package/DEBIAN/control
           cp dist/notifier package/usr/local/bin/notifier
-          cp pm.png package/usr/share/icons/notifier.png
           chmod 755 package/usr/local/bin/notifier
-
-          cat <<EOF > package/usr/share/applications/notifier.desktop
-          [Desktop Entry]
-          Name=Notifier
-          Exec=/usr/local/bin/notifier
-          Icon=notifier
-          Type=Application
-          Categories=Utility;
-          Terminal=false
-          EOF
-
           dpkg-deb --build package
           mv package.deb notifier_1.0.0_amd64.deb
 
-      - name: Upload Debian package
+      - name: Upload Debian Package
         uses: actions/upload-artifact@v4
         with:
           name: notifier-ubuntu-deb
@@ -125,19 +118,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r dev-requirements.txt
+          pip install pyinstaller
 
-      - name: Build macOS app bundle
+      - name: Build app bundle
         run: |
-          pyinstaller --onefile --windowed --icon=pm.icns --name=notifier app.py
+          pyinstaller --noconfirm --windowed --icon=pm.icns --name=notifier app.py
 
-      - name: Create .app structure and .dmg
+      - name: Create .app structure
         run: |
-          mkdir -p dmg/Notifier.app/Contents/MacOS
-          mkdir -p dmg/Notifier.app/Contents/Resources
-          cp dist/notifier dmg/Notifier.app/Contents/MacOS/notifier
-          cp pm.icns dmg/Notifier.app/Contents/Resources/pm.icns
+          mkdir -p dmg/notifier.app/Contents/MacOS
+          cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
+          mkdir -p dmg/notifier.app/Contents/Resources
+          cp pm.icns dmg/notifier.app/Contents/Resources/pm.icns
 
-          cat <<EOF > dmg/Notifier.app/Contents/Info.plist
+          cat <<EOF > dmg/notifier.app/Contents/Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
           "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -146,23 +140,22 @@ jobs:
             <key>CFBundleName</key>
             <string>Notifier</string>
             <key>CFBundleIdentifier</key>
-            <string>com.yourdomain.notifier</string>
+            <string>com.example.notifier</string>
             <key>CFBundleVersion</key>
             <string>1.0.0</string>
             <key>CFBundleExecutable</key>
             <string>notifier</string>
             <key>CFBundleIconFile</key>
-            <string>pm.icns</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
+            <string>pm</string>
           </dict>
           </plist>
           EOF
 
-          ln -s /Applications dmg/Applications
+      - name: Create DMG
+        run: |
           hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
-      - name: Upload macOS dmg
+      - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
           name: notifier-macos-dmg
