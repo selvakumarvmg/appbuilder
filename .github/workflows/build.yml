@@ -31,21 +31,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build EXE
+      - name: Build Windows EXE with PyInstaller
         run: |
           pyinstaller --onefile --windowed --icon=pm.ico --name=PremediaApp app.py
+          echo "=== Listing dist directory ==="
           dir dist
+        shell: cmd
 
-      - name: Download & Install Inno Setup
+      - name: Download and Install Inno Setup
         shell: powershell
         run: |
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is.exe"
           Start-Process .\is.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
+          Write-Host "Inno Setup Installed"
 
-      - name: Create Inno Setup script
+      - name: Create Inno Setup Script
         shell: cmd
         run: |
           echo [Setup] > installer.iss
@@ -65,11 +68,17 @@ jobs:
           echo Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe" >> installer.iss
           echo [Run] >> installer.iss
           echo Filename: "{app}\PremediaApp.exe"; Description: "Launch PremediaApp"; Flags: nowait postinstall skipifsilent >> installer.iss
+          echo Installer Script Created
 
-      - name: Build installer
+      - name: Run Inno Setup Compiler (ISCC)
         run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss'
+        shell: cmd
 
-      - name: Upload Windows Installer
+      - name: List Output Files
+        run: dir
+        shell: cmd
+
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows
