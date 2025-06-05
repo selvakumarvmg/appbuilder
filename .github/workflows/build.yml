@@ -64,16 +64,23 @@ jobs:
           pyinstaller --noconfirm --windowed --onefile \
             --icon=pm.png --name=${{ env.APP_NAME }} app.py
 
-      - name: Create .deb Package
+      - name: Create DEB Installer
         run: |
           mkdir -p pkg/DEBIAN
           mkdir -p pkg/usr/local/bin
+          mkdir -p pkg/usr/share/applications
           cp dist/${{ env.APP_NAME }} pkg/usr/local/bin/
           echo "Package: ${{ env.APP_NAME }}" > pkg/DEBIAN/control
           echo "Version: ${{ env.APP_VERSION }}" >> pkg/DEBIAN/control
           echo "Architecture: amd64" >> pkg/DEBIAN/control
           echo "Maintainer: VMG Digital" >> pkg/DEBIAN/control
           echo "Description: Background Notifier App" >> pkg/DEBIAN/control
+          echo '[Desktop Entry]' > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo 'Name=PremediaApp' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo 'Exec=/usr/local/bin/${{ env.APP_NAME }}' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo 'Icon=pm.png' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo 'Type=Application' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo 'Categories=Utility;' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
           dpkg-deb --build pkg ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
 
       - name: Upload Ubuntu DEB
@@ -102,12 +109,14 @@ jobs:
           pyinstaller --noconfirm --windowed --onefile \
             --icon=pm.icns --name=${{ env.APP_NAME }} app.py
 
-      - name: Create DMG
+      - name: Create DMG Installer
         run: |
           mkdir dmgdir
           cp dist/${{ env.APP_NAME }} dmgdir/
+          echo "Please read and accept the terms in TERMS.txt" > dmgdir/TERMS.txt
           hdiutil create -volname ${{ env.APP_NAME }} \
-            -srcfolder dmgdir -ov -format UDZO ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
+            -srcfolder dmgdir -ov -format UDZO \
+            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
