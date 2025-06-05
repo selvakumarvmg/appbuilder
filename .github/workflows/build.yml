@@ -25,12 +25,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build application with PyInstaller
+      - name: Build with PyInstaller
         run: |
           pyinstaller --noconfirm --onefile --windowed app.py
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.1.3
         with:
           name: notifier-app
           path: dist/app
