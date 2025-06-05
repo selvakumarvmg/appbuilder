@@ -1,114 +1,135 @@
-name: Build and Package Notifier App
+name: Build Notifier App
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  build_windows:
+  build-windows:
     runs-on: windows-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.10
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r dev-requirements.txt pyinstaller
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r dev-requirements.txt
 
-    - name: Build Windows executable
-      run: |
-        pyinstaller --onefile --windowed --icon=pm.ico --name=notifier app.py
+      - name: Build Windows executable with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --icon=pm.ico app.py
 
-    - name: Upload Windows executable artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: notifier-windows-exe
-        path: dist/notifier.exe
+      - name: Rename output executable
+        run: |
+          ren dist\app.exe notifier.exe
 
-  build_ubuntu:
-    runs-on: ubuntu-latest
+      - name: Upload Windows executable artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: notifier-windows-exe
+          path: dist/notifier.exe
 
+  build-ubuntu:
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.10
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-pip fakeroot dpkg-dev
-        python3 -m pip install --upgrade pip
-        pip install -r dev-requirements.txt pyinstaller
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r dev-requirements.txt
 
-    - name: Build Linux executable
-      run: |
-        pyinstaller --onefile --windowed --icon=pm.ico --name=notifier app.py
+      - name: Build Linux executable with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --icon=pm.png --name notifier app.py
 
-    - name: Create Debian package structure
-      run: |
-        mkdir -p package/DEBIAN
-        mkdir -p package/usr/local/bin
+      - name: Create Debian package structure
+        run: |
+          mkdir -p package/DEBIAN
+          mkdir -p package/usr/local/bin
 
-        # Control file metadata for .deb
-        cat > package/DEBIAN/control <<EOF
-Package: notifier
-Version: 1.0.0
-Section: utils
-Priority: optional
-Architecture: amd64
-Maintainer: Your Name <you@example.com>
-Description: Notifier app built with PySide6
-EOF
+          echo "Package: notifier" > package/DEBIAN/control
+          echo "Version: 1.0.0" >> package/DEBIAN/control
+          echo "Section: utils" >> package/DEBIAN/control
+          echo "Priority: optional" >> package/DEBIAN/control
+          echo "Architecture: amd64" >> package/DEBIAN/control
+          echo "Maintainer: Your Name <you@example.com>" >> package/DEBIAN/control
+          echo "Description: Notifier app built with PySide6" >> package/DEBIAN/control
 
-        # Copy binary
-        cp dist/notifier package/usr/local/bin/notifier
+          cp dist/notifier package/usr/local/bin/notifier
+          chmod 755 package/usr/local/bin/notifier
 
-        # Set permissions
-        chmod 755 package/usr/local/bin/notifier
+      - name: Build .deb package
+        run: |
+          dpkg-deb --build package
+          mv package.deb notifier_1.0.0_amd64.deb
 
-    - name: Build .deb package
-      run: |
-        dpkg-deb --build package notifier_1.0.0_amd64.deb
+      - name: Upload Debian package artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: notifier-ubuntu-deb
+          path: notifier_1.0.0_amd64.deb
 
-    - name: Upload Ubuntu .deb package
-      uses: actions/upload-artifact@v3
-      with:
-        name: notifier-ubuntu-deb
-        path: notifier_1.0.0_amd64.deb
-
-  build_macos:
+  build-macos:
     runs-on: macos-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.10
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
 
-    - name: Install dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        pip3 install -r dev-requirements.txt pyinstaller
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r dev-requirements.txt
 
-    - name: Build macOS app bundle
-      run: |
-        pyinstaller --windowed --name notifier --icon pm.ico app.py
+      - name: Build macOS app bundle with PyInstaller
+        run: |
+          pyinstaller --windowed --onefile --icon=pm.icns --name notifier app.py
 
-    - name: Upload macOS app bundle
-      uses: actions/upload-artifact@v3
-      with:
-        name: notifier-macos-app
-        path: dist/notifier.app
+      - name: Create .dmg installer
+        run: |
+          mkdir -p dmg/notifier.app/Contents/MacOS
+          cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
+          # Basic Info.plist for the app
+          cat > dmg/notifier.app/Contents/Info.plist <<'EOF'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>CFBundleName</key>
+              <string>Notifier</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.yourdomain.notifier</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
+              <key>CFBundleExecutable</key>
+              <string>notifier</string>
+              <key>CFBundleIconFile</key>
+              <string>pm.icns</string>
+            </dict>
+            </plist>
+            EOF
+          # Build dmg
+          hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
+      - name: Upload macOS dmg artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: notifier-macos-dmg
+          path: notifier-1.0.0.dmg
