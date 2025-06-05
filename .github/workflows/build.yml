@@ -40,10 +40,15 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --onefile --windowed app.py
+          python -m PyInstaller --onefile --windowed app.py
 
       - name: List build output files
-        run: ls -la dist
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            dir dist
+          else
+            ls -la dist
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
