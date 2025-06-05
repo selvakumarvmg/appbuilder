@@ -20,49 +20,70 @@ env:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      APP_NAME: PremediaApp
+      APP_VERSION: 1.0.0
+      PUBLISHER: "VMG DIGITAL PVT LTD"
+      PUBLISHER_EMAIL: "admin@vmgdigita.com"
+      PRIVACY_POLICY: "https://create.vmgdigital.com/privacy-policy.html"
+      SUPPORT_EMAIL: "admin@vmgdigita.com"
+      SUPPORT_INFO: "Support included"
+      LICENSE_TYPE: "Free License"
+      JURISDICTION: "Laws of India"
+      CONTACT_INFO: "24, 25 & 26, Taylors Rd, Kilpauk, Chennai, Tamil Nadu 600010"
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build Windows executable
+      - name: Build executable with PyInstaller
         run: |
-          pyinstaller --onefile --windowed --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+          pyinstaller --onefile --windowed --icon=pm.ico --name=%APP_NAME% app.py
 
-      - name: Install Inno Setup
+      - name: Download and install Inno Setup Compiler silently
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is.exe"
-          Start-Process -FilePath .\is.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
+          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "issetup.exe"
+          Start-Process -FilePath .\issetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
 
-      - name: Create Inno Setup script
+      - name: Create Inno Setup script with expanded variables
         shell: pwsh
         run: |
-          $content = @"
+          $AppName = "${{ env.APP_NAME }}"
+          $AppVersion = "${{ env.APP_VERSION }}"
+          $Publisher = "${{ env.PUBLISHER }}"
+          $PublisherEmail = "${{ env.PUBLISHER_EMAIL }}"
+          $PrivacyPolicy = "${{ env.PRIVACY_POLICY }}"
+          $SupportEmail = "${{ env.SUPPORT_EMAIL }}"
+          $SupportInfo = "${{ env.SUPPORT_INFO }}"
+          $LicenseType = "${{ env.LICENSE_TYPE }}"
+          $Jurisdiction = "${{ env.JURISDICTION }}"
+          $ContactInfo = "${{ env.CONTACT_INFO }}"
+
+          @"
           [Setup]
-          AppName=${{ env.APP_NAME }}
-          AppVersion=${{ env.APP_VERSION }}
-          AppPublisher=${{ env.PUBLISHER }}
+          AppName=$AppName
+          AppVersion=$AppVersion
+          AppPublisher=$Publisher
           AppPublisherURL=https://vmgdigital.com
-          AppSupportURL=${{ env.PRIVACY_POLICY }}
-          AppContact=${{ env.CONTACT_INFO }}
-          DefaultDirName={pf}\${{ env.APP_NAME }}
-          DefaultGroupName=${{ env.APP_NAME }}
-          OutputBaseFilename=${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}
-          SetupIconFile=pm.ico
+          AppSupportURL=https://vmgdigital.com/support
+          DefaultDirName={pf}\$AppName
+          DefaultGroupName=$AppName
+          OutputBaseFilename=${AppName}_Setup_${AppVersion}
           Compression=lzma
           SolidCompression=yes
-          LicenseFile=LICENSE.txt
-          InfoBeforeFile=TERMS.txt
+          Uninstallable=yes
+          UninstallDisplayIcon={app}\$AppName.exe
+          LicenseFile=TERMS.txt
 
           [Languages]
           Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -71,23 +92,27 @@ jobs:
           Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
           [Files]
-          Source: "dist\${{ env.APP_NAME }}.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "dist\$AppName.exe"; DestDir: "{app}"; Flags: ignoreversion
 
           [Icons]
-          Name: "{group}\${{ env.APP_NAME }}"; Filename: "{app}\${{ env.APP_NAME }}.exe"
-          Name: "{commondesktop}\${{ env.APP_NAME }}"; Filename: "{app}\${{ env.APP_NAME }}.exe"; Tasks: desktopicon
+          Name: "{group}\$AppName"; Filename: "{app}\$AppName.exe"
+          Name: "{commondesktop}\$AppName"; Filename: "{app}\$AppName.exe"; Tasks: desktopicon
 
           [Run]
-          Filename: "{app}\${{ env.APP_NAME }}.exe"; Description: "Launch ${{ env.APP_NAME }}"; Flags: nowait postinstall skipifsilent
-          "@
-          $content | Set-Content -Path installer.iss
+          Filename: "{app}\$AppName.exe"; Description: "Launch $AppName"; Flags: nowait postinstall skipifsilent
+          "@ > installer.iss
 
-      - name: Build Windows Installer
+      - name: List files in current directory after Inno Setup build script creation
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse
+
+      - name: Build Windows installer with Inno Setup
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: List files after Inno Setup build
+      - name: List files after installer build
         shell: pwsh
         run: |
           Get-ChildItem -Recurse
@@ -96,4 +121,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows-installer
-          path: PremediaApp_Setup_1.0.0.exe # Change path if needed after seeing file list
+          path: PremediaApp_Setup_1.0.0.exe
