@@ -31,7 +31,7 @@ jobs:
           ren dist\app.exe notifier.exe
 
       - name: Upload Windows executable artifact
-        uses: actions/upload-artifact@v3.1.2
+        uses: actions/upload-artifact@v3
         with:
           name: notifier-windows-exe
           path: dist/notifier.exe
@@ -77,7 +77,7 @@ jobs:
           mv package.deb notifier_1.0.0_amd64.deb
 
       - name: Upload Debian package artifact
-        uses: actions/upload-artifact@v3.1.2
+        uses: actions/upload-artifact@v3
         with:
           name: notifier-ubuntu-deb
           path: notifier_1.0.0_amd64.deb
@@ -105,29 +105,29 @@ jobs:
         run: |
           mkdir -p dmg/notifier.app/Contents/MacOS
           cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
-          cat > dmg/notifier.app/Contents/Info.plist <<'EOF'
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-              <key>CFBundleName</key>
-              <string>Notifier</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.yourdomain.notifier</string>
-              <key>CFBundleVersion</key>
-              <string>1.0.0</string>
-              <key>CFBundleExecutable</key>
-              <string>notifier</string>
-              <key>CFBundleIconFile</key>
-              <string>pm.icns</string>
-            </dict>
-            </plist>
-            EOF
-          hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
+          cat > dmg/notifier.app/Contents/Info.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Notifier</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.yourdomain.notifier</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>notifier</string>
+            <key>CFBundleIconFile</key>
+            <string>pm.icns</string>
+          </dict>
+          </plist>
+          EOF
+                    hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
       - name: Upload macOS dmg artifact
-        uses: actions/upload-artifact@v3.1.2
+        uses: actions/upload-artifact@v3
         with:
           name: notifier-macos-dmg
           path: notifier-1.0.0.dmg
