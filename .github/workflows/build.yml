@@ -21,7 +21,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout source
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Python 3.10
@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
@@ -44,7 +44,7 @@ jobs:
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "issetup.exe"
           Start-Process -FilePath .\issetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
 
-      - name: Create Inno Setup installer script
+      - name: Create Inno Setup script (installer.iss) with terms, license, publisher, uninstaller etc
         shell: pwsh
         run: |
           @"
@@ -60,32 +60,36 @@ jobs:
           OutputBaseFilename=%APP_NAME%_Setup_%APP_VERSION%
           Compression=lzma
           SolidCompression=yes
+          DisableProgramGroupPage=no
+          UninstallDisplayIcon={app}\%APP_NAME%.exe
+          Uninstallable=yes
+          AlwaysRestart=no
+          UsePreviousAppDir=no
+          AllowNoIcons=no
+          ShowReadme=%{_TERMS_FILE_PATH}%
           LicenseFile=TERMS.txt
           InfoBeforeFile=LICENSE.txt
-          UninstallDisplayIcon={app}\%APP_NAME%.exe
-          UninstallDisplayName=%APP_NAME% %APP_VERSION%
-          Uninstallable=yes
-          CreateUninstallRegKey=yes
-          UsePreviousAppDir=no
-
+          InfoAfterFile=
+          WizardStyle=modern
+          TasksDescription=Select additional tasks to be performed
           [Languages]
           Name: "english"; MessagesFile: "compiler:Default.isl"
-
           [Tasks]
           Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
-
+          Name: "startmenuicon"; Description: "Create &Start Menu icon"; GroupDescription: "Additional icons:"; Flags: unchecked
           [Files]
           Source: "dist\%APP_NAME%.exe"; DestDir: "{app}"; Flags: ignoreversion
-
+          Source: "TERMS.txt"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
           [Icons]
           Name: "{group}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe"
           Name: "{commondesktop}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe"; Tasks: desktopicon
-
+          Name: "{group}\%APP_NAME% Support"; Filename: "mailto:%SUPPORT_EMAIL%"
           [Run]
           Filename: "{app}\%APP_NAME%.exe"; Description: "Launch %APP_NAME%"; Flags: nowait postinstall skipifsilent
           "@ > installer.iss
 
-      - name: Build Windows installer
+      - name: Build Windows installer with Inno Setup
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
@@ -99,7 +103,7 @@ jobs:
   build-ubuntu:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Python 3.10
@@ -107,7 +111,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
@@ -116,7 +120,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --icon=pm.png --name=${APP_NAME} app.py
 
-      - name: Prepare Debian package with echo
+      - name: Prepare Debian package
         run: |
           mkdir -p package/DEBIAN
           mkdir -p package/usr/local/bin
@@ -126,11 +130,14 @@ jobs:
           echo "Priority: optional" >> package/DEBIAN/control
           echo "Architecture: amd64" >> package/DEBIAN/control
           echo "Maintainer: ${PUBLISHER} <${PUBLISHER_EMAIL}>" >> package/DEBIAN/control
-          echo "Description: Premedia app built with PySide6" >> package/DEBIAN/control
+          echo "Description: PremediaApp - A PySide6 Application" >> package/DEBIAN/control
           echo "License: ${LICENSE_TYPE}" >> package/DEBIAN/control
           echo "Homepage: https://vmgdigital.com" >> package/DEBIAN/control
+          echo "Depends: libc6 (>= 2.27)" >> package/DEBIAN/control
           cp dist/${APP_NAME} package/usr/local/bin/${APP_NAME}
           chmod 755 package/usr/local/bin/${APP_NAME}
+          cp TERMS.txt package/usr/local/share/doc/${APP_NAME}-terms.txt
+          cp LICENSE.txt package/usr/local/share/doc/${APP_NAME}-license.txt
 
       - name: Build Debian package
         run: |
@@ -146,7 +153,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - name: Checkout source
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Python 3.10
@@ -154,16 +161,16 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build macOS app bundle
+      - name: Build macOS executable
         run: |
           pyinstaller --onefile --windowed --icon=pm.icns --name=${APP_NAME} app.py
 
-      - name: Prepare app bundle and DMG with echo
+      - name: Create macOS app bundle and dmg with terms/license and plist
         run: |
           mkdir -p dmg/${APP_NAME}.app/Contents/MacOS
           cp dist/${APP_NAME} dmg/${APP_NAME}.app/Contents/MacOS/${APP_NAME}
@@ -185,6 +192,11 @@ jobs:
           echo '</dict>' >> dmg/${APP_NAME}.app/Contents/Info.plist
           echo '</plist>' >> dmg/${APP_NAME}.app/Contents/Info.plist
 
+          # Copy TERMS and LICENSE into dmg folder for user to access
+          cp TERMS.txt dmg/
+          cp LICENSE.txt dmg/
+
+          # Create dmg with readme and license included in dmg root folder
           hdiutil create -volname "${APP_NAME}" -srcfolder dmg -ov -format UDZO ${APP_NAME}_${APP_VERSION}.dmg
 
       - name: Upload macOS dmg artifact
