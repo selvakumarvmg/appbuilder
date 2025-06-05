@@ -32,11 +32,9 @@ jobs:
       JURISDICTION: "Laws of India"
       CONTACT_INFO: "24, 25 & 26, Taylors Rd, Kilpauk, Chennai, Tamil Nadu 600010"
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
@@ -49,11 +47,19 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --icon=pm.ico --name=%APP_NAME% app.py
 
+      - name: List dist folder contents
+        shell: pwsh
+        run: Get-ChildItem -Path dist
+
       - name: Download and install Inno Setup Compiler silently
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "issetup.exe"
           Start-Process -FilePath .\issetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
+
+      - name: Verify Inno Setup Compiler installation
+        shell: pwsh
+        run: Get-ChildItem "C:\Program Files (x86)\Inno Setup 6"
 
       - name: Create Inno Setup script with expanded variables
         shell: pwsh
@@ -102,20 +108,17 @@ jobs:
           Filename: "{app}\$AppName.exe"; Description: "Launch $AppName"; Flags: nowait postinstall skipifsilent
           "@ > installer.iss
 
-      - name: List files in current directory after Inno Setup build script creation
+      - name: Show installer.iss content
         shell: pwsh
-        run: |
-          Get-ChildItem -Recurse
+        run: Get-Content installer.iss
 
-      - name: Build Windows installer with Inno Setup
+      - name: Build Windows installer with Inno Setup (verbose)
         shell: pwsh
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+        run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Qp installer.iss'
 
       - name: List files after installer build
         shell: pwsh
-        run: |
-          Get-ChildItem -Recurse
+        run: Get-ChildItem -Recurse
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
