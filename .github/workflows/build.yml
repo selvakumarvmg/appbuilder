@@ -87,11 +87,13 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: List files before upload
-        run: dir
+      - name: List files after Inno Setup build
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse
 
-      - name: Upload Windows installer
+      - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows-installer
-          path: ${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
+          path: PremediaApp_Setup_1.0.0.exe # Change path if needed after seeing file list
