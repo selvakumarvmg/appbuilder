@@ -54,10 +54,14 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --icon=pm.png --name=notifier app.py
 
-      - name: Create Debian package structure
+      - name: Create Debian package structure with icon
         run: |
           mkdir -p package/DEBIAN
           mkdir -p package/usr/local/bin
+          mkdir -p package/usr/share/icons
+          mkdir -p package/usr/share/applications
+
+          # Control file
           echo "Package: notifier" > package/DEBIAN/control
           echo "Version: 1.0.0" >> package/DEBIAN/control
           echo "Section: utils" >> package/DEBIAN/control
@@ -65,8 +69,22 @@ jobs:
           echo "Architecture: amd64" >> package/DEBIAN/control
           echo "Maintainer: Your Name <you@example.com>" >> package/DEBIAN/control
           echo "Description: Notifier app built with PySide6" >> package/DEBIAN/control
+
+          # Copy binary and icon
           cp dist/notifier package/usr/local/bin/notifier
+          cp pm.png package/usr/share/icons/notifier.png
           chmod 755 package/usr/local/bin/notifier
+
+          # Desktop entry
+          echo "[Desktop Entry]" > package/usr/share/applications/notifier.desktop
+          echo "Version=1.0" >> package/usr/share/applications/notifier.desktop
+          echo "Name=Notifier" >> package/usr/share/applications/notifier.desktop
+          echo "Comment=Notifier app built with PySide6" >> package/usr/share/applications/notifier.desktop
+          echo "Exec=/usr/local/bin/notifier" >> package/usr/share/applications/notifier.desktop
+          echo "Icon=notifier" >> package/usr/share/applications/notifier.desktop
+          echo "Terminal=false" >> package/usr/share/applications/notifier.desktop
+          echo "Type=Application" >> package/usr/share/applications/notifier.desktop
+          echo "Categories=Utility;" >> package/usr/share/applications/notifier.desktop
 
       - name: Build .deb package
         run: |
@@ -101,27 +119,32 @@ jobs:
 
       - name: Create .dmg installer
         run: |
-          mkdir -p dmg/notifier.app/Contents/MacOS
-          cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
-          mkdir -p dmg/notifier.app/Contents
+          mkdir -p dmg/notifier.app/Contents/{MacOS,Resources}
 
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > dmg/notifier.app/Contents/Info.plist
-          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"' >> dmg/notifier.app/Contents/Info.plist
-          echo '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> dmg/notifier.app/Contents/Info.plist
-          echo '<plist version="1.0">' >> dmg/notifier.app/Contents/Info.plist
-          echo '<dict>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <key>CFBundleName</key>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <string>Notifier</string>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <key>CFBundleIdentifier</key>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <string>com.yourdomain.notifier</string>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <key>CFBundleVersion</key>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <string>1.0.0</string>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <key>CFBundleExecutable</key>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <string>notifier</string>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <key>CFBundleIconFile</key>' >> dmg/notifier.app/Contents/Info.plist
-          echo '  <string>pm.icns</string>' >> dmg/notifier.app/Contents/Info.plist
-          echo '</dict>' >> dmg/notifier.app/Contents/Info.plist
-          echo '</plist>' >> dmg/notifier.app/Contents/Info.plist
+          # Copy executable and icon
+          cp dist/notifier dmg/notifier.app/Contents/MacOS/notifier
+          cp pm.icns dmg/notifier.app/Contents/Resources/pm.icns
+
+          # Info.plist
+          cat > dmg/notifier.app/Contents/Info.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Notifier</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.yourdomain.notifier</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>notifier</string>
+            <key>CFBundleIconFile</key>
+            <string>pm.icns</string>
+          </dict>
+          </plist>
+          EOF
 
           hdiutil create -volname "Notifier" -srcfolder dmg -ov -format UDZO notifier-1.0.0.dmg
 
