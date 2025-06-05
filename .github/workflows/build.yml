@@ -34,7 +34,7 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --onefile --windowed --icon=pm.png app.py
+          pyinstaller --onefile --windowed app.py
 
       - name: List build output files
         run: ls -la dist
