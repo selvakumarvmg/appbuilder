@@ -34,157 +34,64 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build executable
+      - name: Build Windows executable
         run: |
-          pyinstaller --onefile --windowed --icon=pm.ico --name=%APP_NAME% app.py
+          pyinstaller --onefile --windowed --icon=pm.ico --name=${{ env.APP_NAME }} app.py
 
-      - name: Download Inno Setup
+      - name: Install Inno Setup
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "issetup.exe"
-          Start-Process -FilePath .\issetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
+          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is.exe"
+          Start-Process -FilePath .\is.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
 
       - name: Create Inno Setup script
         shell: pwsh
         run: |
-          @"
+          $content = @"
           [Setup]
-          AppName=%APP_NAME%
-          AppVersion=%APP_VERSION%
-          AppPublisher=%PUBLISHER%
+          AppName=${{ env.APP_NAME }}
+          AppVersion=${{ env.APP_VERSION }}
+          AppPublisher=${{ env.PUBLISHER }}
           AppPublisherURL=https://vmgdigital.com
-          AppSupportURL=https://vmgdigital.com/support
-          AppUpdatesURL=https://vmgdigital.com/updates
-          DefaultDirName={pf}\%APP_NAME%
-          DefaultGroupName=%APP_NAME%
-          OutputBaseFilename=%APP_NAME%_Setup_%APP_VERSION%
+          AppSupportURL=${{ env.PRIVACY_POLICY }}
+          AppContact=${{ env.CONTACT_INFO }}
+          DefaultDirName={pf}\${{ env.APP_NAME }}
+          DefaultGroupName=${{ env.APP_NAME }}
+          OutputBaseFilename=${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}
+          SetupIconFile=pm.ico
           Compression=lzma
           SolidCompression=yes
-          LicenseFile=TERMS.txt
-          PrivilegesRequired=admin
-          UninstallDisplayIcon={app}\%APP_NAME%.exe
+          LicenseFile=LICENSE.txt
+          InfoBeforeFile=TERMS.txt
 
-          [Files]
-          Source: "dist\%APP_NAME%.exe"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
-
-          [Icons]
-          Name: "{group}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe"
-          Name: "{commondesktop}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe"; Tasks: desktopicon
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
 
           [Tasks]
           Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
-          [Run]
-          Filename: "{app}\%APP_NAME%.exe"; Description: "Launch %APP_NAME%"; Flags: nowait postinstall skipifsilent
-          "@ > installer.iss
+          [Files]
+          Source: "dist\${{ env.APP_NAME }}.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-      - name: Build installer
+          [Icons]
+          Name: "{group}\${{ env.APP_NAME }}"; Filename: "{app}\${{ env.APP_NAME }}.exe"
+          Name: "{commondesktop}\${{ env.APP_NAME }}"; Filename: "{app}\${{ env.APP_NAME }}.exe"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\${{ env.APP_NAME }}.exe"; Description: "Launch ${{ env.APP_NAME }}"; Flags: nowait postinstall skipifsilent
+          "@
+          $content | Set-Content -Path installer.iss
+
+      - name: Build Windows Installer
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: Upload installer
+      - name: List files before upload
+        run: dir
+
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows-installer
-          path: PremediaApp_Setup_1.0.0.exe
-
-  build-ubuntu:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-
-      - name: Build executable
-        run: |
-          pyinstaller --onefile --windowed --icon=pm.png --name=$APP_NAME app.py
-
-      - name: Prepare Debian package
-        run: |
-          mkdir -p package/DEBIAN
-          mkdir -p package/usr/local/bin
-          echo "Package: $(echo $APP_NAME | tr '[:upper:]' '[:lower:]')" > package/DEBIAN/control
-          echo "Version: $APP_VERSION" >> package/DEBIAN/control
-          echo "Section: utils" >> package/DEBIAN/control
-          echo "Priority: optional" >> package/DEBIAN/control
-          echo "Architecture: amd64" >> package/DEBIAN/control
-          echo "Maintainer: $PUBLISHER <$PUBLISHER_EMAIL>" >> package/DEBIAN/control
-          echo "Description: Premedia app built with PySide6" >> package/DEBIAN/control
-          echo "License: $LICENSE_TYPE" >> package/DEBIAN/control
-          echo "Homepage: https://vmgdigital.com" >> package/DEBIAN/control
-          cp dist/$APP_NAME package/usr/local/bin/$APP_NAME
-          chmod 755 package/usr/local/bin/$APP_NAME
-
-      - name: Build Debian package
-        run: |
-          dpkg-deb --build package
-          mv package.deb ${APP_NAME}_${APP_VERSION}_amd64.deb
-
-      - name: Upload Debian package
-        uses: actions/upload-artifact@v4
-        with:
-          name: premediaapp-ubuntu-deb
-          path: ${APP_NAME}_${APP_VERSION}_amd64.deb
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-
-      - name: Build app bundle
-        run: |
-          pyinstaller --onefile --windowed --icon=pm.icns --name=$APP_NAME app.py
-
-      - name: Create .app and .dmg
-        run: |
-          mkdir -p dmg/$APP_NAME.app/Contents/MacOS
-          cp dist/$APP_NAME dmg/$APP_NAME.app/Contents/MacOS/$APP_NAME
-
-          cat <<EOF > dmg/$APP_NAME.app/Contents/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>$APP_NAME</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.vmgdigital.$(echo $APP_NAME | tr '[:upper:]' '[:lower:]')</string>
-            <key>CFBundleVersion</key>
-            <string>$APP_VERSION</string>
-            <key>CFBundleExecutable</key>
-            <string>$APP_NAME</string>
-            <key>CFBundleIconFile</key>
-            <string>pm.icns</string>
-          </dict>
-          </plist>
-          EOF
-
-          hdiutil create -volname "$APP_NAME" -srcfolder dmg -ov -format UDZO $APP_NAME_$APP_VERSION.dmg
-
-      - name: Upload macOS dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: premediaapp-macos-dmg
-          path: $APP_NAME_$APP_VERSION.dmg
+          path: ${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
