@@ -24,13 +24,6 @@ jobs:
       APP_NAME: PremediaApp
       APP_VERSION: 1.0.0
       PUBLISHER: "VMG DIGITAL PVT LTD"
-      PUBLISHER_EMAIL: "admin@vmgdigita.com"
-      PRIVACY_POLICY: "https://create.vmgdigital.com/privacy-policy.html"
-      SUPPORT_EMAIL: "admin@vmgdigita.com"
-      SUPPORT_INFO: "Support included"
-      LICENSE_TYPE: "Free License"
-      JURISDICTION: "Laws of India"
-      CONTACT_INFO: "24, 25 & 26, Taylors Rd, Kilpauk, Chennai, Tamil Nadu 600010"
     steps:
       - uses: actions/checkout@v4
 
@@ -47,81 +40,55 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --icon=pm.ico --name=%APP_NAME% app.py
 
-      - name: List dist folder contents
-        shell: pwsh
-        run: Get-ChildItem -Path dist
-
       - name: Download and install Inno Setup Compiler silently
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "issetup.exe"
           Start-Process -FilePath .\issetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
 
-      - name: Verify Inno Setup Compiler installation
-        shell: pwsh
-        run: Get-ChildItem "C:\Program Files (x86)\Inno Setup 6"
+      - name: Create Inno Setup script with echo
+        shell: cmd
+        run: |
+          mkdir installer
+          echo [Setup]>installer\installer.iss
+          echo AppName=%APP_NAME%>>installer\installer.iss
+          echo AppVersion=%APP_VERSION%>>installer\installer.iss
+          echo AppPublisher=%PUBLISHER%>>installer\installer.iss
+          echo AppPublisherURL=https://vmgdigital.com>>installer\installer.iss
+          echo AppSupportURL=https://vmgdigital.com/support>>installer\installer.iss
+          echo DefaultDirName={pf}\%APP_NAME%>>installer\installer.iss
+          echo DefaultGroupName=%APP_NAME%>>installer\installer.iss
+          echo OutputBaseFilename=%APP_NAME%_Setup_%APP_VERSION%>>installer\installer.iss
+          echo Compression=lzma>>installer\installer.iss
+          echo SolidCompression=yes>>installer\installer.iss
+          echo Uninstallable=yes>>installer\installer.iss
+          echo UninstallDisplayIcon={app}\%APP_NAME%.exe>>installer\installer.iss
+          echo LicenseFile=TERMS.txt>>installer\installer.iss
+          echo>>installer\installer.iss
+          echo [Languages]>>installer\installer.iss
+          echo Name: "english"; MessagesFile: "compiler:Default.isl">>installer\installer.iss
+          echo>>installer\installer.iss
+          echo [Tasks]>>installer\installer.iss
+          echo Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked>>installer\installer.iss
+          echo>>installer\installer.iss
+          echo [Files]>>installer\installer.iss
+          echo Source: "dist\%APP_NAME%.exe"; DestDir: "{app}"; Flags: ignoreversion>>installer\installer.iss
+          echo LicenseFile: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion>>installer\installer.iss
+          echo>>installer\installer.iss
+          echo [Icons]>>installer\installer.iss
+          echo Name: "{group}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe">>installer\installer.iss
+          echo Name: "{commondesktop}\%APP_NAME%"; Filename: "{app}\%APP_NAME%.exe"; Tasks: desktopicon>>installer\installer.iss
+          echo>>installer\installer.iss
+          echo [Run]>>installer\installer.iss
+          echo Filename: "{app}\%APP_NAME%.exe"; Description: "Launch %APP_NAME%"; Flags: nowait postinstall skipifsilent>>installer\installer.iss
 
-      - name: Create Inno Setup script with expanded variables
+      - name: Build Windows installer with Inno Setup
         shell: pwsh
         run: |
-          $AppName = "${{ env.APP_NAME }}"
-          $AppVersion = "${{ env.APP_VERSION }}"
-          $Publisher = "${{ env.PUBLISHER }}"
-          $PublisherEmail = "${{ env.PUBLISHER_EMAIL }}"
-          $PrivacyPolicy = "${{ env.PRIVACY_POLICY }}"
-          $SupportEmail = "${{ env.SUPPORT_EMAIL }}"
-          $SupportInfo = "${{ env.SUPPORT_INFO }}"
-          $LicenseType = "${{ env.LICENSE_TYPE }}"
-          $Jurisdiction = "${{ env.JURISDICTION }}"
-          $ContactInfo = "${{ env.CONTACT_INFO }}"
-
-          @"
-          [Setup]
-          AppName=$AppName
-          AppVersion=$AppVersion
-          AppPublisher=$Publisher
-          AppPublisherURL=https://vmgdigital.com
-          AppSupportURL=https://vmgdigital.com/support
-          DefaultDirName={pf}\$AppName
-          DefaultGroupName=$AppName
-          OutputBaseFilename=${AppName}_Setup_${AppVersion}
-          Compression=lzma
-          SolidCompression=yes
-          Uninstallable=yes
-          UninstallDisplayIcon={app}\$AppName.exe
-          LicenseFile=TERMS.txt
-
-          [Languages]
-          Name: "english"; MessagesFile: "compiler:Default.isl"
-
-          [Tasks]
-          Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
-
-          [Files]
-          Source: "dist\$AppName.exe"; DestDir: "{app}"; Flags: ignoreversion
-
-          [Icons]
-          Name: "{group}\$AppName"; Filename: "{app}\$AppName.exe"
-          Name: "{commondesktop}\$AppName"; Filename: "{app}\$AppName.exe"; Tasks: desktopicon
-
-          [Run]
-          Filename: "{app}\$AppName.exe"; Description: "Launch $AppName"; Flags: nowait postinstall skipifsilent
-          "@ > installer.iss
-
-      - name: Show installer.iss content
-        shell: pwsh
-        run: Get-Content installer.iss
-
-      - name: Build Windows installer with Inno Setup (verbose)
-        shell: pwsh
-        run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Qp installer.iss'
-
-      - name: List files after installer build
-        shell: pwsh
-        run: Get-ChildItem -Recurse
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\installer.iss
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows-installer
-          path: PremediaApp_Setup_1.0.0.exe
+          path: %APP_NAME%_Setup_%APP_VERSION%.exe
