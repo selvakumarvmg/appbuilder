@@ -25,17 +25,16 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed --onefile ^
-            --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+        run: pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+
+      - name: Debug dist directory
+        run: dir dist
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
+        run: choco install innosetup -y
 
       - name: Create Installer with Inno Setup
-        run: |
-          iscc installer.iss
+        run: iscc installer.iss
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
