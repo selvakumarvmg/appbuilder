@@ -86,7 +86,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows-installer
-          path: %APP_NAME%_Setup_%APP_VERSION%.exe
+          path: ${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
 
   build-ubuntu:
     runs-on: ubuntu-22.04
