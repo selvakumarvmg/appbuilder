@@ -19,19 +19,22 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6
 
-      - name: Build EXE using .spec
-        run: pyinstaller PremediaApp.spec
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --noconfirm --windowed --onefile \
+            --icon=pm.ico --name=${{ env.APP_NAME }} app.py \
+            --add-data "${{ env.PYTHONPATH }}\Lib\site-packages\PySide6\plugins;PySide6/plugins"
 
-      - name: Upload Windows Binary
+      - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: windows-binary
-          path: dist/**
+          name: windows-exe
+          path: dist/${{ env.APP_NAME }}.exe
 
   build-ubuntu:
     runs-on: ubuntu-latest
@@ -43,21 +46,28 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install system + Python dependencies
+      - name: Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y libxcb-cursor0
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
-      - name: Build Linux binary using .spec
-        run: pyinstaller PremediaApp.spec
+      - name: Find Qt Plugin Path
+        id: qtpath
+        run: |
+          echo "PLUGIN_PATH=$(python3 -c 'import PySide6; import os; print(os.path.join(PySide6.__path__[0], "plugins"))')" >> $GITHUB_ENV
+
+      - name: Build Linux Binary
+        run: |
+          pyinstaller --noconfirm --windowed --onefile \
+            --icon=pm.png --name=${{ env.APP_NAME }} app.py \
+            --add-data "$PLUGIN_PATH:PySide6/plugins"
 
       - name: Upload Linux Binary
         uses: actions/upload-artifact@v4
         with:
           name: linux-binary
-          path: dist/**
+          path: dist/${{ env.APP_NAME }}
 
   build-macos:
     runs-on: macos-latest
@@ -69,16 +79,23 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
-      - name: Build macOS binary using .spec
-        run: pyinstaller PremediaApp.spec
+      - name: Find Qt Plugin Path
+        id: qtpath
+        run: |
+          echo "PLUGIN_PATH=$(python3 -c 'import PySide6; import os; print(os.path.join(PySide6.__path__[0], "plugins"))')" >> $GITHUB_ENV
 
-      - name: Upload macOS Binary
+      - name: Build macOS App
+        run: |
+          pyinstaller --noconfirm --windowed --onefile \
+            --icon=pm.icns --name=${{ env.APP_NAME }} app.py \
+            --add-data "$PLUGIN_PATH:PySide6/plugins"
+
+      - name: Upload macOS App
         uses: actions/upload-artifact@v4
         with:
-          name: macos-binary
-          path: dist/**
+          name: macos-app
+          path: dist/${{ env.APP_NAME }}
