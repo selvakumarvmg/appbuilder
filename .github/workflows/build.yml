@@ -1,81 +1,71 @@
-name: Build Python Desktop App and Create .deb Package
+name: Build and Package PremediaApp
 
 on:
   push:
     branches: [main]
-  pull_request:
+
+env:
+  APP_NAME: PremediaApp
+  APP_VERSION: 1.0.0
 
 jobs:
-  build:
+  build-ubuntu:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Verify Python version
-        run: |
-          python3 --version
-          pip --version
-      - name: Install system dependencies
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev python3-venv python3-pip
-
-      - name: Install Python dependencies
-        run: |
+          sudo apt-get install -y build-essential fakeroot dpkg-dev libgl1
           python3 -m pip install --upgrade pip
-          python3 -m pip install pyinstaller PySide6 requests
-          if [ -f requirements.txt ]; then python3 -m pip install -r requirements.txt; fi
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build app with PyInstaller
+      - name: Build with PyInstaller
         run: |
-          if [ -f PremediaApp.spec ]; then
-            python3 -m PyInstaller PremediaApp.spec
-          else
-            python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
-          fi
+          pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${APP_NAME} app.py
 
-      - name: List dist folder contents
-        run: ls -l dist/
-
-      - name: Copy executable to package folder
-        run: cp dist/PremediaApp package-root/usr/local/bin/
-
-      - name: Prepare Debian package structure
+      - name: Prepare DEB package structure
         run: |
-          mkdir -p package-root/DEBIAN package-root/usr/local/bin
-          cp dist/PremediaApp package-root/usr/local/bin/
-          chmod 755 package-root/usr/local/bin/PremediaApp
-          cat > package-root/DEBIAN/control << EOF
-          Package: premediaapp
-          Version: 1.0.0
-          Section: utils
+          mkdir -p package-root/DEBIAN
+          mkdir -p package-root/usr/local/bin
+          mkdir -p package-root/usr/share/applications
+          mkdir -p package-root/usr/share/icons/hicolor/128x128/apps
+
+          # Copy built binary
+          cp dist/${APP_NAME} package-root/usr/local/bin/
+
+          # Copy desktop entry and icon
+          cp ${APP_NAME}.desktop package-root/usr/share/applications/
+          cp pm.png package-root/usr/share/icons/hicolor/128x128/apps/${APP_NAME}.png
+
+          # Add control file
+          cat <<EOF > package-root/DEBIAN/control
+          Package: ${APP_NAME}
+          Version: ${APP_VERSION}
+          Section: base
           Priority: optional
           Architecture: amd64
-          Depends: libc6 (>= 2.31)
-          Maintainer: Selvakumar Jayaraman <your.email@example.com>
-          Description: PremediaApp - Python desktop app packaged as .deb
-           A Python desktop application packaged using PyInstaller.
+          Depends: python3
+          Maintainer: VMG DIGITAL PVT LTD
+          Description: PremediaApp is a media asset management and conversion tool.
           EOF
 
-      - name: Build the .deb package
+      - name: Build .deb package
         run: |
           dpkg-deb --build package-root
+          mv package-root.deb ${APP_NAME}_${APP_VERSION}_amd64.deb
 
-      - name: Rename and move .deb package
-        run: |
-          mv package-root.deb PremediaApp_1.0.0_amd64.deb
-
-      - name: List output files
-        run: ls -l
-
-      - name: Upload .deb package artifact
+      - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-deb
-          path: PremediaApp_1.0.0_amd64.deb
+          name: premediaapp-deb
+          path: PremediaApp_*.deb
