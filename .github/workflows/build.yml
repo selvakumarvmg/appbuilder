@@ -56,7 +56,7 @@ jobs:
       - name: Install dependencies & OS libs
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxcb-cursor0 libx11-xcb1 libglu1-mesa
+          sudo apt-get install -y libxcb-cursor0 libx11-xcb1 libglu1-mesa desktop-file-utils
           python -m pip install --upgrade pip
           pip install pyinstaller PySide6
 
@@ -83,12 +83,15 @@ jobs:
           echo "Depends: libc6, libxcb-cursor0, libx11-xcb1, libglu1-mesa" >> pkg/DEBIAN/control
 
           # Desktop entry
-          echo "[Desktop Entry]" > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo "Name=${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo "Exec=/usr/local/bin/${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo "Icon=${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo "Type=Application" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo "Categories=Utility;" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          cat <<EOF > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          [Desktop Entry]
+          Name=${{ env.APP_NAME }}
+          Exec=/usr/local/bin/${{ env.APP_NAME }}
+          Icon=${{ env.APP_NAME }}
+          Type=Application
+          Categories=Utility;
+          Terminal=false
+          EOF
 
       - name: Build DEB installer
         run: dpkg-deb --build pkg ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
