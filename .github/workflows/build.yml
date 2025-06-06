@@ -21,10 +21,13 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential fakeroot dpkg-dev libgl1
+          sudo apt-get install -y build-essential fakeroot dpkg-dev libgl1 libxcb-cursor0 desktop-file-utils
+
+      - name: Install Python dependencies
+        run: |
           python3 -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
@@ -39,6 +42,7 @@ jobs:
           mkdir -p package-root/usr/local/bin
           mkdir -p package-root/usr/share/applications
           mkdir -p package-root/usr/share/icons/hicolor/128x128/apps
+          mkdir -p package-root/usr/share/doc/${APP_NAME}
 
           # Copy built binary
           cp dist/${APP_NAME} package-root/usr/local/bin/
@@ -47,17 +51,33 @@ jobs:
           cp ${APP_NAME}.desktop package-root/usr/share/applications/
           cp pm.png package-root/usr/share/icons/hicolor/128x128/apps/${APP_NAME}.png
 
-          # Add control file
-          cat <<EOF > package-root/DEBIAN/control
-          Package: ${APP_NAME}
-          Version: ${APP_VERSION}
-          Section: base
-          Priority: optional
-          Architecture: amd64
-          Depends: python3
-          Maintainer: VMG DIGITAL PVT LTD
-          Description: PremediaApp is a media asset management and conversion tool.
-          EOF
+          # Copy docs
+          cp TERMS.txt LICENSE.txt package-root/usr/share/doc/${APP_NAME}/
+
+          # Create control file
+          echo "Package: ${APP_NAME}" > package-root/DEBIAN/control
+          echo "Version: ${APP_VERSION}" >> package-root/DEBIAN/control
+          echo "Section: graphics" >> package-root/DEBIAN/control
+          echo "Priority: optional" >> package-root/DEBIAN/control
+          echo "Architecture: amd64" >> package-root/DEBIAN/control
+          echo "Depends: python3, libgl1, libxcb-cursor0" >> package-root/DEBIAN/control
+          echo "Maintainer: VMG DIGITAL PVT LTD" >> package-root/DEBIAN/control
+          echo "Description: PremediaApp is a media asset management and conversion tool." >> package-root/DEBIAN/control
+          echo " This app supports multiple formats and background processing." >> package-root/DEBIAN/control
+
+          # Create post-install script
+          echo '#!/bin/bash' > package-root/DEBIAN/postinst
+          echo 'set -e' >> package-root/DEBIAN/postinst
+          echo 'update-desktop-database || true' >> package-root/DEBIAN/postinst
+          echo 'gtk-update-icon-cache /usr/share/icons/hicolor || true' >> package-root/DEBIAN/postinst
+          chmod +x package-root/DEBIAN/postinst
+
+          # Create uninstall script
+          echo '#!/bin/bash' > package-root/DEBIAN/prerm
+          echo 'set -e' >> package-root/DEBIAN/prerm
+          echo "rm -f /usr/share/icons/hicolor/128x128/apps/${APP_NAME}.png" >> package-root/DEBIAN/prerm
+          echo "rm -f /usr/share/applications/${APP_NAME}.desktop" >> package-root/DEBIAN/prerm
+          chmod +x package-root/DEBIAN/prerm
 
       - name: Build .deb package
         run: |
@@ -68,4 +88,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-deb
-          path: PremediaApp_*.deb
+          path: ${APP_NAME}_*.deb

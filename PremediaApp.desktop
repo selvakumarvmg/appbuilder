@@ -1,7 +1,9 @@
 [Desktop Entry]
 Name=PremediaApp
-Exec=/opt/PremediaApp/PremediaApp
-Icon=/opt/PremediaApp/pm.png
+Comment=Media asset manager and converter
+Exec=PremediaApp
+Icon=PremediaApp
 Type=Application
-Categories=Utility;
+Categories=Graphics;Utility;
+StartupNotify=true
 Terminal=false
