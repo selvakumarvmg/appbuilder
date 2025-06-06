@@ -40,6 +40,12 @@ jobs:
             python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
           fi
 
+      - name: List dist folder contents
+        run: ls -l dist/
+
+      - name: Copy executable to package folder
+        run: cp dist/PremediaApp package-root/usr/local/bin/
+
       - name: Prepare Debian package structure
         run: |
           mkdir -p package-root/DEBIAN package-root/usr/local/bin
