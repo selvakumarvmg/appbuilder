@@ -1,4 +1,4 @@
-name: Build Python Desktop App with Docker
+name: Build Debian Package
 
 on:
   push:
@@ -6,44 +6,53 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build-deb:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image and run PyInstaller build
+      - name: Setup Python and Install dependencies
         run: |
-          # Build a Docker image with Python and PyInstaller installed
-          cat <<EOF > Dockerfile
-          FROM ubuntu:22.04
+          sudo apt-get update
+          sudo apt-get install -y python3.10 python3-pip python3.10-venv build-essential fakeroot dpkg-dev
+          python3.10 -m pip install --upgrade pip
+          python3.10 -m pip install pyinstaller PySide6 requests
 
-          RUN apt-get update && apt-get install -y python3.10 python3-pip python3.10-venv build-essential
+      - name: Build with PyInstaller
+        run: |
+          python3.10 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
 
-          WORKDIR /app
+      - name: Prepare Debian package structure
+        run: |
+          mkdir -p package-root/DEBIAN
+          mkdir -p package-root/usr/local/bin
+          cp dist/PremediaApp package-root/usr/local/bin/
 
-          COPY . /app
-
-          RUN python3.10 -m pip install --upgrade pip
-          RUN python3.10 -m pip install pyinstaller PySide6 requests
-
-          RUN python3.10 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
-
+          # Create control file
+          cat > package-root/DEBIAN/control <<EOF
+          Package: premediaapp
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libc6 (>= 2.31), python3 (>= 3.10)
+          Maintainer: Your Name <you@example.com>
+          Description: PremediaApp - Python desktop app packaged as Debian package
+           A brief description of your app.
           EOF
 
-          docker build -t premediaapp-build .
+          # Set permissions (important)
+          chmod 755 package-root/usr/local/bin/PremediaApp
+          chmod 755 package-root/DEBIAN
 
-          # Create container and copy out the built app binary
-          container_id=$(docker create premediaapp-build)
-          docker cp $container_id:/app/dist/PremediaApp ./PremediaApp
-          docker rm $container_id
+      - name: Build .deb package
+        run: |
+          fakeroot dpkg-deb --build package-root
+          ls -l *.deb
 
-      - name: List built files
-        run: ls -l
-
-      - name: Upload built executable artifact
+      - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Binary
-          path: PremediaApp
+          name: PremediaApp-Deb
+          path: package-root.deb
