@@ -77,14 +77,14 @@ jobs:
 
             # Desktop entry
             cat <<EOF > /github/workspace/pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-[Desktop Entry]
-Name=${{ env.APP_NAME }}
-Exec=/usr/local/bin/${{ env.APP_NAME }}
-Icon=${{ env.APP_NAME }}
-Type=Application
-Categories=Utility;
-Terminal=false
-EOF
+            [Desktop Entry]
+            Name=${{ env.APP_NAME }}
+            Exec=/usr/local/bin/${{ env.APP_NAME }}
+            Icon=${{ env.APP_NAME }}
+            Type=Application
+            Categories=Utility;
+            Terminal=false
+            EOF
 
             dpkg-deb --build /github/workspace/pkg /github/workspace/${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
 
