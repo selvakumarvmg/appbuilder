@@ -19,9 +19,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade --force-reinstall pyinstaller PySide6 requests urllib3
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller PySide6 requests
 
-      - name: Build with PyInstaller
+      - name: Build app with PyInstaller
         run: |
-          python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+          python3 -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
