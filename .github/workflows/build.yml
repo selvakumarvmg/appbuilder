@@ -16,12 +16,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y python3 python3-pip python3-venv build-essential fakeroot dpkg-dev
-          python3.10 -m pip install --upgrade pip
-          python3.10 -m pip install pyinstaller PySide6 requests
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller PySide6 requests
 
       - name: Build with PyInstaller
         run: |
-          python3.10 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+          python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
 
       - name: Prepare Debian package structure
         run: |
