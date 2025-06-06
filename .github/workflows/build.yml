@@ -48,53 +48,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
+      - name: Build Linux Executable inside Ubuntu 22.04 Docker container
+        uses: addnab/docker-run-action@v3
         with:
-          python-version: "3.10"
+          image: ubuntu:22.04
+          options: --rm
+          run: |
+            apt-get update
+            apt-get install -y python3 python3-pip libxcb-cursor0 libx11-xcb1 libglu1-mesa desktop-file-utils
+            python3 -m pip install --upgrade pip
+            python3 -m pip install pyinstaller PySide6
+            pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} /github/workspace/app.py
+            mkdir -p /github/workspace/pkg/DEBIAN
+            mkdir -p /github/workspace/pkg/usr/local/bin
+            mkdir -p /github/workspace/pkg/usr/share/applications
+            mkdir -p /github/workspace/pkg/usr/share/icons/hicolor/256x256/apps
+            cp /github/workspace/dist/${{ env.APP_NAME }} /github/workspace/pkg/usr/local/bin/
+            cp /github/workspace/pm.png /github/workspace/pkg/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
 
-      - name: Install dependencies & OS libs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-cursor0 libx11-xcb1 libglu1-mesa desktop-file-utils
-          python -m pip install --upgrade pip
-          pip install pyinstaller PySide6
+            # Control file for DEB
+            echo "Package: ${{ env.APP_NAME }}" > /github/workspace/pkg/DEBIAN/control
+            echo "Version: ${{ env.APP_VERSION }}" >> /github/workspace/pkg/DEBIAN/control
+            echo "Architecture: amd64" >> /github/workspace/pkg/DEBIAN/control
+            echo "Maintainer: VMG Digital <contact@vmgdigital.com>" >> /github/workspace/pkg/DEBIAN/control
+            echo "Description: Background Notifier App" >> /github/workspace/pkg/DEBIAN/control
+            echo "Depends: libc6, libxcb-cursor0, libx11-xcb1, libglu1-mesa" >> /github/workspace/pkg/DEBIAN/control
 
-      - name: Build Linux Executable with PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.png --name=${{ env.APP_NAME }} app.py
+            # Desktop entry
+            cat <<EOF > /github/workspace/pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+            [Desktop Entry]
+            Name=${{ env.APP_NAME }}
+            Exec=/usr/local/bin/${{ env.APP_NAME }}
+            Icon=${{ env.APP_NAME }}
+            Type=Application
+            Categories=Utility;
+            Terminal=false
+            EOF
 
-      - name: Prepare DEB package structure
-        run: |
-          mkdir -p pkg/DEBIAN
-          mkdir -p pkg/usr/local/bin
-          mkdir -p pkg/usr/share/applications
-          mkdir -p pkg/usr/share/icons/hicolor/256x256/apps
-          cp dist/${{ env.APP_NAME }} pkg/usr/local/bin/
-          cp pm.png pkg/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
-
-          # Control file for DEB
-          echo "Package: ${{ env.APP_NAME }}" > pkg/DEBIAN/control
-          echo "Version: ${{ env.APP_VERSION }}" >> pkg/DEBIAN/control
-          echo "Architecture: amd64" >> pkg/DEBIAN/control
-          echo "Maintainer: VMG Digital <contact@vmgdigital.com>" >> pkg/DEBIAN/control
-          echo "Description: Background Notifier App" >> pkg/DEBIAN/control
-          echo "Depends: libc6, libxcb-cursor0, libx11-xcb1, libglu1-mesa" >> pkg/DEBIAN/control
-
-          # Desktop entry
-          cat <<EOF > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          [Desktop Entry]
-          Name=${{ env.APP_NAME }}
-          Exec=/usr/local/bin/${{ env.APP_NAME }}
-          Icon=${{ env.APP_NAME }}
-          Type=Application
-          Categories=Utility;
-          Terminal=false
-          EOF
-
-      - name: Build DEB installer
-        run: dpkg-deb --build pkg ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+            dpkg-deb --build /github/workspace/pkg /github/workspace/${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
 
       - name: Upload Ubuntu DEB
         uses: actions/upload-artifact@v4
