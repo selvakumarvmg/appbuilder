@@ -24,4 +24,4 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          python3 -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+          python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
