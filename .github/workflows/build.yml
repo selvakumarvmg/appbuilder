@@ -1,4 +1,4 @@
-name: Build Python Desktop App (.deb)
+name: Build Python Desktop App with Docker
 
 on:
   push:
@@ -13,71 +13,37 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Show python and pip info for debugging
+      - name: Build Docker image and run PyInstaller build
         run: |
-          echo "Python location:"
-          which python
-          python --version
-          echo "Pip version and packages:"
-          python -m pip --version
-          python -m pip list
+          # Build a Docker image with Python and PyInstaller installed
+          cat <<EOF > Dockerfile
+          FROM ubuntu:22.04
 
-      - name: Install dependencies with python -m pip
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller PySide6 requests
+          RUN apt-get update && apt-get install -y python3.10 python3-pip python3.10-venv build-essential
 
-      - name: Verify pyinstaller install
-        run: |
-          python -m pip show pyinstaller
-          python -m pip list
+          WORKDIR /app
 
-      - name: Build app with PyInstaller (debug mode)
-        run: |
-          python -m PyInstaller \
-            --noconfirm \
-            --windowed \
-            --onefile \
-            --icon=pm.png \
-            --name=PremediaApp \
-            --log-level=DEBUG \
-            app.py
+          COPY . /app
 
-      - name: List output folder files (dist)
-        run: ls -l dist/
+          RUN python3.10 -m pip install --upgrade pip
+          RUN python3.10 -m pip install pyinstaller PySide6 requests
 
-      - name: Prepare Debian package structure
-        run: |
-          mkdir -p package/usr/local/bin
-          cp dist/PremediaApp package/usr/local/bin/
-          mkdir -p package/DEBIAN
-          cat > package/DEBIAN/control <<EOF
-          Package: premediaapp
-          Version: 1.0.0
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Depends: python3
-          Maintainer: Your Name <you@example.com>
-          Description: Premedia desktop app packaged as .deb
+          RUN python3.10 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+
           EOF
-          echo "Debian package structure prepared:"
-          ls -lR package
 
-      - name: Build .deb package
-        run: |
-          dpkg-deb --build package
-          mv package.deb PremediaApp_1.0.0_amd64.deb
-          echo ".deb package created:"
-          ls -l PremediaApp_1.0.0_amd64.deb
+          docker build -t premediaapp-build .
 
-      - name: Upload .deb artifact
+          # Create container and copy out the built app binary
+          container_id=$(docker create premediaapp-build)
+          docker cp $container_id:/app/dist/PremediaApp ./PremediaApp
+          docker rm $container_id
+
+      - name: List built files
+        run: ls -l
+
+      - name: Upload built executable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-deb
-          path: PremediaApp_1.0.0_amd64.deb
+          name: PremediaApp-Binary
+          path: PremediaApp
