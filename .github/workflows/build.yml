@@ -27,9 +27,7 @@ jobs:
           pip install pyinstaller PySide6
 
       - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+        run: pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
 
       - name: Install Inno Setup
         run: choco install innosetup -y
