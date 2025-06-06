@@ -1,4 +1,4 @@
-name: Build Debian Package
+name: Build Python Desktop App with Debug and Docker (Ubuntu 20.04)
 
 on:
   push:
@@ -6,53 +6,38 @@ on:
   pull_request:
 
 jobs:
-  build-deb:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python and Install dependencies
+      - name: Show runner info for debugging
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip python3-venv build-essential fakeroot dpkg-dev
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pyinstaller PySide6 requests
+          echo "Runner OS:"
+          uname -a
+          echo "glibc version:"
+          ldd --version | head -n1
 
-      - name: Build with PyInstaller
+      - name: Build app inside Ubuntu 20.04 Docker container
         run: |
-          python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+          docker run --rm -v $PWD:/app -w /app ubuntu:20.04 /bin/bash -c "
+            apt-get update && apt-get install -y python3 python3-pip python3-venv build-essential wget
+            python3 -m pip install --upgrade pip
+            python3 -m pip install pyinstaller PySide6 requests
+            # Show python info inside container for debug
+            python3 --version
+            python3 -m pip --version
+            python3 -m pip list
+            # Run PyInstaller with debug logs
+            python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp --log-level=DEBUG app.py
+            # List dist folder to verify output
+            ls -l dist/
+          "
 
-      - name: Prepare Debian package structure
-        run: |
-          mkdir -p package-root/DEBIAN
-          mkdir -p package-root/usr/local/bin
-          cp dist/PremediaApp package-root/usr/local/bin/
-
-          # Create control file
-          cat > package-root/DEBIAN/control <<EOF
-          Package: premediaapp
-          Version: 1.0.0
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Depends: libc6 (>= 2.31), python3 (>= 3.10)
-          Maintainer: Your Name <you@example.com>
-          Description: PremediaApp - Python desktop app packaged as Debian package
-           A brief description of your app.
-          EOF
-
-          # Set permissions (important)
-          chmod 755 package-root/usr/local/bin/PremediaApp
-          chmod 755 package-root/DEBIAN
-
-      - name: Build .deb package
-        run: |
-          fakeroot dpkg-deb --build package-root
-          ls -l *.deb
-
-      - name: Upload .deb artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Deb
-          path: package-root.deb
+          name: PremediaApp-build
+          path: dist/PremediaApp.deb
