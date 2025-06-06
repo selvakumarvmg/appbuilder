@@ -1,9 +1,9 @@
 [Desktop Entry]
 Name=PremediaApp
-Comment=Media asset manager and converter
-Exec=PremediaApp
-Icon=PremediaApp
-Type=Application
-Categories=Graphics;Utility;
-StartupNotify=true
+Comment=Media asset management and conversion tool
+Exec=/usr/local/bin/PremediaApp
+Icon=premediaapp
 Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true
