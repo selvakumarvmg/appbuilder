@@ -19,13 +19,23 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
       - name: Build EXE with PyInstaller
-        run: pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+        run: |
+          $pysidePath = (python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))").Trim()
+          pyinstaller --noconfirm --windowed --onefile `
+            --icon=pm.ico `
+            --name=${{ env.APP_NAME }} `
+            --add-data "$pysidePath\\plugins\\platforms;platforms" `
+            --add-data "$pysidePath\\plugins\\imageformats;imageformats" `
+            --hidden-import=PySide6.QtWidgets `
+            --hidden-import=PySide6.QtGui `
+            --hidden-import=PySide6.QtCore `
+            app.py
 
       - name: Debug dist directory
         run: dir dist
@@ -57,12 +67,20 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y libxcb-cursor0 dpkg-dev
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
       - name: Build Linux Binary
         run: |
+          PYSIDE_PATH=$(python3 -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")
           pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.png --name=${{ env.APP_NAME }} app.py
+            --icon=pm.png \
+            --name=${{ env.APP_NAME }} \
+            --add-data "$PYSIDE_PATH/plugins/platforms:platforms" \
+            --add-data "$PYSIDE_PATH/plugins/imageformats:imageformats" \
+            --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PySide6.QtGui \
+            --hidden-import=PySide6.QtCore \
+            app.py
 
       - name: Create DEB Installer
         run: |
@@ -102,12 +120,20 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
       - name: Build macOS App
         run: |
+          PYSIDE_PATH=$(python3 -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")
           pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.icns --name=${{ env.APP_NAME }} app.py
+            --icon=pm.icns \
+            --name=${{ env.APP_NAME }} \
+            --add-data "$PYSIDE_PATH/plugins/platforms:platforms" \
+            --add-data "$PYSIDE_PATH/plugins/imageformats:imageformats" \
+            --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PySide6.QtGui \
+            --hidden-import=PySide6.QtCore \
+            app.py
 
       - name: Create DMG Installer
         run: |
