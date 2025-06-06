@@ -1,4 +1,5 @@
 # PremediaApp.spec
+import sys
 
 block_cipher = None
 
