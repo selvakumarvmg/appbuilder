@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=PremediaApp
+Exec=/python/appbuilder/start.sh
+Icon=/python/appbuilder/pm.png
+Type=Application
+Categories=Utility;
+StartupWMClass=PremediaApp
