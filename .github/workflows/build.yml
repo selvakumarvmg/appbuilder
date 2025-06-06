@@ -27,17 +27,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests PySide6
+          pip install pyinstaller PySide6 requests
+        shell: bash
 
       - name: Build Executable
         run: |
           echo "Running build on $RUNNER_OS"
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} app.py
-          elif [[ "$RUNNER_OS" == "Windows" ]]; then
-            python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            python -m pyinstaller --noconfirm --windowed --onedir --icon=pm.icns --name=${{ env.APP_NAME }} app.py
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${APP_NAME} app.py
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${APP_NAME} app.py
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            python -m pyinstaller --noconfirm --windowed --onedir --icon=pm.icns --name=${APP_NAME} app.py
           fi
         shell: bash
 
@@ -49,3 +50,4 @@ jobs:
             dist/${{ env.APP_NAME }}
             dist/${{ env.APP_NAME }}.exe
             dist/${{ env.APP_NAME }}.app
+        if: always()
