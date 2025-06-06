@@ -62,6 +62,7 @@ jobs:
       - name: Build Linux executable
         run: |
           python -m pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} app.py
+          chmod +x dist/${{ env.APP_NAME }}
 
       - name: Package .deb
         run: |
@@ -80,7 +81,7 @@ jobs:
           echo "Description: Background Notifier App" >> pkg/DEBIAN/control
           echo "Depends: libc6, libxcb-cursor0, libx11-xcb1, libglu1-mesa" >> pkg/DEBIAN/control
 
-          cat <<EOF > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          cat <<"EOF" > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
           [Desktop Entry]
           Name=${{ env.APP_NAME }}
           Exec=/usr/local/bin/${{ env.APP_NAME }}
@@ -124,6 +125,7 @@ jobs:
           mkdir dmgdir
           cp -r dist/${{ env.APP_NAME }}.app dmgdir/
           cp TERMS.txt dmgdir/
+          cp LICENSE.txt dmgdir/
 
       - name: Create DMG installer
         run: |
