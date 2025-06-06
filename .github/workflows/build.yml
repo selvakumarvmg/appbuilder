@@ -33,8 +33,7 @@ jobs:
         run: choco install innosetup -y
 
       - name: Create Windows Installer with Inno Setup
-        run: |
-          iscc installer.iss
+        run: iscc installer.iss
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
@@ -54,6 +53,7 @@ jobs:
           image: ubuntu:22.04
           options: --rm
           run: |
+            set -e
             apt-get update
             apt-get install -y python3 python3-pip libxcb-cursor0 libx11-xcb1 libglu1-mesa desktop-file-utils
             python3 -m pip install --upgrade pip
@@ -64,6 +64,7 @@ jobs:
             mkdir -p /github/workspace/pkg/usr/share/applications
             mkdir -p /github/workspace/pkg/usr/share/icons/hicolor/256x256/apps
             cp /github/workspace/dist/${{ env.APP_NAME }} /github/workspace/pkg/usr/local/bin/
+            chmod +x /github/workspace/pkg/usr/local/bin/${{ env.APP_NAME }}
             cp /github/workspace/pm.png /github/workspace/pkg/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
 
             # Control file for DEB
@@ -76,16 +77,20 @@ jobs:
 
             # Desktop entry
             cat <<EOF > /github/workspace/pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-            [Desktop Entry]
-            Name=${{ env.APP_NAME }}
-            Exec=/usr/local/bin/${{ env.APP_NAME }}
-            Icon=${{ env.APP_NAME }}
-            Type=Application
-            Categories=Utility;
-            Terminal=false
-            EOF
+[Desktop Entry]
+Name=${{ env.APP_NAME }}
+Exec=/usr/local/bin/${{ env.APP_NAME }}
+Icon=${{ env.APP_NAME }}
+Type=Application
+Categories=Utility;
+Terminal=false
+EOF
 
             dpkg-deb --build /github/workspace/pkg /github/workspace/${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+
+            echo "Listing generated files in /github/workspace:"
+            ls -l /github/workspace
+            ls -l /github/workspace/${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
 
       - name: Upload Ubuntu DEB
         uses: actions/upload-artifact@v4
