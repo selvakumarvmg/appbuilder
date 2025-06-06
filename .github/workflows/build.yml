@@ -1,4 +1,4 @@
-name: Build Python Desktop App
+name: Build Python Desktop App (.deb)
 
 on:
   push:
@@ -20,8 +20,10 @@ jobs:
 
       - name: Show python and pip info for debugging
         run: |
+          echo "Python location:"
           which python
           python --version
+          echo "Pip version and packages:"
           python -m pip --version
           python -m pip list
 
@@ -46,11 +48,36 @@ jobs:
             --log-level=DEBUG \
             app.py
 
-      - name: List output folder files
+      - name: List output folder files (dist)
         run: ls -l dist/
 
-      - name: Upload build artifact (optional)
+      - name: Prepare Debian package structure
+        run: |
+          mkdir -p package/usr/local/bin
+          cp dist/PremediaApp package/usr/local/bin/
+          mkdir -p package/DEBIAN
+          cat > package/DEBIAN/control <<EOF
+          Package: premediaapp
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: python3
+          Maintainer: Your Name <you@example.com>
+          Description: Premedia desktop app packaged as .deb
+          EOF
+          echo "Debian package structure prepared:"
+          ls -lR package
+
+      - name: Build .deb package
+        run: |
+          dpkg-deb --build package
+          mv package.deb PremediaApp_1.0.0_amd64.deb
+          echo ".deb package created:"
+          ls -l PremediaApp_1.0.0_amd64.deb
+
+      - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-build
-          path: dist/PremediaApp*
+          name: PremediaApp-deb
+          path: PremediaApp_1.0.0_amd64.deb
