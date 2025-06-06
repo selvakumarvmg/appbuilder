@@ -41,7 +41,6 @@ jobs:
           name: windows-installer
           path: dist/${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
           if-no-files-found: error
-
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
@@ -51,20 +50,15 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ubuntu:22.04
-          options: --rm
+          options: -v ${{ github.workspace }}:/app --workdir /app
           run: |
             apt-get update
             apt-get install -y python3 python3-pip libxcb-cursor0 libx11-xcb1 libglu1-mesa desktop-file-utils
             python3 -m pip install --upgrade pip
             python3 -m pip install pyinstaller PySide6
 
-            # Debug current directory and files
-            pwd
-            ls -la
-
-            cd /github/workspace
-
-            # Confirm files inside workspace root
+            echo "Current directory: $(pwd)"
+            echo "Listing files:"
             ls -la
 
             pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} app.py
@@ -77,7 +71,7 @@ jobs:
             cp dist/${{ env.APP_NAME }} pkg/usr/local/bin/
             cp pm.png pkg/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
 
-            # Control file for DEB package
+            # DEBIAN control file
             echo "Package: ${{ env.APP_NAME }}" > pkg/DEBIAN/control
             echo "Version: ${{ env.APP_VERSION }}" >> pkg/DEBIAN/control
             echo "Architecture: amd64" >> pkg/DEBIAN/control
