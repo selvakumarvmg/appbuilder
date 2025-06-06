@@ -19,8 +19,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pyinstaller PySide6 requests urllib3
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller PySide6 requests urllib3
 
       - name: Build with PyInstaller
         run: |
