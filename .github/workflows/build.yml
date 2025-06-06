@@ -1,4 +1,4 @@
-name: Build Python Desktop App with Debug and Docker (Ubuntu 20.04)
+name: Build Python Desktop App and Create .deb Package
 
 on:
   push:
@@ -10,34 +10,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Show runner info for debugging
-        run: |
-          echo "Runner OS:"
-          uname -a
-          echo "glibc version:"
-          ldd --version | head -n1
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.10
 
-      - name: Build app inside Ubuntu 20.04 Docker container
+      - name: Install system dependencies
         run: |
-          docker run --rm -v $PWD:/app -w /app ubuntu:20.04 /bin/bash -c "
-            apt-get update && apt-get install -y python3 python3-pip python3-venv build-essential wget
-            python3 -m pip install --upgrade pip
-            python3 -m pip install pyinstaller PySide6 requests
-            # Show python info inside container for debug
-            python3 --version
-            python3 -m pip --version
-            python3 -m pip list
-            # Run PyInstaller with debug logs
-            python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp --log-level=DEBUG app.py
-            # List dist folder to verify output
-            ls -l dist/
-          "
+          sudo apt-get update
+          sudo apt-get install -y build-essential dpkg-dev python3.10-venv python3-pip
 
-      - name: Upload build artifact
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller PySide6 requests
+          if [ -f requirements.txt ]; then python3 -m pip install -r requirements.txt; fi
+
+      - name: Build app with PyInstaller
+        run: |
+          if [ -f PremediaApp.spec ]; then
+            python3 -m PyInstaller PremediaApp.spec
+          else
+            python3 -m PyInstaller --noconfirm --windowed --onefile --icon=pm.png --name=PremediaApp app.py
+          fi
+
+      - name: Prepare Debian package structure
+        run: |
+          mkdir -p package-root/DEBIAN package-root/usr/local/bin
+          cp dist/PremediaApp package-root/usr/local/bin/
+          chmod 755 package-root/usr/local/bin/PremediaApp
+          cat > package-root/DEBIAN/control << EOF
+          Package: premediaapp
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libc6 (>= 2.31)
+          Maintainer: Selvakumar Jayaraman <your.email@example.com>
+          Description: PremediaApp - Python desktop app packaged as .deb
+           A Python desktop application packaged using PyInstaller.
+          EOF
+
+      - name: Build the .deb package
+        run: |
+          dpkg-deb --build package-root
+
+      - name: Rename and move .deb package
+        run: |
+          mv package-root.deb PremediaApp_1.0.0_amd64.deb
+
+      - name: List output files
+        run: ls -l
+
+      - name: Upload .deb package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-build
-          path: dist/PremediaApp
+          name: PremediaApp-deb
+          path: PremediaApp_1.0.0_amd64.deb
