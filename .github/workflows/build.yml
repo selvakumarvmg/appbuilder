@@ -19,39 +19,19 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller PySide6
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build EXE with PyInstaller
-        run: |
-          $pysidePath = (python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))").Trim()
-          pyinstaller --noconfirm --windowed --onefile `
-            --icon=pm.ico `
-            --name=${{ env.APP_NAME }} `
-            --add-data "$pysidePath\\plugins\\platforms;platforms" `
-            --add-data "$pysidePath\\plugins\\imageformats;imageformats" `
-            --hidden-import=PySide6.QtWidgets `
-            --hidden-import=PySide6.QtGui `
-            --hidden-import=PySide6.QtCore `
-            app.py
+      - name: Build EXE using .spec
+        run: pyinstaller PremediaApp.spec
 
-      - name: Debug dist directory
-        run: dir dist
-
-      - name: Install Inno Setup
-        run: choco install innosetup -y
-
-      - name: Create Installer with Inno Setup
-        run: iscc installer.iss
-
-      - name: Upload Windows Installer
+      - name: Upload Windows Binary
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: dist/${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
-          if-no-files-found: error
+          name: windows-binary
+          path: dist/**
 
   build-ubuntu:
     runs-on: ubuntu-latest
@@ -63,50 +43,21 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install system + Python dependencies
         run: |
           sudo apt update
-          sudo apt install -y libxcb-cursor0 dpkg-dev
-          pip install pyinstaller PySide6
+          sudo apt install -y libxcb-cursor0
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build Linux Binary
-        run: |
-          PYSIDE_PATH=$(python3 -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")
-          pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.png \
-            --name=${{ env.APP_NAME }} \
-            --add-data "$PYSIDE_PATH/plugins/platforms:platforms" \
-            --add-data "$PYSIDE_PATH/plugins/imageformats:imageformats" \
-            --hidden-import=PySide6.QtWidgets \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtCore \
-            app.py
+      - name: Build Linux binary using .spec
+        run: pyinstaller PremediaApp.spec
 
-      - name: Create DEB Installer
-        run: |
-          mkdir -p pkg/DEBIAN
-          mkdir -p pkg/usr/local/bin
-          mkdir -p pkg/usr/share/applications
-          cp dist/${{ env.APP_NAME }} pkg/usr/local/bin/
-          echo "Package: ${{ env.APP_NAME }}" > pkg/DEBIAN/control
-          echo "Version: ${{ env.APP_VERSION }}" >> pkg/DEBIAN/control
-          echo "Architecture: amd64" >> pkg/DEBIAN/control
-          echo "Maintainer: VMG Digital" >> pkg/DEBIAN/control
-          echo "Description: Background Notifier App" >> pkg/DEBIAN/control
-          echo '[Desktop Entry]' > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo 'Name=PremediaApp' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo 'Exec=/usr/local/bin/${{ env.APP_NAME }}' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo 'Icon=pm.png' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo 'Type=Application' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          echo 'Categories=Utility;' >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
-          dpkg-deb --build pkg ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
-
-      - name: Upload Ubuntu DEB
+      - name: Upload Linux Binary
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-deb
-          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
-          if-no-files-found: error
+          name: linux-binary
+          path: dist/**
 
   build-macos:
     runs-on: macos-latest
@@ -118,35 +69,16 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          pip install pyinstaller PySide6
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build macOS App
-        run: |
-          PYSIDE_PATH=$(python3 -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")
-          pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.icns \
-            --name=${{ env.APP_NAME }} \
-            --add-data "$PYSIDE_PATH/plugins/platforms:platforms" \
-            --add-data "$PYSIDE_PATH/plugins/imageformats:imageformats" \
-            --hidden-import=PySide6.QtWidgets \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtCore \
-            app.py
+      - name: Build macOS binary using .spec
+        run: pyinstaller PremediaApp.spec
 
-      - name: Create DMG Installer
-        run: |
-          mkdir dmgdir
-          cp dist/${{ env.APP_NAME }} dmgdir/
-          echo "Please read and accept the terms in TERMS.txt" > dmgdir/TERMS.txt
-          hdiutil create -volname ${{ env.APP_NAME }} \
-            -srcfolder dmgdir -ov -format UDZO \
-            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
-
-      - name: Upload macOS DMG
+      - name: Upload macOS Binary
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
-          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
-          if-no-files-found: error
+          name: macos-binary
+          path: dist/**
