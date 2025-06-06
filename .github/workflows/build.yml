@@ -1,7 +1,9 @@
-name: Build Desktop App
+name: Build and Package PremediaApp
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 env:
@@ -14,12 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller PySide6
@@ -27,75 +29,114 @@ jobs:
       - name: Build EXE with PyInstaller
         run: |
           pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.ico --name=${{ env.APP_NAME }} app.py \
-            --add-data "${{ env.PYTHONPATH }}\Lib\site-packages\PySide6\plugins;PySide6/plugins"
+            --icon=pm.ico --name=${{ env.APP_NAME }} app.py
 
-      - name: Upload EXE
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Create Windows Installer with Inno Setup
+        run: |
+          iscc installer.iss
+
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
-          path: dist/${{ env.APP_NAME }}.exe
+          name: windows-installer
+          path: dist/${{ env.APP_NAME }}_Setup_${{ env.APP_VERSION }}.exe
+          if-no-files-found: error
 
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install dependencies & OS libs
         run: |
-          sudo apt update
-          sudo apt install -y libxcb-cursor0
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libx11-xcb1 libglu1-mesa
+          python -m pip install --upgrade pip
           pip install pyinstaller PySide6
 
-      - name: Find Qt Plugin Path
-        id: qtpath
-        run: |
-          echo "PLUGIN_PATH=$(python3 -c 'import PySide6; import os; print(os.path.join(PySide6.__path__[0], "plugins"))')" >> $GITHUB_ENV
-
-      - name: Build Linux Binary
+      - name: Build Linux Executable with PyInstaller
         run: |
           pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.png --name=${{ env.APP_NAME }} app.py \
-            --add-data "$PLUGIN_PATH:PySide6/plugins"
+            --icon=pm.png --name=${{ env.APP_NAME }} app.py
 
-      - name: Upload Linux Binary
+      - name: Prepare DEB package structure
+        run: |
+          mkdir -p pkg/DEBIAN
+          mkdir -p pkg/usr/local/bin
+          mkdir -p pkg/usr/share/applications
+          mkdir -p pkg/usr/share/icons/hicolor/256x256/apps
+          cp dist/${{ env.APP_NAME }} pkg/usr/local/bin/
+          cp pm.png pkg/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
+
+          # Control file for DEB
+          echo "Package: ${{ env.APP_NAME }}" > pkg/DEBIAN/control
+          echo "Version: ${{ env.APP_VERSION }}" >> pkg/DEBIAN/control
+          echo "Architecture: amd64" >> pkg/DEBIAN/control
+          echo "Maintainer: VMG Digital <contact@vmgdigital.com>" >> pkg/DEBIAN/control
+          echo "Description: Background Notifier App" >> pkg/DEBIAN/control
+          echo "Depends: libc6, libxcb-cursor0, libx11-xcb1, libglu1-mesa" >> pkg/DEBIAN/control
+
+          # Desktop entry
+          echo "[Desktop Entry]" > pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo "Name=${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo "Exec=/usr/local/bin/${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo "Icon=${{ env.APP_NAME }}" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo "Type=Application" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+          echo "Categories=Utility;" >> pkg/usr/share/applications/${{ env.APP_NAME }}.desktop
+
+      - name: Build DEB installer
+        run: dpkg-deb --build pkg ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+
+      - name: Upload Ubuntu DEB
         uses: actions/upload-artifact@v4
         with:
-          name: linux-binary
-          path: dist/${{ env.APP_NAME }}
+          name: ubuntu-deb
+          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+          if-no-files-found: error
 
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          pip install pyinstaller PySide6
+          python3 -m pip install --upgrade pip
+          pip3 install pyinstaller PySide6
 
-      - name: Find Qt Plugin Path
-        id: qtpath
+      - name: Build macOS App Bundle (onedir mode)
         run: |
-          echo "PLUGIN_PATH=$(python3 -c 'import PySide6; import os; print(os.path.join(PySide6.__path__[0], "plugins"))')" >> $GITHUB_ENV
+          pyinstaller --noconfirm --windowed --onedir \
+            --icon=pm.icns --name=${{ env.APP_NAME }} app.py
 
-      - name: Build macOS App
+      - name: Prepare DMG folder with app and TERMS.txt
         run: |
-          pyinstaller --noconfirm --windowed --onefile \
-            --icon=pm.icns --name=${{ env.APP_NAME }} app.py \
-            --add-data "$PLUGIN_PATH:PySide6/plugins"
+          mkdir dmgdir
+          cp -r dist/${{ env.APP_NAME }}.app dmgdir/
+          cp TERMS.txt dmgdir/
 
-      - name: Upload macOS App
+      - name: Create DMG installer
+        run: |
+          hdiutil create -volname ${{ env.APP_NAME }} \
+            -srcfolder dmgdir -ov -format UDZO \
+            ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
+
+      - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app
-          path: dist/${{ env.APP_NAME }}
+          name: macos-dmg
+          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}.dmg
+          if-no-files-found: error
