@@ -1,231 +1,1734 @@
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
+    QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
+    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
+)
+
+# Rest of the imports remain the same
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal
+from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
+from login import Ui_Dialog
 import sys
 import os
 import platform
 import logging
+import logging.handlers
 import requests
+from requests.exceptions import RequestException
 import urllib3
-from PySide6.QtWidgets import (
-    QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
-    QMenu
-)
-from PySide6.QtGui import QIcon, QTextCursor, QAction
-from PySide6.QtCore import Qt, QTimer
-from login import Ui_Dialog  # From your .ui file converted to .py
+import json
+from urllib.parse import urlparse, parse_qs, quote
 from pathlib import Path
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from PIL import Image
+import subprocess
+from queue import Queue
+import threading
+import time
+
+
+# Handle paramiko import
+try:
+    import paramiko
+    NAS_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"paramiko not installed: {e}. NAS functionality disabled.")
+    NAS_AVAILABLE = False
+    paramiko = None
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# === Determine OS-specific base directory ===
-def get_base_dir():
-    system = platform.system()
+# === Constants ===
+BASE_DOMAIN = "https://app-dev.vmgpremedia.com"
+BASE_DIR = Path(__file__).parent.resolve()
+if platform.system() == "Windows":
+    BASE_TARGET_DIR = Path("D:/PremediaApp/Nas" if Path("D:/").exists() else "C:/PremediaApp/Nas")
+else:
+    BASE_TARGET_DIR = Path.home() / "PremediaApp" / "Nas"
 
-    if system == "Windows":
-        if os.path.exists("D:/"):
-            return os.path.join("D:/", "PremediaApp", "Nas")
-        else:
-            return os.path.join("C:/", "PremediaApp", "Nas")
-    elif system == "Darwin":
-        return str(Path.home() / "PremediaApp" / "Nas")
-    else:  # Linux or other Unix-like
-        return str(Path.home() / "PremediaApp" / "Nas")
+# Cache icon paths
+ICON_CACHE = {}
+def get_icon_path(icon_name):
+    if icon_name in ICON_CACHE:
+        return str(ICON_CACHE[icon_name])
+    icons_dir = BASE_DIR / "icons"
+    try:
+        icons_dir.mkdir(exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create icons directory {icons_dir}: {e}")
+        app_signals.append_log.emit(f"[Init] Failed to create icons directory {icons_dir}: {str(e)}")
+    icon_path = str(icons_dir / icon_name)
+    ICON_CACHE[icon_name] = icon_path
+    return icon_path
 
-BASE_TARGET_DIR = get_base_dir()
-TARGET_CLIENT_FTP_DIR = os.path.join(BASE_TARGET_DIR, "Client_FTP")
-TARGET_SOFTWARE_MEDIA_DIR = os.path.join(BASE_TARGET_DIR, "softwaremedia", "IR_prod")
-API_URL = "https://app.vmgpremedia.com/api/ir_production/get/projectList?business=image_retouching"
+ICON_PATH = get_icon_path({
+    "Windows": "premedia.ico",
+    "Darwin": "premedia.icns",
+    "Linux": "premedia.png"
+}.get(platform.system(), "premedia.png"))
+PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 
-# === Logger ===
-def setup_logger():
-    os.makedirs("log", exist_ok=True)
-    log_file = os.path.join("log", "app.log")
-    if os.path.exists(log_file):
-        with open(log_file, 'r') as f:
-            lines = f.readlines()
-        if len(lines) > 200:
-            with open(log_file, 'w') as f:
-                f.writelines(lines[-200:])
+def get_cache_file_path():
+    if platform.system() == "Windows":
+        cache_dir = Path(os.getenv("APPDATA")) / "PremediaApp"
+    elif platform.system() == "Darwin":
+        cache_dir = Path.home() / "Library" / "Caches" / "PremediaApp"
+    else:
+        cache_dir = Path.home() / ".cache" / "PremediaApp"
+    try:
+        cache_dir.mkdir(exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create cache directory {cache_dir}: {e}")
+        app_signals.append_log.emit(f"[Cache] Failed to create cache directory {cache_dir}: {str(e)}")
+    return str(cache_dir / "cache.json")
 
-    logger = logging.getLogger("PremediaApp")
-    logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler(log_file)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+CACHE_FILE = get_cache_file_path()
+CACHE_DAYS = 10
+API_URL = f"{BASE_DOMAIN}/api/ir_production/get/projectList?business=image_retouching"
+DOWNLOAD_UPLOAD_API = f"{BASE_DOMAIN}/api/get_download_upload/submission"
+OAUTH_URL = f"{BASE_DOMAIN}/oauth/token"
+USER_VALIDATE_URL = f"{BASE_DOMAIN}/api/user/validate"
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "softwarenas"
+NAS_PASSWORD = "K@#9Sdl2@134"
+NAS_SHARE = "IR_Uat"
+API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
+
+# === Global State ===
+GLOBAL_CACHE = None
+CACHE_WRITE_LOCK = threading.Lock()
+HTTP_SESSION = requests.Session()
+FILE_WATCHER_RUNNING = False
+LOGGING_ACTIVE = True
+app_signals = None
+LAST_API_HIT_TIME = None
+NEXT_API_HIT_TIME = None
+
+# === Logging Setup ===
+logger = logging.getLogger("PremediaApp")
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+log_dir = BASE_DIR / "log"
+try:
+    log_dir.mkdir(exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "app.log", maxBytes=10485760, backupCount=5
+    )
     file_handler.setFormatter(formatter)
-    logger.handlers.clear()
     logger.addHandler(file_handler)
+except Exception as e:
+    logger.error(f"Error setting up log file: {e}")
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+# === Signals for Safe GUI Updates ===
+class AppSignals(QObject):
+    update_status = Signal(str)
+    append_log = Signal(str)
+    update_file_list = Signal(str, str, str, int, bool)
+    api_call_status = Signal(str, str, int)
+    update_timer_status = Signal(str)
+
+app_signals = AppSignals()
+
+# === Custom Log Handler ===
+class LogWindowHandler(logging.Handler, QObject):
+    def __init__(self):
+        logging.Handler.__init__(self)
+        QObject.__init__(self)
+        self.setLevel(logging.INFO)
+        self.setFormatter(formatter)
+
+    def emit(self, record):
+        global LOGGING_ACTIVE
+        if not LOGGING_ACTIVE:
+            return
+        try:
+            msg = self.format(record)
+            app_signals.append_log.emit(msg)
+        except Exception as e:
+            logger.error(f"Log signal emission error: {e}")
+            app_signals.append_log.emit(f"[Log] Log signal emission error: {str(e)}")
+
+# === Async Logging ===
+log_queue = Queue()
+def async_log_worker():
+    global LOGGING_ACTIVE
+    while LOGGING_ACTIVE:
+        record = log_queue.get()
+        if record is None:
+            break
+        logger = logging.getLogger(record.name)
+        logger.handle(record)
+
+log_thread = threading.Thread(target=async_log_worker, daemon=True)
+
+def setup_logger(log_window=None):
+    logger.handlers.clear()
+    async_handler = LogWindowHandler()
+    logger.addHandler(async_handler)
+    if log_window:
+        app_signals.append_log.connect(log_window.append_log, Qt.QueuedConnection)
+        app_signals.api_call_status.connect(log_window.append_api_status, Qt.QueuedConnection)
+        app_signals.update_timer_status.connect(log_window.update_timer_status, Qt.QueuedConnection)
+    try:
+        log_file = log_dir / "app.log"
+        if log_file.exists():
+            with log_file.open('r') as f:
+                lines = f.readlines()
+            if len(lines) > 200:
+                with log_file.open('w') as f:
+                    f.writelines(lines[-200:])
+    except Exception as e:
+        logger.error(f"Error managing log file: {e}")
+        app_signals.append_log.emit(f"[Log] Error managing log file: {str(e)}")
     return logger
 
-logger = setup_logger()
+def stop_logging():
+    global LOGGING_ACTIVE
+    LOGGING_ACTIVE = False
+    log_queue.put(None)
+    if log_thread.is_alive():
+        log_thread.join(timeout=2.0)
 
-# === Folder Creation ===
-def create_folders_from_response(response):
+def load_icon(path, context=""):
+    if not path:
+        logger.error(f"No icon path provided for {context}")
+        app_signals.append_log.emit(f"[Init] No icon path provided for {context}")
+        return QIcon()
+    if path in ICON_CACHE and Path(path).exists():
+        return QIcon(path)
+    if not Path(path).exists():
+        logger.error(f"Icon file does not exist for {context}: {path}")
+        app_signals.append_log.emit(f"[Init] Icon file does not exist for {context}: {path}")
+        return QIcon()
+    icon = QIcon(path)
+    if icon.isNull():
+        logger.error(f"Failed to load icon for {context}: {path}")
+        app_signals.append_log.emit(f"[Init] Failed to load icon for {context}: {path}")
+    return icon
+
+def get_default_cache():
+    return {
+        "token": "",
+        "user": "",
+        "user_id": "",
+        "user_info": {},
+        "info_resp": {},
+        "user_data": {},
+        "data": "",
+        "downloaded_files": [],
+        "uploaded_files": [],
+        "timer_responses": {},
+        "saved_username": "",
+        "saved_password": "",
+        "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+    }
+
+def initialize_cache():
+    global GLOBAL_CACHE
+    default_cache = get_default_cache()
+    cache_dir = Path(CACHE_FILE).parent
     try:
-        client_mail = (response.get("client_mail") or "").strip()
-        client_name = (response.get("client_name") or client_mail.split("@")[0]).strip()
-        project_name = (response.get("project_name") or "").strip()
-        job_name = (response.get("job_name") or "").strip()
-
-        ftp_path = os.path.join(BASE_TARGET_DIR, client_name, project_name, job_name)
-
-        os.makedirs(ftp_path, exist_ok=True)
-
-        logger.info(f"Created folders:\n - {ftp_path}")
+        cache_dir.mkdir(exist_ok=True)
+        with CACHE_WRITE_LOCK:
+            with open(CACHE_FILE, "w") as f:
+                json.dump(default_cache, f, indent=2)
+            if platform.system() in ["Linux", "Darwin"]:
+                os.chmod(CACHE_FILE, 0o600)
+        GLOBAL_CACHE = default_cache
+        logger.info("Initialized empty cache file")
+        app_signals.append_log.emit("[Cache] Initialized empty cache file")
         return True
     except Exception as e:
-        logger.error(f"Failed to create folders for {client_name}: {e}")
+        logger.error(f"Error initializing cache: {e}")
+        app_signals.append_log.emit(f"[Cache] Error initializing cache: {str(e)}")
+        GLOBAL_CACHE = default_cache
         return False
 
-# === Log Window ===
+def save_cache(data):
+    global GLOBAL_CACHE
+    data_copy = data.copy()
+    data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
+    cache_dir = Path(CACHE_FILE).parent
+    try:
+        cache_dir.mkdir(exist_ok=True)
+        with CACHE_WRITE_LOCK:
+            with open(CACHE_FILE, "w") as f:
+                json.dump(data_copy, f, indent=2)
+            if platform.system() in ["Linux", "Darwin"]:
+                os.chmod(CACHE_FILE, 0o600)
+        GLOBAL_CACHE = data_copy
+        logger.info("Cache saved successfully")
+        app_signals.append_log.emit("[Cache] Cache saved successfully")
+    except Exception as e:
+        logger.error(f"Error saving cache: {e}")
+        app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
+
+def load_cache():
+    global GLOBAL_CACHE
+    default_cache = get_default_cache()
+    if GLOBAL_CACHE is not None:
+        return GLOBAL_CACHE
+    if not Path(CACHE_FILE).exists():
+        logger.warning("Cache file does not exist, initializing new cache")
+        app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
+        initialize_cache()
+        return GLOBAL_CACHE
+    try:
+        with open(CACHE_FILE, "r") as f:
+            data = json.load(f)
+        # Validate cache structure
+        required_keys = default_cache.keys()
+        if not all(key in data for key in required_keys):
+            logger.warning("Cache is missing required keys, reinitializing")
+            app_signals.append_log.emit("[Cache] Cache is missing required keys, reinitializing")
+            initialize_cache()
+            return GLOBAL_CACHE
+        # Validate cache expiration
+        cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
+        try:
+            cached_time = datetime.fromisoformat(cached_time_str)
+            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=CACHE_DAYS):
+                logger.warning("Cache is expired, reinitializing")
+                app_signals.append_log.emit("[Cache] Cache is expired, reinitializing")
+                initialize_cache()
+                return GLOBAL_CACHE
+        except ValueError as e:
+            logger.error(f"Invalid cached_at format: {e}, reinitializing cache")
+            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, reinitializing cache")
+            initialize_cache()
+            return GLOBAL_CACHE
+        # Validate token
+        token = data.get("token", "")
+        if token:
+            try:
+                resp = HTTP_SESSION.get(
+                    USER_VALIDATE_URL,
+                    headers={"Authorization": f"Bearer {token}"},
+                    verify=False,
+                    timeout=30
+                )
+                if resp.status_code != 200 or not resp.json().get("status"):
+                    logger.warning("Cached token is invalid, reinitializing cache")
+                    app_signals.append_log.emit("[Cache] Cached token is invalid, reinitializing cache")
+                    initialize_cache()
+                    return GLOBAL_CACHE
+            except Exception as e:
+                logger.error(f"Token validation failed: {e}, reinitializing cache")
+                app_signals.append_log.emit(f"[Cache] Token validation failed: {str(e)}, reinitializing cache")
+                initialize_cache()
+                return GLOBAL_CACHE
+        GLOBAL_CACHE = data
+        logger.info("Cache loaded successfully")
+        app_signals.append_log.emit("[Cache] Cache loaded successfully")
+        return GLOBAL_CACHE
+    except Exception as e:
+        logger.error(f"Error loading cache: {e}")
+        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}")
+        initialize_cache()
+        return GLOBAL_CACHE
+
+def parse_custom_url():
+    try:
+        args = sys.argv[1:]
+        logger.debug(f"Parsing custom URL from arguments: {args}")
+        app_signals.append_log.emit(f"[Init] Parsing custom URL from arguments: {args}")
+        if not args:
+            logger.info("No custom URL provided")
+            app_signals.append_log.emit("[Init] No custom URL provided")
+            return ""
+        url = args[0]
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != "myapp":
+            logger.warning(f"Invalid scheme in URL: {url}")
+            app_signals.append_log.emit(f"[Init] Invalid scheme in URL: {url}")
+            return ""
+        query_params = parse_qs(parsed_url.query)
+        key = query_params.get("key", [""])[0]
+        logger.info(f"Parsed key: {key[:8]}..." if key else "No key found")
+        app_signals.append_log.emit(f"[Init] Parsed key: {key[:8]}..." if key else "[Init] No key found")
+        return key
+    except Exception as e:
+        logger.error(f"Error parsing custom URL: {e}")
+        app_signals.append_log.emit(f"[Init] Failed to parse custom URL: {str(e)}")
+        return ""
+
+def validate_user(access_key, status_bar=None):
+    try:
+        if not access_key:
+            access_key = "e0d6aa4baffc84333faa65356d78e439"
+            logger.info("No access_key provided, using default key")
+            app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
+        logger.debug(f"Validating user with access_key: {access_key[:8]}... at {USER_VALIDATE_URL}")
+        app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
+        resp = HTTP_SESSION.get(
+            USER_VALIDATE_URL,
+            params={"key": access_key},
+            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+            verify=False,
+            timeout=30
+        )
+        app_signals.api_call_status.emit(
+            USER_VALIDATE_URL,
+            "Success" if resp.status_code == 200 else f"Failed: {resp.status_code}",
+            resp.status_code
+        )
+        app_signals.append_log.emit(f"[API Scan] User validation API response: {resp.status_code}")
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("status"):
+            raise ValueError(f"Validation failed: {result.get('message', 'Unknown error')}")
+        logger.info("User validation successful")
+        app_signals.append_log.emit("[API Scan] User validation successful")
+        return result
+    except Exception as e:
+        logger.error(f"User validation error: {e}")
+        app_signals.append_log.emit(f"[API Scan] Failed: User validation error - {str(e)}")
+        if status_bar:
+            status_bar.showMessage(f"User validation failed: {str(e)}")
+        return {"status": False, "message": str(e), "user": "", "token": ""}
+
+def create_folders_from_response(response):
+    try:
+        cache = load_cache()
+        projects = cache.get("user_data", {}).get("projects", [])
+        project_name = response.get("project_name", response.get("name", "unknown")).replace(" ", "_")
+        client_name = response.get("client_name", "").replace(" ", "_")
+        project_path = BASE_TARGET_DIR / client_name / project_name
+        project_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created project folder: {project_path}")
+        app_signals.append_log.emit(f"[Folder] Created project folder: {project_path}")
+        projects.append(response)
+        cache["user_data"] = {"projects": projects}
+        save_cache(cache)
+    except Exception as e:
+        logger.error(f"Failed to create folders: {e}")
+        app_signals.append_log.emit(f"[Folder] Failed to create folders: {str(e)}")
+
+def start_timer_api(file_path, token):
+    try:
+        response = HTTP_SESSION.post(
+            f"{BASE_DOMAIN}/api/ir_production/timer/start",
+            json={"file_path": file_path},
+            headers={"Authorization": f"Bearer {token}"},
+            verify=False,
+            timeout=30
+        )
+        app_signals.api_call_status.emit(
+            f"{BASE_DOMAIN}/api/ir_production/timer/start",
+            "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
+            response.status_code
+        )
+        app_signals.append_log.emit(f"[API Scan] Timer start API response: {response.status_code}")
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to start timer: {e}")
+        app_signals.append_log.emit(f"[API Scan] Failed to start timer: {str(e)}")
+        return None
+
+def end_timer_api(file_path, timer_response, token):
+    try:
+        response = HTTP_SESSION.post(
+            f"{BASE_DOMAIN}/api/ir_production/timer/end",
+            json={"file_path": file_path, "timer_response": timer_response},
+            headers={"Authorization": f"Bearer {token}"},
+            verify=False,
+            timeout=30
+        )
+        app_signals.api_call_status.emit(
+            f"{BASE_DOMAIN}/api/ir_production/timer/end",
+            "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
+            response.status_code
+        )
+        app_signals.append_log.emit(f"[API Scan] Timer end API response: {response.status_code}")
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to end timer: {e}")
+        app_signals.append_log.emit(f"[API Scan] Failed to end timer: {str(e)}")
+        return None
+
+def connect_to_nas():
+    if not NAS_AVAILABLE:
+        logger.warning("NAS functionality disabled")
+        app_signals.append_log.emit("[API Scan] NAS functionality disabled")
+        return None
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            transport = paramiko.Transport((NAS_IP, 22))
+            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            sftp.stat(NAS_SHARE)
+            logger.info(f"Connected to NAS at {NAS_IP}/{NAS_SHARE}")
+            app_signals.append_log.emit(f"[API Scan] Connected to NAS at {NAS_IP}/{NAS_SHARE}")
+            return (transport, sftp)
+        except paramiko.AuthenticationException as e:
+            logger.error(f"NAS authentication failed: {e}")
+            app_signals.append_log.emit(f"[API Scan] Failed: NAS authentication error - {str(e)}")
+            return None
+        except paramiko.SSHException as e:
+            logger.error(f"NAS SSH error (attempt {attempt + 1}): {e}")
+            app_signals.append_log.emit(f"[API Scan] Failed: NAS SSH error (attempt {attempt + 1}) - {str(e)}")
+            if attempt == max_retries - 1:
+                return None
+            time.sleep(2)  # Wait before retrying
+        except Exception as e:
+            logger.error(f"Failed to connect to NAS (attempt {attempt + 1}): {e}")
+            app_signals.append_log.emit(f"[API Scan] Failed: NAS connection error (attempt {attempt + 1}) - {str(e)}")
+            return None
+    return None
+
+class FileConversionWorker(QObject):
+    finished = Signal(str, str, str)
+    error = Signal(str, str)
+    progress = Signal(str, int)
+
+    def __init__(self, src_path, dest_dir):
+        super().__init__()
+        self.src_path = src_path
+        self.dest_dir = dest_dir
+
+    def run(self):
+        try:
+            img = Image.open(self.src_path)
+            filename = os.path.splitext(Path(self.src_path).name)[0]
+            jpg_path = str(Path(self.dest_dir) / f"{filename}.jpg")
+            psd_path = str(Path(self.dest_dir) / f"{filename}.psd")
+
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img.save(jpg_path, 'JPEG', quality=95)
+            self.progress.emit(jpg_path, 50)
+            img.save(psd_path, 'PSD')
+            self.progress.emit(psd_path, 75)
+
+            with open(jpg_path, 'rb') as f:
+                resp = HTTP_SESSION.post(
+                    f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+                    files={'file': f},
+                    headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+                    verify=False,
+                    timeout=30
+                )
+                app_signals.api_call_status.emit(
+                    f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+                    "Success" if resp.status_code == 200 else f"Failed: {resp.status_code}",
+                    resp.status_code
+                )
+                resp.raise_for_status()
+
+            self.progress.emit(jpg_path, 100)
+            self.finished.emit(jpg_path, psd_path, Path(self.src_path).name)
+        except Exception as e:
+            logger.error(f"File conversion error for {self.src_path}: {e}")
+            self.error.emit(str(e), Path(self.src_path).name)
+
+from PySide6.QtWidgets import QProgressDialog
+
+class FileWatcherWorker(QObject):
+    status_update = Signal(str)
+    log_update = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.processed_tasks = set()
+        self.progress_dialog = None
+
+    def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        try:
+            self.progress_dialog = QProgressDialog(f"{action_type}: {Path(src_path).name}", None, 0, 100, None)
+            self.progress_dialog.setWindowModality(Qt.WindowModal)
+            self.progress_dialog.setWindowTitle(f"{action_type} Progress")
+            self.progress_dialog.setMinimumDuration(0)
+            self.progress_dialog.setValue(0)
+            self.progress_dialog.show()
+            app_signals.append_log.emit(f"[Progress] Showing {action_type} progress for {Path(src_path).name}")
+            
+            # Simulate progress (replace with actual file transfer logic)
+            self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
+            
+        except Exception as e:
+            logger.error(f"Progress dialog error for {action_type}: {e}")
+            app_signals.append_log.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
+            if self.progress_dialog:
+                self.progress_dialog.close()
+
+    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        try:
+            # Placeholder for actual file transfer logic
+            # For downloads
+            if action_type.lower() == "download":
+                if is_nas_src:
+                    # Handle NAS download
+                    nas_connection = connect_to_nas()
+                    if nas_connection:
+                        transport, sftp = nas_connection
+                        sftp.get(src_path, dest_path)
+                        transport.close()
+                else:
+                    # Handle HTTP download
+                    response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
+                    response.raise_for_status()
+                    with open(dest_path, 'wb') as f:
+                        f.write(response.content)
+                self.progress_dialog.setValue(50)  # Update progress
+                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+                self.progress_dialog.setValue(100)
+            
+            # For uploads
+            elif action_type.lower() == "upload":
+                if is_nas_dest:
+                    # Handle NAS upload
+                    nas_connection = connect_to_nas()
+                    if nas_connection:
+                        transport, sftp = nas_connection
+                        sftp.put(src_path, dest_path)
+                        transport.close()
+                else:
+                    # Handle HTTP upload
+                    with open(src_path, 'rb') as f:
+                        response = HTTP_SESSION.post(
+                            f"{BASE_DOMAIN}/api/ir_production/upload",
+                            files={'file': f},
+                            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+                            verify=False,
+                            timeout=30
+                        )
+                        response.raise_for_status()
+                self.progress_dialog.setValue(50)  # Update progress
+                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+                self.progress_dialog.setValue(100)
+                
+            app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+            
+        except Exception as e:
+            logger.error(f"File {action_type} error: {e}")
+            app_signals.append_log.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
+            app_signals.update_file_list.emit(dest_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                
+        finally:
+            if self.progress_dialog:
+                self.progress_dialog.close()
+
+    def check_connectivity(self):
+        """Check API and NAS connectivity before processing tasks."""
+        cache = load_cache()
+        user_id = cache.get('user_id', '')
+        token = cache.get('token', '')
+        if not user_id or not token:
+            logger.error("No user_id or token found in cache for connectivity check")
+            self.log_update.emit("[API Scan] Failed: No user_id or token found in cache for connectivity check")
+            return False
+
+        # Use DOWNLOAD_UPLOAD_API as the health check endpoint
+        api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            logger.debug(f"Checking API connectivity: {api_url}")
+            self.log_update.emit(f"[API Scan] Checking API connectivity: {api_url}")
+            response = HTTP_SESSION.get(
+                api_url,
+                headers=headers,
+                verify=False,
+                timeout=10
+            )
+            app_signals.api_call_status.emit(
+                api_url,
+                "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
+                response.status_code
+            )
+            if response.status_code != 200:
+                logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
+                self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
+                return True  # Proceed anyway to attempt task processing
+            self.log_update.emit("[API Scan] API connectivity check passed")
+        except Exception as e:
+            logger.warning(f"API connectivity check failed: {str(e)}")
+            self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
+            return True  # Proceed anyway to attempt task processing
+
+        if NAS_AVAILABLE:
+            nas_connection = connect_to_nas()
+            if not nas_connection:
+                logger.warning("NAS connectivity check failed, continuing without NAS")
+                self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
+                return True  # Continue without NAS
+            nas_connection[0].close()
+        return True
+
+    def run(self):
+        global FILE_WATCHER_RUNNING, LAST_API_HIT_TIME, NEXT_API_HIT_TIME
+        if not FILE_WATCHER_RUNNING:
+            logger.info("File watcher stopped due to FILE_WATCHER_RUNNING being False")
+            self.status_update.emit("File watcher stopped")
+            self.log_update.emit("[API Scan] File watcher stopped due to FILE_WATCHER_RUNNING being False")
+            return
+        try:
+            logger.debug("Starting file watcher run")
+            self.log_update.emit("[API Scan] Starting file watcher run")
+            if not self.check_connectivity():
+                logger.warning("Connectivity check failed, will retry on next run")
+                self.status_update.emit("Connectivity check failed, will retry")
+                self.log_update.emit("[API Scan] Connectivity check failed")
+                return
+
+            self.status_update.emit("Checking for file tasks...")
+            self.log_update.emit("[API Scan] Starting file task check")
+            app_signals.append_log.emit("[API Scan] Initiating file task check")
+            LAST_API_HIT_TIME = datetime.now(ZoneInfo("UTC"))
+            NEXT_API_HIT_TIME = LAST_API_HIT_TIME + timedelta(milliseconds=API_POLL_INTERVAL)
+            app_signals.update_timer_status.emit(
+                f"Last API hit: {LAST_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Next API hit: {NEXT_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Interval: {API_POLL_INTERVAL/1000:.1f}s"
+            )
+            cache = load_cache()
+            user_id = cache.get('user_id', '')
+            token = cache.get('token', '')
+            if not user_id or not token:
+                logger.error("No user_id or token found in cache, stopping file watcher")
+                self.status_update.emit("No user_id or token found in cache")
+                self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
+                app_signals.append_log.emit("[API Scan] Failed: No user_id or token found in cache")
+                FILE_WATCHER_RUNNING = False
+                return
+            headers = {"Authorization": f"Bearer {token}"}
+            max_retries = 3
+            tasks = []
+            for attempt in range(max_retries):
+                try:
+                    api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+                    logger.debug(f"Hitting API: {api_url}")
+                    app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
+                    response = HTTP_SESSION.get(
+                        api_url,
+                        headers=headers,
+                        verify=False,
+                        timeout=60
+                    )
+                    logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
+                    app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
+                    app_signals.api_call_status.emit(
+                        api_url,
+                        "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
+                        response.status_code
+                    )
+                    if response.status_code == 401:
+                        logger.warning("Unauthorized: Token may be invalid, stopping file watcher")
+                        self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
+                        FILE_WATCHER_RUNNING = False
+                        return
+                    response.raise_for_status()
+                    tasks = response.json() if isinstance(response.json(), list) else response.json().get('data', [])
+                    self.log_update.emit(f"[API Scan] Retrieved {len(tasks)} tasks")
+                    app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
+                    break
+                except RequestException as e:
+                    logger.error(f"Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}")
+                    self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
+                    if attempt == max_retries - 1:
+                        logger.warning("Max retries reached for task fetch, will retry on next run")
+                        self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
+                        self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
+                        app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
+                        return
+
+            for item in tasks[:5]:
+                task_key = f"{item.get('file_path', '')}:{item.get('request_type', '')}"
+                if task_key in self.processed_tasks:
+                    logger.debug(f"Skipping already processed task: {task_key}")
+                    self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key}")
+                    continue
+                file_path = item.get('file_path', '')
+                file_name = item.get('file_name', Path(file_path).name)
+                action_type = item.get('request_type', '').lower()
+                is_online = 'http' in file_path.lower()
+                local_path = str(BASE_TARGET_DIR / file_name)
+
+                if action_type == "download":
+                    self.status_update.emit(f"Downloading {file_name}")
+                    self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
+                    app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
+                    # Perform download directly
+                    try:
+                        if is_online:
+                            response = HTTP_SESSION.get(file_path, verify=False, timeout=30)
+                            response.raise_for_status()
+                            with open(local_path, 'wb') as f:
+                                f.write(response.content)
+                        else:
+                            nas_connection = connect_to_nas()
+                            if nas_connection:
+                                transport, sftp = nas_connection
+                                sftp.get(file_path, local_path)
+                                transport.close()
+                            else:
+                                raise Exception("NAS connection failed")
+                        app_signals.update_file_list.emit(local_path, "Download Completed", "download", 100, not is_online)
+                        cache = load_cache()
+                        cache["downloaded_files"].append(local_path)
+                        timer_response = start_timer_api(file_path, cache["token"])
+                        if timer_response:
+                            cache["timer_responses"][local_path] = timer_response
+                        save_cache(cache)
+                        self.status_update.emit(f"Downloaded {file_name}")
+                        self.log_update.emit(f"[API Scan] Downloaded {file_name}")
+                        app_signals.append_log.emit(f"[API Scan] Download completed: {file_name}")
+                        if not is_online:
+                            self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
+                        self.processed_tasks.add(task_key)
+                    except Exception as e:
+                        logger.error(f"Download error for {file_name}: {e}")
+                        app_signals.append_log.emit(f"[API Scan] Failed: Download error for {file_name} - {str(e)}")
+                        app_signals.update_file_list.emit(local_path, f"Download Failed: {str(e)}", "download", 0, not is_online)
+
+                elif action_type == "upload" and Path(local_path).exists():
+                    self.status_update.emit(f"Uploading {file_name}")
+                    self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
+                    app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
+                    # Perform upload directly
+                    try:
+                        if is_online:
+                            with open(local_path, 'rb') as f:
+                                response = HTTP_SESSION.post(
+                                    f"{BASE_DOMAIN}/api/ir_production/upload",
+                                    files={'file': f},
+                                    headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+                                    verify=False,
+                                    timeout=30
+                                )
+                                response.raise_for_status()
+                        else:
+                            nas_connection = connect_to_nas()
+                            if nas_connection:
+                                transport, sftp = nas_connection
+                                sftp.put(local_path, file_path)
+                                transport.close()
+                            else:
+                                raise Exception("NAS connection failed")
+                        app_signals.update_file_list.emit(file_path, "Upload Completed", "upload", 100, False)
+                        cache = load_cache()
+                        cache["uploaded_files"].append(file_path)
+                        timer_response = cache.get("timer_responses", {}).get(local_path)
+                        if timer_response:
+                            end_timer_api(file_path, timer_response, cache["token"])
+                        save_cache(cache)
+                        self.status_update.emit(f"Uploaded {file_name}")
+                        self.log_update.emit(f"[API Scan] Uploaded {file_name}")
+                        app_signals.append_log.emit(f"[API Scan] Upload completed: {file_name}")
+                        self.processed_tasks.add(task_key)
+                    except Exception as e:
+                        logger.error(f"Upload error for {file_name}: {e}")
+                        app_signals.append_log.emit(f"[API Scan] Failed: Upload error for {file_name} - {str(e)}")
+                        app_signals.update_file_list.emit(file_path, f"Upload Failed: {str(e)}", "upload", 0, False)
+                self.status_update.emit("File tasks check completed")
+                self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks[:5])} tasks")
+                app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks[:5])} tasks")
+        except Exception as e:
+            logger.error(f"Error processing tasks: {e}")
+            self.status_update.emit(f"Error processing tasks: {str(e)}")
+            self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
+            app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+
 class LogWindow(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Log Window")
+        self.setWindowTitle("PremediaApp Log")
+        self.setWindowIcon(load_icon(ICON_PATH, "log window"))
+        self.setMinimumSize(700, 400)
         self.resize(700, 400)
-        self.setWindowIcon(QIcon("pm.png"))
         self.text_edit = QTextEdit(self)
         self.text_edit.setReadOnly(True)
-        from PySide6.QtWidgets import QVBoxLayout
+        self.status_bar = QStatusBar(self)
         layout = QVBoxLayout()
         layout.addWidget(self.text_edit)
+        layout.addWidget(self.status_bar)
         self.setLayout(layout)
         self.load_logs()
+        app_signals.append_log.connect(self.append_log, Qt.QueuedConnection)
+        app_signals.api_call_status.connect(self.append_api_status, Qt.QueuedConnection)
+        app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
+        app_signals.update_timer_status.connect(self.update_timer_status, Qt.QueuedConnection)
+        logger.info("LogWindow initialized")
+        app_signals.append_log.emit("[Log] LogWindow initialized")
 
     def load_logs(self):
         try:
-            with open("log/app.log", "r") as f:
-                self.text_edit.setPlainText(f.read())
-            self.text_edit.moveCursor(QTextCursor.End)
+            log_file = log_dir / "app.log"
+            if log_file.exists():
+                with log_file.open("r") as f:
+                    lines = f.readlines()
+                self.text_edit.setPlainText("".join(lines[-200:]))
+                self.text_edit.moveCursor(QTextCursor.End)
+                self.status_bar.showMessage("Logs loaded")
+                app_signals.append_log.emit("[Log] Loaded existing logs from app.log")
+            else:
+                self.status_bar.showMessage("No log file found")
+                app_signals.append_log.emit("[Log] No log file found, starting fresh")
         except Exception as e:
+            logger.error(f"Failed to load logs: {e}")
             self.text_edit.setPlainText(f"Failed to load logs: {e}")
+            self.status_bar.showMessage(f"Failed to load logs: {str(e)}")
+            app_signals.append_log.emit(f"[Log] Failed to load logs: {str(e)}")
 
-# === Login Dialog ===
-class LoginDialog(QDialog):
-    def __init__(self, tray_icon):
+    def append_log(self, message):
+        try:
+            if "[API Scan]" in message:
+                self.text_edit.append(f"<b>{message}</b>")
+            else:
+                self.text_edit.append(message)
+            lines = self.text_edit.toPlainText().splitlines()
+            if len(lines) > 200:
+                self.text_edit.setPlainText("\n".join(lines[-200:]))
+            self.text_edit.moveCursor(QTextCursor.End)
+            self.text_edit.ensureCursorVisible()
+            QApplication.processEvents()
+        except Exception as e:
+            logger.error(f"Failed to append log: {e}")
+            app_signals.append_log.emit(f"[Log] Failed to append log: {str(e)}")
+
+    def append_api_status(self, endpoint, status, status_code):
+        try:
+            log_msg = f"[API Scan] API Call: {endpoint} | Status: {status} | Code: {status_code}"
+            self.text_edit.append(f"<b>{log_msg}</b>")
+            lines = self.text_edit.toPlainText().splitlines()
+            if len(lines) > 200:
+                self.text_edit.setPlainText("\n".join(lines[-200:]))
+            self.text_edit.moveCursor(QTextCursor.End)
+            self.text_edit.ensureCursorVisible()
+            QApplication.processEvents()
+            app_signals.append_log.emit(log_msg)
+        except Exception as e:
+            logger.error(f"Failed to append API status: {e}")
+            app_signals.append_log.emit(f"[Log] Failed to append API status: {str(e)}")
+
+    def update_timer_status(self, message):
+        try:
+            self.status_bar.showMessage(message)
+            app_signals.append_log.emit(f"[Timer] {message}")
+        except Exception as e:
+            logger.error(f"Failed to update timer status: {e}")
+            app_signals.append_log.emit(f"[Timer] Failed to update timer status: {str(e)}")
+
+    def closeEvent(self, event):
+        try:
+            app_signals.append_log.disconnect(self.append_log)
+            app_signals.api_call_status.disconnect(self.append_api_status)
+            app_signals.update_status.disconnect(self.status_bar.showMessage)
+            app_signals.update_timer_status.disconnect(self.update_timer_status)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+class FileListWindow(QDialog):
+    def __init__(self, file_type):
         super().__init__()
-        self.ui = Ui_Dialog()
-        self.ui.setupUi(self)
-        self.setWindowIcon(QIcon("pm.png"))
-        self.setWindowTitle("PremediaApp Login")
+        self.file_type = file_type.lower()
+        self.setWindowTitle(f"{file_type.capitalize()} Files")
+        self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
+        self.setMinimumSize(800, 400)
+        self.resize(800, 400)
+
+        self.table = QTableWidget(self)
+        self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
+        headers = ["File Path", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        if self.file_type == "downloaded":
+            headers.insert(3, "Source")
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.table)
+        self.setLayout(layout)
+
+        self.load_files()
+        app_signals.update_file_list.connect(self.update_file_list, Qt.QueuedConnection)
+        app_signals.append_log.emit(f"[Files] {file_type} window initialized")
+
+    def load_files(self):
+        cache = load_cache()
+        files = cache.get(f"{self.file_type}_files", [])
+        self.table.setRowCount(len(files))
+        for row, file_path in enumerate(files):
+            path_item = QTableWidgetItem(file_path)
+            self.table.setItem(row, 0, path_item)
+
+            folder_btn = QPushButton()
+            folder_btn.setIcon(load_icon(ICON_PATH, "folder"))
+            folder_btn.setIconSize(QSize(24, 24))
+            folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
+            self.table.setCellWidget(row, 1, folder_btn)
+
+            photoshop_btn = QPushButton()
+            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+            photoshop_btn.setIconSize(QSize(24, 24))
+            photoshop_btn.clicked.connect(lambda _, p=file_path: self.parent().open_with_photoshop(p))
+            self.table.setCellWidget(row, 2, photoshop_btn)
+
+            if self.file_type == "downloaded":
+                source_item = QTableWidgetItem("Unknown")
+                self.table.setItem(row, 3, source_item)
+                status_col = 4
+                progress_col = 5
+            else:
+                status_col = 3
+                progress_col = 4
+
+            status_item = QTableWidgetItem("Completed")
+            self.table.setItem(row, status_col, status_item)
+            self.table.setCellWidget(row, progress_col, QWidget())
+
+        self.table.resizeColumnsToContents()
+        app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
+
+    def open_folder(self, file_path):
+        try:
+            folder_path = str(Path(file_path).parent)
+            system = platform.system()
+            if system == "Windows":
+                subprocess.run(["explorer", folder_path], check=True)
+            elif system == "Darwin":
+                subprocess.run(["open", folder_path], check=True)
+            elif system == "Linux":
+                subprocess.run(["xdg-open", folder_path], check=True)
+            else:
+                logger.warning(f"Unsupported platform for opening folder: {system}")
+                app_signals.append_log.emit(f"[Folder] Unsupported platform for opening folder: {system}")
+            app_signals.update_status.emit(f"Opened folder for {Path(file_path).name}")
+            app_signals.append_log.emit(f"[Folder] Opened folder for {Path(file_path).name}")
+        except Exception as e:
+            logger.error(f"Failed to open folder {file_path}: {e}")
+            app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}")
+            app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
+
+    def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+        if action_type != self.file_type:
+            return
+        try:
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == file_path:
+                    status_col = 4 if self.file_type == "downloaded" else 3
+                    progress_col = 5 if self.file_type == "downloaded" else 4
+                    self.table.item(row, status_col).setText(status)
+                    if progress == 100:
+                        self.table.setCellWidget(row, progress_col, QWidget())
+                    else:
+                        progress_bar = self.table.cellWidget(row, progress_col)
+                        if not progress_bar or isinstance(progress_bar, QWidget):
+                            progress_bar = QProgressBar(self)
+                            progress_bar.setMinimum(0)
+                            progress_bar.setMaximum(100)
+                            progress_bar.setFixedHeight(20)
+                            self.table.setCellWidget(row, progress_col, progress_bar)
+                        progress_bar.setValue(progress)
+                    if self.file_type == "downloaded":
+                        self.table.item(row, 3).setText("NAS" if is_nas_src else "DOMAIN")
+                    self.table.resizeColumnsToContents()
+                    app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+                    return
+
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+
+            path_item = QTableWidgetItem(file_path)
+            self.table.setItem(row, 0, path_item)
+
+            folder_btn = QPushButton()
+            folder_btn.setIcon(load_icon(ICON_PATH, "folder"))
+            folder_btn.setIconSize(QSize(24, 24))
+            folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
+            self.table.setCellWidget(row, 1, folder_btn)
+
+            photoshop_btn = QPushButton()
+            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+            photoshop_btn.setIconSize(QSize(24, 24))
+            photoshop_btn.clicked.connect(lambda _, p=file_path: self.parent().open_with_photoshop(p))
+            self.table.setCellWidget(row, 2, photoshop_btn)
+
+            if self.file_type == "downloaded":
+                source_item = QTableWidgetItem("NAS" if is_nas_src else "DOMAIN")
+                self.table.setItem(row, 3, source_item)
+                status_col = 4
+                progress_col = 5
+            else:
+                status_col = 3
+                progress_col = 4
+
+            status_item = QTableWidgetItem(status)
+            self.table.setItem(row, status_col, status_item)
+
+            if progress == 100:
+                self.table.setCellWidget(row, progress_col, QWidget())
+            else:
+                progress_bar = QProgressBar(self)
+                progress_bar.setMinimum(0)
+                progress_bar.setMaximum(100)
+                progress_bar.setValue(progress)
+                progress_bar.setFixedHeight(20)
+                self.table.setCellWidget(row, progress_col, progress_bar)
+
+            self.table.resizeColumnsToContents()
+            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list")
+        except Exception as e:
+            logger.error(f"Error updating file list: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+
+class LoginWorker(QObject):
+    success = Signal(dict)
+    failure = Signal(str)
+
+    def __init__(self, username, password, remember_me, status_bar=None, tray_icon=None):
+        super().__init__()
+        self.username = username
+        self.password = password
+        self.rememberme = remember_me
+        self.status_bar = status_bar
         self.tray_icon = tray_icon
 
-        # Disconnect default accepted/rejected behavior to prevent auto close on accept
-        self.ui.buttonBox.accepted.disconnect()
-        self.ui.buttonBox.rejected.disconnect()
-
-        # Connect custom handlers
-        self.ui.buttonBox.accepted.connect(self.handle_login)
-        self.ui.buttonBox.rejected.connect(self.reject)
-
-        self.progress = None
-
-    def show_progress(self, message):
-        self.progress = QProgressDialog(message, None, 0, 0, self)
-        self.progress.setWindowModality(Qt.WindowModal)
-        self.progress.setCancelButton(None)
-        self.progress.setMinimumDuration(0)
-        self.progress.setWindowTitle("Please wait")
-        self.progress.show()
-
-    def handle_login(self):
-        username = self.ui.usernametxt.toPlainText().strip()
-        password = self.ui.passwordtxt.toPlainText().strip()
-
-        if not username or not password:
-            QMessageBox.warning(self, "Input Error", "Please enter both username and password.")
-            return
-
-        self.show_progress("Validating credentials...")
-        QTimer.singleShot(100, lambda: self.perform_login(username, password))
-
-    def perform_login(self, username, password):
+    def run(self):
         try:
-            token_resp = requests.post(
-                "https://app-uat.vmgpremedia.com/oauth/token",
+            logger.debug("Starting LoginWorker.run")
+            app_signals.append_log.emit("[Login] Starting LoginWorker.run")
+            token_resp = HTTP_SESSION.post(
+                OAUTH_URL,
                 data={
                     "grant_type": "password",
-                    "username": username,
-                    "password": password,
+                    "username": self.username,
+                    "password": self.password,
                     "client_id": "hZBc4VyhUSQgZobyjdVH7ZPk4WRey2BIjqws_UxF5cM",
                     "client_secret": "crazy-cloud",
                     "scope": "pm_client"
-                }, verify=False)
+                },
+                verify=False,
+                timeout=30
+            )
+            app_signals.api_call_status.emit(
+                OAUTH_URL,
+                "Success" if token_resp.status_code == 200 else f"Failed: {token_resp.status_code}",
+                token_resp.status_code
+            )
+            app_signals.append_log.emit(f"[Login] Login token API response: {token_resp.status_code}")
             token_resp.raise_for_status()
             access_token = token_resp.json().get("access_token")
             if not access_token:
                 raise Exception("No access token received")
 
-            info_resp = requests.get(
-                f"https://app-uat.vmgpremedia.com/api/user/getinfo?emailid={username}",
-                headers={"Authorization": f"Bearer {access_token}"}, verify=False)
+            info_resp = HTTP_SESSION.get(
+                f"{BASE_DOMAIN}/api/user/getinfo?emailid={self.username}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                verify=False,
+                timeout=30
+            )
+            app_signals.api_call_status.emit(
+                f"{BASE_DOMAIN}/api/user/getinfo?emailid={self.username}",
+                "Success" if info_resp.status_code == 200 else f"Failed: {info_resp.status_code}",
+                info_resp.status_code
+            )
+            app_signals.append_log.emit(f"[Login] User info API response: {info_resp.status_code}")
             info_resp.raise_for_status()
             user_info = info_resp.json()
 
-            user_resp = requests.get(
-                f"https://app-uat.vmgpremedia.com/jsonapi/user/user?filter[name]={username}",
-                headers={"Authorization": f"Bearer {access_token}"}, verify=False)
+            user_resp = HTTP_SESSION.get(
+                f"{BASE_DOMAIN}/jsonapi/user/user?filter[name]={self.username}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                verify=False,
+                timeout=30
+            )
+            app_signals.api_call_status.emit(
+                f"{BASE_DOMAIN}/jsonapi/user/user?filter[name]={self.username}",
+                "Success" if user_resp.status_code == 200 else f"Failed: {user_resp.status_code}",
+                user_resp.status_code
+            )
+            app_signals.append_log.emit(f"[Login] User data API response: {user_resp.status_code}")
             user_resp.raise_for_status()
+            user_data = user_resp.json()
 
-            project_resp = requests.get(API_URL, verify=False, timeout=60)
-            if project_resp.status_code == 200 and isinstance(project_resp.json(), list):
-                for item in project_resp.json():
-                    create_folders_from_response(item)
-
-            self.progress.close()
-            self.tray_icon.show()
-
-            # *** Only hide the login dialog here on success ***
-            self.hide()
-
-            QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
-
+            cache = load_cache()
+            cache_data = {
+                "token": access_token,
+                "user": self.username,
+                "user_id": user_info.get('uid', ''),
+                "user_info": user_info,
+                "info_resp": user_info,
+                "user_data": user_data,
+                "data": self.username,
+                "downloaded_files": cache.get("downloaded_files", []),
+                "uploaded_files": cache.get("uploaded_files", []),
+                "timer_responses": cache.get("timer_responses", {}),
+                "saved_username": self.username if self.rememberme else cache.get("saved_username", ""),
+                "saved_password": self.password if self.rememberme else cache.get("saved_password", ""),
+                "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+            }
+            save_cache(cache_data)
+            self.success.emit(user_info)
+            app_signals.append_log.emit(f"[Login] Successful login for user: {self.username}")
         except Exception as e:
             logger.error(f"Login error: {e}")
+            self.failure.emit(str(e))
+            app_signals.append_log.emit(f"[Login] Failed: Login error - {str(e)}")
+
+class LoginDialog(QDialog, Ui_Dialog):
+    def __init__(self, tray_icon, on_success_callback=None):
+        super().__init__()
+        self.setupUi(self)
+        self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
+        self.setWindowTitle("PremediaApp Login")
+        self.tray_icon = tray_icon
+        self.on_success_callback = on_success_callback
+        self.status_bar = QStatusBar(self)
+
+        layout = QVBoxLayout()
+        for widget in [self.usernametxt, self.passwordtxt, self.rememberme, self.buttonBox]:
+            if widget:
+                layout.addWidget(widget)
+        layout.addWidget(self.status_bar)
+        self.setLayout(layout)
+
+        self.setMinimumSize(400, 300)
+        self.resize(400, 300)
+        try:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        except NameError as e:
+            logger.warning(f"QSizePolicy not available: {e}")
+            app_signals.append_log.emit(f"[Init] QSizePolicy not available: {str(e)}")
+
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+
+        cache = load_cache()
+        if cache.get("saved_username") and cache.get("saved_password"):
+            self.usernametxt.setText(cache["saved_username"])
+            self.passwordtxt.setText(cache["saved_password"])
+            self.rememberme.setChecked(True)
+            self.status_bar.showMessage("Credentials loaded")
+            app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+        else:
+            app_signals.append_log.emit("[Login] No saved credentials found in cache")
+
+        # Disconnect existing connections to prevent duplicates
+        try:
+            self.buttonBox.accepted.disconnect()
+            self.buttonBox.rejected.disconnect()
+        except Exception:
+            pass
+
+        self.buttonBox.accepted.connect(self.handle_login)
+        self.buttonBox.rejected.connect(self.reject)
+        self.progress = None
+        logger.debug(f"LoginDialog initialized with widgets: usernametxt={self.usernametxt}, passwordtxt={self.passwordtxt}, rememberme={self.rememberme}, buttonBox={self.buttonBox}")
+        app_signals.append_log.emit("[Login] Initializing LoginDialog")
+
+    def show_progress(self, message):
+        try:
+            self.progress = QProgressDialog(message, None, 0, 0, self)
+            self.progress.setWindowModality(Qt.WindowModal)
+            self.progress.setCancelButton(None)
+            self.progress.setMinimumDuration(0)
+            self.progress.setWindowTitle("Please wait")
+            self.progress.setWindowIcon(load_icon(ICON_PATH, "progress dialog"))
+            self.progress.show()
+            app_signals.append_log.emit(f"[Login] Showing progress: {message}")
+        except Exception as e:
+            logger.error(f"Progress dialog error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Progress dialog error - {str(e)}")
+
+    def handle_login(self):
+        try:
+            username = self.usernametxt.text().strip()
+            password = self.passwordtxt.text().strip()
+            logger.debug(f"Login attempt with username: {username}, rememberme: {self.rememberme.isChecked()}")
+            app_signals.append_log.emit(f"[Login] Attempting login with username: {username}")
+            if not username or not password:
+                QMessageBox.warning(self, "Input Error", "Please enter both username and password.")
+                self.status_bar.showMessage("Login failed: Missing credentials")
+                app_signals.append_log.emit("[Login] Failed: Missing username or password")
+                return
+            self.show_progress("Validating credentials...")
+            self.perform_login(username, password)
+            logger.info("Login process started")
+            app_signals.append_log.emit("[Login] Login process started")
+        except Exception as e:
+            logger.error(f"Error in handle_login: {e}")
+            self.status_bar.showMessage(f"Login error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Handle login error - {str(e)}")
+
+    def perform_login(self, username, password):
+        try:
+            self.thread = QThread()
+            self.worker = LoginWorker(username, password, self.rememberme.isChecked(), self.status_bar, self.tray_icon)
+            self.worker.moveToThread(self.thread)
+            self.thread.started.connect(self.worker.run)
+            self.worker.success.connect(self.on_login_success)
+            self.worker.failure.connect(self.on_login_failure)
+            self.worker.success.connect(self.thread.quit)
+            self.worker.failure.connect(self.thread.quit)
+            self.worker.success.connect(self.worker.deleteLater)
+            self.worker.failure.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+            app_signals.append_log.emit(f"[Login] Starting login thread for user: {username}")
+        except Exception as e:
+            logger.error(f"Login thread error: {e}")
+            self.status_bar.showMessage(f"Login thread error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Login thread error - {str(e)}")
             if self.progress:
                 self.progress.close()
-            QMessageBox.critical(self, "Login Failed", f"{e}")
-            # Keep dialog open for retry (do NOT close/hide it here)
 
-# === Main ===
+    def on_login_success(self, user_info):
+        try:
+            if self.progress:
+                self.progress.close()
+            if self.tray_icon:
+                self.tray_icon.show()
+            self.accept()
+            QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
+            self.status_bar.showMessage(f"Logged in as {user_info.get('uid', 'Unknown')}")
+            app_signals.append_log.emit(f"[Login] Login successful for user: {user_info.get('uid', 'Unknown')}")
+            if self.on_success_callback:
+                self.on_success_callback()
+        except Exception as e:
+            logger.error(f"Error in on_login_success: {e}")
+            self.status_bar.showMessage(f"Login success handling error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Login success handling error - {str(e)}")
+
+    def on_login_failure(self, error_msg):
+        try:
+            if self.progress:
+                self.progress.close()
+            QMessageBox.critical(self, "Login Failed", error_msg)
+            self.status_bar.showMessage(f"Login failed: {error_msg}")
+            app_signals.append_log.emit(f"[Login] Failed: Login error - {error_msg}")
+        except Exception as e:
+            logger.error(f"Error in on_login_failure: {e}")
+            self.status_bar.showMessage(f"Login failure handling error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Login failure handling error - {str(e)}")
+
+    def closeEvent(self, event):
+        try:
+            app_signals.update_status.disconnect(self.status_bar.showMessage)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
 class PremediaApp:
-    def __init__(self):
-        self.app = QApplication(sys.argv)
-        self.app.setQuitOnLastWindowClosed(False)
-        self.tray_icon = QSystemTrayIcon(QIcon("pm.png"))
-        self.tray_icon.setToolTip("PremediaApp")
+    def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
+        try:
+            self.app = QApplication.instance() or QApplication(sys.argv)
+            self.app.setQuitOnLastWindowClosed(False)
+            self.app.setWindowIcon(load_icon(ICON_PATH, "application"))
+            self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray")) if QSystemTrayIcon.isSystemTrayAvailable() else None
+            if self.tray_icon:
+                self.tray_icon.setToolTip("PremediaApp")
+                self.tray_icon.show()
+                logger.info(f"System tray icon initialized, available: {QSystemTrayIcon.isSystemTrayAvailable()}")
+                app_signals.append_log.emit(f"[Init] System tray icon initialized, available: {QSystemTrayIcon.isSystemTrayAvailable()}")
 
-        self.log_window = LogWindow()
-        self.login_dialog = LoginDialog(self.tray_icon)
+            self.logged_in = False
+            load_cache()
 
-        tray_menu = QMenu()
-        self.logout_action = QAction("Logout")
-        self.quit_action = QAction("Quit")
-        self.log_action = QAction("View Log Window")
+            tray_menu = QMenu()
+            self.login_action = QAction("Login")
+            self.logout_action = QAction("Logout")
+            self.quit_action = QAction("Quit")
+            self.log_action = QAction("View Log Window")
+            self.downloaded_files_action = QAction("Downloaded Files")
+            self.uploaded_files_action = QAction("Uploaded Files")
+            self.clear_cache_action = QAction("Clear Cache")
+            self.open_cache_action = QAction("Open Cache File")  # New action
+            tray_menu.addAction(self.log_action)
+            tray_menu.addAction(self.downloaded_files_action)
+            tray_menu.addAction(self.uploaded_files_action)
+            tray_menu.addAction(self.open_cache_action)  # Add to menu
+            tray_menu.addAction(self.login_action)
+            tray_menu.addAction(self.clear_cache_action)
+            tray_menu.addAction(self.quit_action)
+            if self.tray_icon:
+                self.tray_icon.setContextMenu(tray_menu)
 
-        tray_menu.addAction(self.log_action)
-        tray_menu.addAction(self.logout_action)
-        tray_menu.addAction(self.quit_action)
-        self.tray_icon.setContextMenu(tray_menu)
+            self.login_action.triggered.connect(self.show_login)
+            self.logout_action.triggered.connect(self.logout)
+            self.quit_action.triggered.connect(self.quit)
+            self.log_action.triggered.connect(self.show_logs)
+            self.downloaded_files_action.triggered.connect(self.show_downloaded_files)
+            self.uploaded_files_action.triggered.connect(self.show_uploaded_files)
+            self.clear_cache_action.triggered.connect(self.clear_cache)
+            self.open_cache_action.triggered.connect(self.open_cache_file)  # Connect new action
 
-        self.logout_action.triggered.connect(self.logout)
-        self.quit_action.triggered.connect(self.quit)
-        self.log_action.triggered.connect(self.show_logs)
+            self.log_window = LogWindow()
+            self.downloaded_files_window = None
+            self.uploaded_files_window = None
+            try:
+                self.login_dialog = LoginDialog(self.tray_icon, self.post_login_processes)
+            except Exception as e:
+                logger.error(f"Failed to initialize LoginDialog: {e}")
+                app_signals.append_log.emit(f"[Init] Failed to initialize LoginDialog: {str(e)}")
+                self.login_dialog = None
+                QMessageBox.critical(None, "Initialization Error", f"Failed to initialize login dialog: {str(e)}")
+                return
 
-        self.tray_icon.show()
-        self.login_dialog.show()
+            try:
+                app_signals.update_status.disconnect(self.log_window.status_bar.showMessage)
+            except Exception:
+                pass
+
+            app_signals.update_status.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
+            setup_logger(self.log_window)
+
+            if not log_thread.is_alive():
+                log_thread.start()
+
+            logger.debug(f"Initializing with key: {key[:8]}...")
+            app_signals.append_log.emit(f"[Init] Initializing with key: {key[:8]}...")
+            cache = load_cache()
+            logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
+            app_signals.append_log.emit(f"[Init] Cache contents: {json.dumps(cache, indent=2)}")
+
+            # Auto-login logic remains unchanged
+            if cache.get("token") and cache.get("user") and cache.get("user_id") and not self.logged_in:
+                logger.debug("Attempting auto-login with cached credentials")
+                app_signals.append_log.emit("[Init] Attempting auto-login with cached credentials")
+                validation_result = validate_user(key, self.login_dialog.status_bar if self.login_dialog else None)
+                if validation_result.get("status") and validation_result.get("user"):
+                    try:
+                        info_resp = HTTP_SESSION.get(
+                            f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
+                            headers={"Authorization": f"Bearer {cache.get('token')}"},
+                            verify=False,
+                            timeout=30
+                        )
+                        app_signals.api_call_status.emit(
+                            f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
+                            "Success" if info_resp.status_code == 200 else f"Failed: {info_resp.status_code}",
+                            info_resp.status_code
+                        )
+                        app_signals.append_log.emit(f"[Init] User info API response: {info_resp.status_code}")
+                        info_resp.raise_for_status()
+                        user_info = info_resp.json()
+                        cache_data = {
+                            "token": cache.get("token", ""),
+                            "user": cache.get("user", ""),
+                            "user_id": user_info.get("uid", cache.get("user_id", "")),
+                            "user_info": user_info,
+                            "info_resp": validation_result,
+                            "user_data": cache.get("user_data", {}),
+                            "data": key,
+                            "downloaded_files": cache.get("downloaded_files", []),
+                            "uploaded_files": cache.get("uploaded_files", []),
+                            "timer_responses": cache.get("timer_responses", {}),
+                            "saved_username": cache.get("saved_username", ""),
+                            "saved_password": cache.get("saved_password", ""),
+                            "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+                        }
+                        save_cache(cache_data)
+                        self.set_logged_in_state()
+                        self.post_login_processes()
+                        if self.tray_icon:
+                            self.tray_icon.show()
+                        self.show_logs()
+                        app_signals.append_log.emit("[Init] Auto-login successful with cached credentials")
+                    except Exception as e:
+                        logger.error(f"Auto-login failed during user info fetch: {e}")
+                        app_signals.append_log.emit(f"[Init] Auto-login failed during user info fetch: {str(e)}")
+                        if self.login_dialog:
+                            self.login_dialog.show()
+                        self.set_logged_out_state()
+                else:
+                    logger.warning(f"Auto-login failed: {validation_result.get('message', 'Unknown error')}")
+                    app_signals.append_log.emit(f"[Init] Auto-login failed: {validation_result.get('message', 'Unknown error')}")
+                    if self.login_dialog:
+                        self.login_dialog.show()
+                    self.set_logged_out_state()
+            else:
+                logger.debug("No valid cached credentials or already logged in, showing login dialog")
+                app_signals.append_log.emit("[Init] No valid cached credentials or already logged in, showing login dialog")
+                if self.login_dialog:
+                    self.login_dialog.show()
+                self.set_logged_out_state()
+            logger.info("PremediaApp initialized")
+            app_signals.append_log.emit("[Init] PremediaApp initialized")
+        except Exception as e:
+            logger.error(f"Initialization error: {e}")
+            app_signals.append_log.emit(f"[Init] Failed: Initialization error - {str(e)}")
+            if self.login_dialog:
+                app_signals.update_status.emit(f"Initialization error: {str(e)}")
+                self.login_dialog.show()
+            else:
+                QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
+            self.set_logged_out_state()
+
+    def open_cache_file(self):
+        try:
+            cache_file = Path(CACHE_FILE)
+            if not cache_file.exists():
+                logger.warning("Cache file does not exist")
+                app_signals.append_log.emit("[Cache] Cache file does not exist")
+                QMessageBox.warning(None, "Cache Error", "Cache file does not exist.")
+                return
+            system = platform.system()
+            if system == "Windows":
+                subprocess.run(["notepad", str(cache_file)], check=True)
+            elif system == "Darwin":
+                subprocess.run(["open", "-t", str(cache_file)], check=True)
+            elif system == "Linux":
+                subprocess.run(["xdg-open", str(cache_file)], check=True)
+            else:
+                logger.warning(f"Unsupported platform for opening cache file: {system}")
+                app_signals.append_log.emit(f"[Cache] Unsupported platform for opening cache file: {system}")
+                QMessageBox.warning(None, "Platform Error", f"Unsupported platform: {system}")
+                return
+            app_signals.update_status.emit("Opened cache file")
+            app_signals.append_log.emit(f"[Cache] Opened cache file: {cache_file}")
+        except Exception as e:
+            logger.error(f"Error opening cache file: {e}")
+            app_signals.append_log.emit(f"[Cache] Failed: Error opening cache file - {str(e)}")
+            QMessageBox.critical(None, "Cache Error", f"Failed to open cache file: {str(e)}")
+
+    def clear_cache(self):
+        global GLOBAL_CACHE
+        try:
+            initialize_cache()
+            GLOBAL_CACHE = None
+            app_signals.append_log.emit("[Cache] Cache cleared manually")
+            logger.info("Cache cleared manually")
+            self.login_dialog.show()
+            self.set_logged_out_state()
+            app_signals.append_log.emit("[Cache] Showing login dialog after cache clear")
+        except Exception as e:
+            logger.error(f"Error clearing cache: {e}")
+            app_signals.append_log.emit(f"[Cache] Failed: Error clearing cache - {str(e)}")
+
+    def set_logged_in_state(self):
+        try:
+            self.logged_in = True
+            if self.tray_icon:
+                self.tray_icon.contextMenu().removeAction(self.login_action)
+                self.tray_icon.contextMenu().insertAction(self.quit_action, self.logout_action)
+            logger.info("Set logged in state")
+            app_signals.append_log.emit("[State] Set to logged-in state")
+        except Exception as e:
+            logger.error(f"Error in set_logged_in_state: {e}")
+            app_signals.append_log.emit(f"[State] Failed: Error setting logged-in state - {str(e)}")
+
+    def set_logged_out_state(self):
+        try:
+            self.logged_in = False
+            if self.tray_icon:
+                self.tray_icon.contextMenu().removeAction(self.logout_action)
+                self.tray_icon.contextMenu().insertAction(self.quit_action, self.login_action)
+            logger.info("Set logged out state")
+            app_signals.append_log.emit("[State] Set to logged-out state")
+        except Exception as e:
+            logger.error(f"Error in set_logged_out_state: {e}")
+            app_signals.append_log.emit(f"[State] Failed: Error setting logged-out state - {str(e)}")
+
+    def show_login(self):
+        try:
+            if not self.logged_in:
+                self.login_dialog.show()
+                app_signals.update_status.emit("Login dialog opened")
+                app_signals.append_log.emit("[Login] Login dialog opened")
+            else:
+                app_signals.update_status.emit("Already logged in")
+                app_signals.append_log.emit("[Login] Already logged in")
+        except Exception as e:
+            logger.error(f"Error in show_login: {e}")
+            app_signals.update_status.emit(f"Error opening login dialog: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Error opening login dialog - {str(e)}")
 
     def logout(self):
-        self.login_dialog.show()
-        QMessageBox.information(None, "Logged Out", "You have been logged out.")
+        global GLOBAL_CACHE, FILE_WATCHER_RUNNING
+        try:
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                self.poll_timer.stop()
+                FILE_WATCHER_RUNNING = False
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait()
+            initialize_cache()
+            GLOBAL_CACHE = None
+            self.set_logged_out_state()
+            self.login_dialog.show()
+            QMessageBox.information(None, "Logged Out", "You have been logged out.")
+            app_signals.update_status.emit("Logged out")
+            app_signals.append_log.emit("[Login] Logged out successfully")
+        except Exception as e:
+            logger.error(f"Error in logout: {e}")
+            app_signals.update_status.emit(f"Logout error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
 
     def quit(self):
-        self.tray_icon.hide()
-        sys.exit()
+        global HTTP_SESSION, FILE_WATCHER_RUNNING
+        try:
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                self.poll_timer.stop()
+                FILE_WATCHER_RUNNING = False
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait()
+            if self.tray_icon:
+                self.tray_icon.hide()
+            HTTP_SESSION.close()
+            stop_logging()
+            app_signals.update_status.emit("Application quitting")
+            app_signals.append_log.emit("[App] Application quitting")
+            logger.info("Application quitting")
+            self.app.quit()
+        except Exception as e:
+            logger.error(f"Error in quit: {e}")
+            app_signals.update_status.emit(f"Quit error: {str(e)}")
+            app_signals.append_log.emit(f"[App] Failed: Quit error - {str(e)}")
+            stop_logging()
+            self.app.quit()
 
     def show_logs(self):
-        self.log_window.load_logs()
-        self.log_window.show()
+        try:
+            self.log_window.load_logs()
+            self.log_window.show()
+            app_signals.update_status.emit("Log window opened")
+            app_signals.append_log.emit("[Log] Log window opened")
+        except Exception as e:
+            logger.error(f"Error in show_logs: {e}")
+            app_signals.update_status.emit(f"Error opening log window: {str(e)}")
+            app_signals.append_log.emit(f"[Log] Failed: Error opening log window - {str(e)}")
 
-    def run(self):
-        sys.exit(self.app.exec())
+    def show_downloaded_files(self):
+        try:
+            if not self.downloaded_files_window or not self.downloaded_files_window.isVisible():
+                self.downloaded_files_window = FileListWindow("downloaded")
+                self.downloaded_files_window.show()
+                app_signals.update_status.emit("Downloaded files window opened")
+                app_signals.append_log.emit("[Files] Downloaded files window opened")
+        except Exception as e:
+            logger.error(f"Error in show_downloaded_files: {e}")
+            app_signals.update_status.emit(f"Error showing downloaded files: {str(e)}")
+            app_signals.append_log.emit(f"[Files] Failed: Error showing downloaded files - {str(e)}")
 
-if __name__ == '__main__':
-    PremediaApp().run()
+    def show_uploaded_files(self):
+        try:
+            if not self.uploaded_files_window or not self.uploaded_files_window.isVisible():
+                self.uploaded_files_window = FileListWindow("uploaded")
+                self.uploaded_files_window.show()
+                app_signals.update_status.emit("Uploaded files window opened")
+                app_signals.append_log.emit("[Files] Uploaded files window opened")
+        except Exception as e:
+            logger.error(f"Error in show_uploaded_files: {e}")
+            app_signals.update_status.emit(f"Error showing uploaded files: {str(e)}")
+            app_signals.append_log.emit(f"[Files] Failed: Error showing uploaded files - {str(e)}")
+
+    def convert_to_jpg_and_psd(self, src_path, dest_dir):
+        try:
+            self.thread = QThread()
+            self.worker = FileConversionWorker(src_path, dest_dir)
+            self.worker.moveToThread(self.thread)
+            self.thread.started.connect(self.worker.run)
+            self.worker.finished.connect(self.on_conversion_finished)
+            self.worker.error.connect(self.on_conversion_error)
+            self.worker.progress.connect(lambda file_path, progress: app_signals.update_file_list.emit(file_path, f"Converting: {progress}%", "download", progress, False))
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.error.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.worker.error.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+            app_signals.append_log.emit(f"[Conversion] Starting conversion for {src_path}")
+        except Exception as e:
+            logger.error(f"File conversion thread error: {e}")
+            app_signals.update_status.emit(f"File conversion thread error: {str(e)}")
+            app_signals.append_log.emit(f"[Conversion] Failed: File conversion thread error - {str(e)}")
+
+    def on_conversion_finished(self, jpg_path, psd_path, basename):
+        try:
+            cache = load_cache()
+            if cache:
+                cache["downloaded_files"].extend([jpg_path, psd_path])
+                save_cache(cache)
+            app_signals.update_status.emit(f"Uploaded JPG: {basename}")
+            app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "download", 100, False)
+            app_signals.update_file_list.emit(psd_path, "Conversion Completed", "download", 100, False)
+            app_signals.append_log.emit(f"[Conversion] Completed conversion for {basename}")
+        except Exception as e:
+            logger.error(f"Error in on_conversion_finished: {e}")
+            app_signals.update_status.emit(f"Conversion error: {str(e)}")
+            app_signals.append_log.emit(f"[Conversion] Failed: Conversion error - {str(e)}")
+
+    def on_conversion_error(self, error, basename):
+        try:
+            app_signals.update_status.emit(f"Conversion failed for {basename}: {error}")
+            app_signals.update_file_list.emit("", f"Conversion Failed: {error}", "download", 0, False)
+            app_signals.append_log.emit(f"[Conversion] Failed: Conversion error for {basename} - {error}")
+        except Exception as e:
+            logger.error(f"Error in on_conversion_error: {e}")
+            app_signals.append_log.emit(f"[Conversion] Failed: Error handling conversion error - {str(e)}")
+
+    def open_with_photoshop(self, file_path):
+        try:
+            system = platform.system()
+            if system == "Windows":
+                photoshop_path = "C:/Program Files/Adobe/Adobe Photoshop 2023/Photoshop.exe"
+                if not Path(photoshop_path).exists():
+                    photoshop_path = "C:/Program Files/Adobe/Adobe Photoshop 2022/Photoshop.exe"
+                subprocess.run([photoshop_path, file_path], check=True)
+            elif system == "Darwin":
+                subprocess.run(["open", "-a", "Adobe Photoshop", file_path], check=True)
+            elif system == "Linux":
+                subprocess.run(["wine", "Photoshop.exe", file_path], check=True)
+            else:
+                logger.warning(f"Unsupported platform for Photoshop: {system}")
+                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
+                return
+            app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name}")
+        except Exception as e:
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+
+    def post_login_processes(self):
+        global FILE_WATCHER_RUNNING
+        try:
+            cache = load_cache()
+            token = cache.get("token", "")
+            user_id = cache.get("user_id", "")
+            if not token or not user_id:
+                logger.error("No token or user_id for post-login processes")
+                app_signals.append_log.emit("[Login] Failed: No token or user_id for post-login processes")
+                self.set_logged_out_state()
+                self.login_dialog.show()
+                return
+
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                logger.debug("Poll timer already active, skipping initialization")
+                app_signals.append_log.emit("[Login] Poll timer already active, skipping initialization")
+                return
+
+            FILE_WATCHER_RUNNING = True
+            self.file_watcher_thread = QThread()
+            self.file_watcher = FileWatcherWorker()  # Initialize without parent
+            self.file_watcher.moveToThread(self.file_watcher_thread)
+            self.file_watcher_thread.started.connect(self.file_watcher.run)
+            self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage)
+            self.file_watcher.log_update.connect(app_signals.append_log.emit)
+            self.poll_timer = QTimer()
+            self.poll_timer.timeout.connect(self.file_watcher.run)
+            self.poll_timer.start(API_POLL_INTERVAL)
+
+            self.file_watcher_thread.start()
+            app_signals.append_log.emit("[Login] Post-login processes started")
+            app_signals.update_status.emit("File watcher started")
+        except Exception as e:
+            logger.error(f"Error in post_login_processes: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Post-login processes error - {str(e)}")
+            app_signals.update_status.emit(f"Post-login error: {str(e)}")
+
+if __name__ == "__main__":
+    key = parse_custom_url()
+    app = PremediaApp(key)
+    sys.exit(app.app.exec())

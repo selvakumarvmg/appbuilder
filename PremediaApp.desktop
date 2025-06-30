@@ -1,9 +1,10 @@
 [Desktop Entry]
+Version=1.0
 Name=PremediaApp
-Comment=Media asset management and conversion tool
-Exec=/usr/local/bin/PremediaApp
-Icon=premediaapp
+Comment=Image Production Automation
+Exec=python3 /var/www/html/python/appbuilder/app.py
+Icon=/var/www/html/python/appbuilder/premedia.png
 Terminal=false
 Type=Application
-Categories=Utility;
-StartupNotify=true
+Categories=Graphics;Utility;
+StartupWMClass=PremediaApp

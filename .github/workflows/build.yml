@@ -3,33 +3,82 @@ name: Build and Package PremediaApp
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allow manual triggering
 
 env:
   APP_NAME: PremediaApp
   APP_VERSION: 1.0.0
+  PYTHON_VERSION: "3.10"
 
 jobs:
-  build-linux:
+  lint-and-test:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
+          pip install -r dev-requirements.lock
+
+      - name: Run linting
+        run: |
+          flake8 .
+          black --check .
+          isort --check-only .
+          bandit -r .
+          mypy .
+
+      - name: Run tests
+        run: pytest --cov --cov-report=xml
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  build-linux:
+    needs: lint-and-test
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies
+        run: |
           sudo apt-get update
           sudo apt-get install -y build-essential fakeroot dpkg-dev libgl1
-          pip install -r requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
           pip install pyinstaller
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} app.py
+          pyinstaller --noconfirm --windowed --onefile \
+            --icon=icons/premedia.png \
+            --name=${{ env.APP_NAME }} \
+            --add-data="icons:icons" \
+            --add-data="terms.txt:." \
+            --add-data="LICENSE.txt:." \
+            premedia_app.py
 
       - name: Prepare DEB package structure
         run: |
@@ -37,19 +86,23 @@ jobs:
           mkdir -p package-root/usr/local/bin
           mkdir -p package-root/usr/share/applications
           mkdir -p package-root/usr/share/icons/hicolor/128x128/apps
+          mkdir -p package-root/usr/share/doc/premediaapp
 
           cp dist/${{ env.APP_NAME }} package-root/usr/local/bin/
-          cp ${{ env.APP_NAME }}.desktop package-root/usr/share/applications/
-          cp pm.png package-root/usr/share/icons/hicolor/128x128/apps/premediaapp.png
+          cp premediaapp.desktop package-root/usr/share/applications/
+          cp icons/premedia.png package-root/usr/share/icons/hicolor/128x128/apps/premediaapp.png
+          cp terms.txt package-root/usr/share/doc/premediaapp/
+          cp LICENSE.txt package-root/usr/share/doc/premediaapp/
 
-          echo "Package: ${{ env.APP_NAME }}" > package-root/DEBIAN/control
+          echo "Package: premediaapp" > package-root/DEBIAN/control
           echo "Version: ${{ env.APP_VERSION }}" >> package-root/DEBIAN/control
-          echo "Section: base" >> package-root/DEBIAN/control
+          echo "Section: utils" >> package-root/DEBIAN/control
           echo "Priority: optional" >> package-root/DEBIAN/control
           echo "Architecture: amd64" >> package-root/DEBIAN/control
-          echo "Depends: python3" >> package-root/DEBIAN/control
-          echo "Maintainer: VMG DIGITAL PVT LTD" >> package-root/DEBIAN/control
+          echo "Depends: python3 (>= 3.10), libgl1" >> package-root/DEBIAN/control
+          echo "Maintainer: VMG Digital Pvt Ltd <support@vmgpremedia.com>" >> package-root/DEBIAN/control
           echo "Description: PremediaApp is a media asset management and conversion tool." >> package-root/DEBIAN/control
+          echo "Homepage: https://app-dev.vmgpremedia.com" >> package-root/DEBIAN/control
 
       - name: Build .deb package
         run: |
@@ -60,67 +113,121 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-deb
-          path: ${{ env.APP_NAME }}_*.deb
+          path: ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+          retention-days: 30
 
   build-windows:
+    needs: lint-and-test
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
           pip install pyinstaller
+          pip install innosetup
 
-      - name: Build Windows EXE
+      - name: Build with PyInstaller
         run: |
-          pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
+          pyinstaller --noconfirm --windowed --onefile `
+            --icon=icons/premedia.ico `
+            --name=${{ env.APP_NAME }} `
+            --add-data="icons;icons" `
+            --add-data="terms.txt;." `
+            --add-data="LICENSE.txt;." `
+            premedia_app.py
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup
+        env:
+          CHOCOLATEY_INSTALL: C:\ProgramData\chocolatey
+
+      - name: Build Windows Installer
+        run: |
+          iscc scripts/installer.iss
+        env:
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+
+      - name: Sign Windows Executable
+        if: env.CERT_PASSWORD
+        run: |
+          signtool sign /f certs/windows-cert.pfx /p ${{ secrets.CERT_PASSWORD }} /t http://timestamp.digicert.com dist/${{ env.APP_NAME }}.exe
+        continue-on-error: true
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-windows
-          path: dist/${{ env.APP_NAME }}.exe
+          path: |
+            dist/${{ env.APP_NAME }}.exe
+            dist/installers/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-Windows.exe
+          retention-days: 30
 
   build-macos:
+    needs: lint-and-test
     runs-on: macos-latest
-
-    env:
-      APP_NAME: PremediaApp
-      APP_VERSION: 1.0.0
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
           pip install pyinstaller
+          npm install -g create-dmg
 
-      - name: Build macOS .app using PyInstaller
+      - name: Build macOS .app
         run: |
-          pyinstaller --noconfirm --windowed --name="${APP_NAME}" \
-            --icon=pm.icns app.py
+          pyinstaller --noconfirm --windowed \
+            --icon=icons/premedia.icns \
+            --name=${{ env.APP_NAME }} \
+            --add-data="icons:icons" \
+            --add-data="terms.txt:." \
+            --add-data="LICENSE.txt:." \
+            --osx-bundle-identifier=com.vmgpremedia.premediaapp \
+            premedia_app.py
 
-      - name: Show app structure
+      - name: Sign macOS .app
+        if: env.APPLE_SIGNING_IDENTITY
         run: |
-          ls -R dist/${APP_NAME}.app
+          codesign --force --sign "${{ env.APPLE_SIGNING_IDENTITY }}" --options runtime --timestamp dist/${{ env.APP_NAME }}.app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        continue-on-error: true
 
-      - name: Upload macOS .app bundle
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "${{ env.APP_NAME }} Installer" \
+            --volicon "icons/premedia.icns" \
+            --app-drop-link 600 185 \
+            --window-size 800 400 \
+            --icon "${{ env.APP_NAME }}.app" 200 190 \
+            --icon-size 100 \
+            --background "icons/background.png" \
+            dist/${{ env.APP_NAME }}.app \
+            dist/installers/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-macOS.dmg
+
+      - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: premediaapp-macos
-          path: dist/${{ env.APP_NAME }}.app
+          path: |
+            dist/${{ env.APP_NAME }}.app
+            dist/installers/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-macOS.dmg
+          retention-days: 30
