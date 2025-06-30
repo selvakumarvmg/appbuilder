@@ -366,33 +366,54 @@ def parse_custom_url():
         return ""
 
 def validate_user(access_key, status_bar=None):
+    """
+    Validates a user's token using the API endpoint with access_key.
+
+    Args:
+        access_key (str): The access key (defaults to a hardcoded value if not provided).
+        status_bar (QStatusBar, optional): Status bar to update with validation messages.
+
+    Returns:
+        dict: Contains 'status' (bool), 'message' (str), 'user' (str), 'token' (str), or full API response on success.
+    """
     try:
         if not access_key:
             access_key = "e0d6aa4baffc84333faa65356d78e439"
             logger.info("No access_key provided, using default key")
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
-        logger.debug(f"Validating user with access_key: {access_key[:8]}... at {USER_VALIDATE_URL}")
+        
+        cache = load_cache()
+        validation_url = "https://app-dev.vmgpremedia.com/api/user/validate"
+        logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
+        
         resp = HTTP_SESSION.get(
-            USER_VALIDATE_URL,
+            validation_url,
             params={"key": access_key},
-            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-            verify=False,
+            headers={"Authorization": f"Bearer {cache.get('token', '')}"},
+            verify=False,  # Replace with verify="/path/to/server-ca.pem" in production
             timeout=30
         )
         app_signals.api_call_status.emit(
-            USER_VALIDATE_URL,
-            "Success" if resp.status_code == 200 else f"Failed: {resp.status_code}",
+            validation_url,
+            f"Status: {resp.status_code}, Response: {resp.text}",
             resp.status_code
         )
         app_signals.append_log.emit(f"[API Scan] User validation API response: {resp.status_code}")
+        
+        if status_bar:
+            status_bar.showMessage(f"User validation API response: {resp.status_code}")
+        
         resp.raise_for_status()
         result = resp.json()
-        if not result.get("status"):
-            raise ValueError(f"Validation failed: {result.get('message', 'Unknown error')}")
+        
+        if not result.get("uuid"):
+            raise ValueError(f"Validation failed: {result.get('message', 'No uuid in response')}")
+        
         logger.info("User validation successful")
         app_signals.append_log.emit("[API Scan] User validation successful")
-        return result
+        return result  # Return full API response as per original function
+    
     except Exception as e:
         logger.error(f"User validation error: {e}")
         app_signals.append_log.emit(f"[API Scan] Failed: User validation error - {str(e)}")
@@ -1604,8 +1625,9 @@ class PremediaApp:
                 app_signals.append_log.emit(f"[Init] System tray icon initialized, available: {QSystemTrayIcon.isSystemTrayAvailable()}")
 
             self.logged_in = False
-            load_cache()
+            load_cache()  # Initialize GLOBAL_CACHE
 
+            # Set up tray menu
             tray_menu = QMenu()
             self.login_action = QAction("Login")
             self.logout_action = QAction("Logout")
@@ -1614,11 +1636,11 @@ class PremediaApp:
             self.downloaded_files_action = QAction("Downloaded Files")
             self.uploaded_files_action = QAction("Uploaded Files")
             self.clear_cache_action = QAction("Clear Cache")
-            self.open_cache_action = QAction("Open Cache File")  # New action
+            self.open_cache_action = QAction("Open Cache File")
             tray_menu.addAction(self.log_action)
             tray_menu.addAction(self.downloaded_files_action)
             tray_menu.addAction(self.uploaded_files_action)
-            tray_menu.addAction(self.open_cache_action)  # Add to menu
+            tray_menu.addAction(self.open_cache_action)
             tray_menu.addAction(self.login_action)
             tray_menu.addAction(self.clear_cache_action)
             tray_menu.addAction(self.quit_action)
@@ -1632,7 +1654,7 @@ class PremediaApp:
             self.downloaded_files_action.triggered.connect(self.show_downloaded_files)
             self.uploaded_files_action.triggered.connect(self.show_uploaded_files)
             self.clear_cache_action.triggered.connect(self.clear_cache)
-            self.open_cache_action.triggered.connect(self.open_cache_file)  # Connect new action
+            self.open_cache_action.triggered.connect(self.open_cache_file)
 
             self.log_window = LogWindow()
             self.downloaded_files_window = None
@@ -1659,26 +1681,28 @@ class PremediaApp:
 
             logger.debug(f"Initializing with key: {key[:8]}...")
             app_signals.append_log.emit(f"[Init] Initializing with key: {key[:8]}...")
+            # Inside PremediaApp.__init__
+            load_cache()  # Initialize GLOBAL_CACHE
             cache = load_cache()
             logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[Init] Cache contents: {json.dumps(cache, indent=2)}")
 
-            # Auto-login logic remains unchanged
+            # Auto-login logic
             if cache.get("token") and cache.get("user") and cache.get("user_id") and not self.logged_in:
                 logger.debug("Attempting auto-login with cached credentials")
                 app_signals.append_log.emit("[Init] Attempting auto-login with cached credentials")
-                validation_result = validate_user(key, self.login_dialog.status_bar if self.login_dialog else None)
-                if validation_result.get("status") and validation_result.get("user"):
+                validation_result = validate_user(key, self.log_window.status_bar)
+                if validation_result.get("uuid"):  # Check for uuid to indicate successful validation
                     try:
                         info_resp = HTTP_SESSION.get(
                             f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
                             headers={"Authorization": f"Bearer {cache.get('token')}"},
-                            verify=False,
+                            verify=False,  # Replace with verify="/path/to/server-ca.pem" in production
                             timeout=30
                         )
                         app_signals.api_call_status.emit(
                             f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
-                            "Success" if info_resp.status_code == 200 else f"Failed: {info_resp.status_code}",
+                            f"Status: {info_resp.status_code}, Response: {info_resp.text}",
                             info_resp.status_code
                         )
                         app_signals.append_log.emit(f"[Init] User info API response: {info_resp.status_code}")
@@ -1701,29 +1725,30 @@ class PremediaApp:
                         }
                         save_cache(cache_data)
                         self.set_logged_in_state()
+                        self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))  # Update tray icon
+                        self.log_window.status_bar.showMessage(f"Auto-login successful for {cache.get('user')}")
                         self.post_login_processes()
-                        if self.tray_icon:
-                            self.tray_icon.show()
-                        self.show_logs()
+                        self.show_logs()  # Show log window after auto-login
                         app_signals.append_log.emit("[Init] Auto-login successful with cached credentials")
                     except Exception as e:
                         logger.error(f"Auto-login failed during user info fetch: {e}")
                         app_signals.append_log.emit(f"[Init] Auto-login failed during user info fetch: {str(e)}")
-                        if self.login_dialog:
-                            self.login_dialog.show()
                         self.set_logged_out_state()
+                        self.login_dialog.show()
                 else:
                     logger.warning(f"Auto-login failed: {validation_result.get('message', 'Unknown error')}")
                     app_signals.append_log.emit(f"[Init] Auto-login failed: {validation_result.get('message', 'Unknown error')}")
-                    if self.login_dialog:
-                        self.login_dialog.show()
                     self.set_logged_out_state()
-            else:
-                logger.debug("No valid cached credentials or already logged in, showing login dialog")
-                app_signals.append_log.emit("[Init] No valid cached credentials or already logged in, showing login dialog")
-                if self.login_dialog:
                     self.login_dialog.show()
+            elif cache.get("saved_username") and cache.get("saved_password"):
+                logger.debug("Attempting auto-login with saved credentials")
+                app_signals.append_log.emit("[Init] Attempting auto-login with saved credentials")
+                self.login_dialog.perform_login(cache["saved_username"], cache["saved_password"])
+            else:
+                logger.debug("No valid cached credentials, showing login dialog")
+                app_signals.append_log.emit("[Init] No valid cached credentials, showing login dialog")
                 self.set_logged_out_state()
+                self.login_dialog.show()
             logger.info("PremediaApp initialized")
             app_signals.append_log.emit("[Init] PremediaApp initialized")
         except Exception as e:
