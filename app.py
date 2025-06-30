@@ -38,11 +38,22 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
 BASE_DOMAIN = "https://app-dev.vmgpremedia.com"
+
 BASE_DIR = Path(__file__).parent.resolve()
+
 if platform.system() == "Windows":
-    BASE_TARGET_DIR = Path("D:/PremediaApp/Nas" if Path("D:/").exists() else "C:/PremediaApp/Nas")
+    # Check if D: drive exists and is writable, else fall back to C:
+    d_drive = Path("D:/")
+    if d_drive.exists() and d_drive.is_dir():
+        BASE_TARGET_DIR = d_drive / "PremediaApp" / "Nas"
+    else:
+        BASE_TARGET_DIR = Path("C:/PremediaApp/Nas")
 else:
+    # For Linux/macOS, use home directory
     BASE_TARGET_DIR = Path.home() / "PremediaApp" / "Nas"
+
+# Ensure the directory exists
+BASE_TARGET_DIR.mkdir(parents=True, exist_ok=True)
 
 # Cache icon paths
 ICON_CACHE = {}
