@@ -940,13 +940,17 @@ class FileListWindow(QDialog):
         self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
 
     def load_files(self):
+        """Load files into the table based on file_type."""
         cache = load_cache()
-        files = cache.get(f"{self.file_type}_files", [])
-        self.table.setRowCount(len(files))
-        for row, file_path in enumerate(files):
-            filename = Path(file_path).name
+        files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
+        self.table.setRowCount(0)  # Clear existing rows
 
-            # Then set it to the table cell
+        # Handle dictionary for downloaded files, list for uploaded files
+        file_list = files.items() if isinstance(files, dict) else enumerate(files)
+        for task_id, file_path in file_list:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            filename = Path(file_path).name
             path_item = QTableWidgetItem(filename)
             self.table.setItem(row, 0, path_item)
 
@@ -959,11 +963,12 @@ class FileListWindow(QDialog):
             photoshop_btn = QPushButton()
             photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
             photoshop_btn.setIconSize(QSize(24, 24))
-            photoshop_btn.clicked.connect(lambda _, p=file_path: self.parent().open_with_photoshop(p))
+            photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
             self.table.setCellWidget(row, 2, photoshop_btn)
 
             if self.file_type == "downloaded":
-                source_item = QTableWidgetItem("Unknown")
+                source = cache.get("downloaded_files_with_metadata", {}).get(task_id, {}).get("api_response", {}).get("file_path", "Unknown")
+                source_item = QTableWidgetItem(source)
                 self.table.setItem(row, 3, source_item)
                 status_col = 4
                 progress_col = 5
@@ -973,12 +978,96 @@ class FileListWindow(QDialog):
 
             status_item = QTableWidgetItem("Completed")
             self.table.setItem(row, status_col, status_item)
-            self.table.setCellWidget(row, progress_col, QWidget())
+            progress_bar = QProgressBar(self)
+            progress_bar.setMinimum(0)
+            progress_bar.setMaximum(100)
+            progress_bar.setValue(100)  # Assume completed for existing files
+            progress_bar.setFixedHeight(20)
+            self.table.setCellWidget(row, progress_col, progress_bar)
 
         self.table.resizeColumnsToContents()
         app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
 
+    def open_with_photoshop(self, file_path):
+        """Dynamically find Adobe Photoshop path and open the specified file."""
+        try:
+            system = platform.system()
+            photoshop_path = None
+
+            if system == "Windows":
+                search_dirs = [
+                    Path("C:/Program Files/Adobe"),
+                    Path("C:/Program Files (x86)/Adobe")
+                ]
+                for base_dir in search_dirs:
+                    if not base_dir.exists():
+                        continue
+                    photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                    if photoshop_exes:
+                        photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                        photoshop_path = str(photoshop_exes[0])
+                        break
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
+            elif system == "Darwin":
+                try:
+                    result = subprocess.run(
+                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
+                        capture_output=True, text=True, check=True
+                    )
+                    if result.stdout.strip():
+                        photoshop_path = result.stdout.strip().split("\n")[0]
+                except subprocess.CalledProcessError:
+                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
+                    if photoshop_apps:
+                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                        photoshop_path = str(photoshop_apps[0])
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+
+            elif system == "Linux":
+                try:
+                    subprocess.run(["wine", "--version"], capture_output=True, check=True)
+                    wine_dirs = [
+                        Path.home() / ".wine/drive_c/Program Files/Adobe",
+                        Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+                    ]
+                    for base_dir in wine_dirs:
+                        if not base_dir.exists():
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            break
+                    if not photoshop_path:
+                        raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                except subprocess.CalledProcessError:
+                    raise FileNotFoundError("Wine is not installed or not functioning")
+
+            else:
+                logger.warning(f"Unsupported platform for Photoshop: {system}")
+                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
+                app_signals.update_status.emit(f"Unsupported platform: {system}")
+                return
+
+            if system == "Darwin":
+                subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+            else:
+                subprocess.run([photoshop_path, file_path], check=True)
+
+            logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
+            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+            app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+
+        except Exception as e:
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+
     def open_folder(self, file_path):
+        """Open the folder containing the file."""
         try:
             folder_path = str(Path(file_path).parent)
             system = platform.system()
@@ -991,26 +1080,34 @@ class FileListWindow(QDialog):
             else:
                 logger.warning(f"Unsupported platform for opening folder: {system}")
                 app_signals.append_log.emit(f"[Folder] Unsupported platform for opening folder: {system}")
+                app_signals.update_status.emit(f"Unsupported platform for opening folder: {system}")
+                return
             app_signals.update_status.emit(f"Opened folder for {Path(file_path).name}")
             app_signals.append_log.emit(f"[Folder] Opened folder for {Path(file_path).name}")
         except Exception as e:
             logger.error(f"Failed to open folder {file_path}: {e}")
-            app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}")
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
+            app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
     def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+        """Update the table with file transfer status."""
         if action_type != self.file_type:
             return
         try:
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == file_path:
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
                     status_col = 4 if self.file_type == "downloaded" else 3
                     progress_col = 5 if self.file_type == "downloaded" else 4
                     self.table.item(row, status_col).setText(status)
+                    progress_bar = self.table.cellWidget(row, progress_col)
                     if progress == 100:
-                        self.table.setCellWidget(row, progress_col, QWidget())
+                        progress_bar = QProgressBar(self)
+                        progress_bar.setMinimum(0)
+                        progress_bar.setMaximum(100)
+                        progress_bar.setValue(100)
+                        progress_bar.setFixedHeight(20)
+                        self.table.setCellWidget(row, progress_col, progress_bar)
                     else:
-                        progress_bar = self.table.cellWidget(row, progress_col)
                         if not progress_bar or isinstance(progress_bar, QWidget):
                             progress_bar = QProgressBar(self)
                             progress_bar.setMinimum(0)
@@ -1026,12 +1123,11 @@ class FileListWindow(QDialog):
 
             row = self.table.rowCount()
             self.table.insertRow(row)
-
-            path_item = QTableWidgetItem(file_path)
+            path_item = QTableWidgetItem(Path(file_path).name)
             self.table.setItem(row, 0, path_item)
 
             folder_btn = QPushButton()
-            folder_btn.setIcon(load_icon(ICON_PATH, "folder"))
+            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
             folder_btn.setIconSize(QSize(24, 24))
             folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
             self.table.setCellWidget(row, 1, folder_btn)
@@ -1039,7 +1135,7 @@ class FileListWindow(QDialog):
             photoshop_btn = QPushButton()
             photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
             photoshop_btn.setIconSize(QSize(24, 24))
-            photoshop_btn.clicked.connect(lambda _, p=file_path: self.parent().open_with_photoshop(p))
+            photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
             self.table.setCellWidget(row, 2, photoshop_btn)
 
             if self.file_type == "downloaded":
@@ -1054,26 +1150,24 @@ class FileListWindow(QDialog):
             status_item = QTableWidgetItem(status)
             self.table.setItem(row, status_col, status_item)
 
-            if progress == 100:
-                self.table.setCellWidget(row, progress_col, QWidget())
-            else:
-                progress_bar = QProgressBar(self)
-                progress_bar.setMinimum(0)
-                progress_bar.setMaximum(100)
-                progress_bar.setValue(progress)
-                progress_bar.setFixedHeight(20)
-                self.table.setCellWidget(row, progress_col, progress_bar)
+            progress_bar = QProgressBar(self)
+            progress_bar.setMinimum(0)
+            progress_bar.setMaximum(100)
+            progress_bar.setValue(progress)
+            progress_bar.setFixedHeight(20)
+            self.table.setCellWidget(row, progress_col, progress_bar)
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list")
         except Exception as e:
             logger.error(f"Error updating file list: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
-            
+
     def update_progress(self, title, file_path, progress):
+        """Update progress for a file in the table."""
         try:
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == file_path:
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
                     progress_col = 5 if self.file_type == "downloaded" else 4
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not progress_bar or isinstance(progress_bar, QWidget):
