@@ -67,7 +67,7 @@ ICON_PATH = get_icon_path({
     "Linux": "premedia.png"
 }.get(platform.system(), "premedia.png"))
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
-
+FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 def get_cache_file_path():
     if platform.system() == "Windows":
         cache_dir = Path(os.getenv("APPDATA")) / "PremediaApp"
@@ -768,6 +768,13 @@ class FileWatcherWorker(QObject):
                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
                     self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
                     cache = load_cache()
+                    # Store downloaded file with API response
+                    if "downloaded_files_with_metadata" not in cache:
+                        cache["downloaded_files_with_metadata"] = []
+                    cache["downloaded_files_with_metadata"].append({
+                        "local_path": local_path,
+                        "api_response": item
+                    })
                     cache["downloaded_files"].append(local_path)
                     timer_response = start_timer_api(file_path, cache["token"])
                     if timer_response:
@@ -796,7 +803,6 @@ class FileWatcherWorker(QObject):
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-
 class LogWindow(QDialog):
     def __init__(self):
         super().__init__()
@@ -924,7 +930,7 @@ class FileListWindow(QDialog):
             self.table.setItem(row, 0, path_item)
 
             folder_btn = QPushButton()
-            folder_btn.setIcon(load_icon(ICON_PATH, "folder"))
+            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
             folder_btn.setIconSize(QSize(24, 24))
             folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
             self.table.setCellWidget(row, 1, folder_btn)
@@ -1682,6 +1688,7 @@ class PremediaApp:
             logger.debug(f"Initializing with key: {key[:8]}...")
             app_signals.append_log.emit(f"[Init] Initializing with key: {key[:8]}...")
             # Inside PremediaApp.__init__
+            # Inside PremediaApp.__init__
             load_cache()  # Initialize GLOBAL_CACHE
             cache = load_cache()
             logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
@@ -1717,6 +1724,7 @@ class PremediaApp:
                             "user_data": cache.get("user_data", {}),
                             "data": key,
                             "downloaded_files": cache.get("downloaded_files", []),
+                            "downloaded_files_with_metadata": cache.get("downloaded_files_with_metadata", []),
                             "uploaded_files": cache.get("uploaded_files", []),
                             "timer_responses": cache.get("timer_responses", {}),
                             "saved_username": cache.get("saved_username", ""),
@@ -1749,6 +1757,8 @@ class PremediaApp:
                 app_signals.append_log.emit("[Init] No valid cached credentials, showing login dialog")
                 self.set_logged_out_state()
                 self.login_dialog.show()
+
+        #############################################################
             logger.info("PremediaApp initialized")
             app_signals.append_log.emit("[Init] PremediaApp initialized")
         except Exception as e:
