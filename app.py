@@ -3,15 +3,13 @@ from PySide6.QtWidgets import (
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
-
-# Rest of the imports remain the same
 from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
 from login import Ui_Dialog
 import sys
+import logging
 import os
 import platform
-import logging
 import logging.handlers
 import requests
 from requests.exceptions import RequestException
@@ -26,7 +24,6 @@ import subprocess
 from queue import Queue
 import threading
 import time
-
 
 # Handle paramiko import
 try:
@@ -49,6 +46,8 @@ else:
 
 # Cache icon paths
 ICON_CACHE = {}
+def load_icon(path, description):
+    return QIcon(path)
 def get_icon_path(icon_name):
     if icon_name in ICON_CACHE:
         return str(ICON_CACHE[icon_name])
@@ -90,9 +89,9 @@ DOWNLOAD_UPLOAD_API = f"{BASE_DOMAIN}/api/get_download_upload/submission"
 OAUTH_URL = f"{BASE_DOMAIN}/oauth/token"
 USER_VALIDATE_URL = f"{BASE_DOMAIN}/api/user/validate"
 NAS_IP = "192.168.3.20"
-NAS_USERNAME = "softwarenas"
-NAS_PASSWORD = "K@#9Sdl2@134"
-NAS_SHARE = "IR_Uat"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = "irdev"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 
 # === Global State ===
@@ -210,6 +209,7 @@ def load_icon(path, context=""):
         app_signals.append_log.emit(f"[Init] Failed to load icon for {context}: {path}")
     return icon
 
+# Cache functions
 def get_default_cache():
     return {
         "token": "",
@@ -255,6 +255,10 @@ def save_cache(data):
     cache_dir = Path(CACHE_FILE).parent
     try:
         cache_dir.mkdir(exist_ok=True)
+        if Path(CACHE_FILE).exists():
+            backup_file = str(cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json")
+            with open(CACHE_FILE, "r") as f, open(backup_file, "w") as bf:
+                bf.write(f.read())
         with CACHE_WRITE_LOCK:
             with open(CACHE_FILE, "w") as f:
                 json.dump(data_copy, f, indent=2)
@@ -272,7 +276,8 @@ def load_cache():
     default_cache = get_default_cache()
     if GLOBAL_CACHE is not None:
         return GLOBAL_CACHE
-    if not Path(CACHE_FILE).exists():
+    cache_file = Path(CACHE_FILE)
+    if not cache_file.exists():
         logger.warning("Cache file does not exist, initializing new cache")
         app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
         initialize_cache()
@@ -280,14 +285,12 @@ def load_cache():
     try:
         with open(CACHE_FILE, "r") as f:
             data = json.load(f)
-        # Validate cache structure
         required_keys = default_cache.keys()
         if not all(key in data for key in required_keys):
             logger.warning("Cache is missing required keys, reinitializing")
             app_signals.append_log.emit("[Cache] Cache is missing required keys, reinitializing")
             initialize_cache()
             return GLOBAL_CACHE
-        # Validate cache expiration
         cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
         try:
             cached_time = datetime.fromisoformat(cached_time_str)
@@ -301,7 +304,6 @@ def load_cache():
             app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, reinitializing cache")
             initialize_cache()
             return GLOBAL_CACHE
-        # Validate token
         token = data.get("token", "")
         if token:
             try:
@@ -309,25 +311,32 @@ def load_cache():
                     USER_VALIDATE_URL,
                     headers={"Authorization": f"Bearer {token}"},
                     verify=False,
-                    timeout=30
+                    timeout=10
                 )
                 if resp.status_code != 200 or not resp.json().get("status"):
-                    logger.warning("Cached token is invalid, reinitializing cache")
-                    app_signals.append_log.emit("[Cache] Cached token is invalid, reinitializing cache")
+                    logger.warning(f"Cached token invalid (status: {resp.status_code}), reinitializing cache")
+                    app_signals.append_log.emit(f"[Cache] Cached token invalid (status: {resp.status_code}), reinitializing cache")
                     initialize_cache()
                     return GLOBAL_CACHE
-            except Exception as e:
-                logger.error(f"Token validation failed: {e}, reinitializing cache")
-                app_signals.append_log.emit(f"[Cache] Token validation failed: {str(e)}, reinitializing cache")
-                initialize_cache()
+            except RequestException as e:
+                logger.error(f"Token validation failed: {e}, keeping cache but marking token as invalid")
+                app_signals.append_log.emit(f"[Cache] Token validation failed: {str(e)}, keeping cache but marking token as invalid")
+                data["token"] = ""
+                GLOBAL_CACHE = data
+                save_cache(GLOBAL_CACHE)
                 return GLOBAL_CACHE
         GLOBAL_CACHE = data
         logger.info("Cache loaded successfully")
         app_signals.append_log.emit("[Cache] Cache loaded successfully")
         return GLOBAL_CACHE
+    except json.JSONDecodeError as e:
+        logger.error(f"Corrupted cache file: {e}, reinitializing cache")
+        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, reinitializing cache")
+        initialize_cache()
+        return GLOBAL_CACHE
     except Exception as e:
-        logger.error(f"Error loading cache: {e}")
-        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}")
+        logger.error(f"Error loading cache: {e}, reinitializing cache")
+        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}, reinitializing cache")
         initialize_cache()
         return GLOBAL_CACHE
 
@@ -533,89 +542,12 @@ from PySide6.QtWidgets import QProgressDialog
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
+    progress_update = Signal(str, str, int)  # Added for progress updates
 
     def __init__(self):
         super().__init__()
         self.processed_tasks = set()
         self.progress_dialog = None
-
-    def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-        try:
-            self.progress_dialog = QProgressDialog(f"{action_type}: {Path(src_path).name}", None, 0, 100, None)
-            self.progress_dialog.setWindowModality(Qt.WindowModal)
-            self.progress_dialog.setWindowTitle(f"{action_type} Progress")
-            self.progress_dialog.setMinimumDuration(0)
-            self.progress_dialog.setValue(0)
-            self.progress_dialog.show()
-            app_signals.append_log.emit(f"[Progress] Showing {action_type} progress for {Path(src_path).name}")
-            
-            # Simulate progress (replace with actual file transfer logic)
-            self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
-            
-        except Exception as e:
-            logger.error(f"Progress dialog error for {action_type}: {e}")
-            app_signals.append_log.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
-            if self.progress_dialog:
-                self.progress_dialog.close()
-
-    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-        try:
-            # Placeholder for actual file transfer logic
-            # For downloads
-            if action_type.lower() == "download":
-                if is_nas_src:
-                    # Handle NAS download
-                    nas_connection = connect_to_nas()
-                    if nas_connection:
-                        transport, sftp = nas_connection
-                        sftp.get(src_path, dest_path)
-                        transport.close()
-                else:
-                    # Handle HTTP download
-                    response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
-                    response.raise_for_status()
-                    with open(dest_path, 'wb') as f:
-                        f.write(response.content)
-                self.progress_dialog.setValue(50)  # Update progress
-                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-                self.progress_dialog.setValue(100)
-            
-            # For uploads
-            elif action_type.lower() == "upload":
-                if is_nas_dest:
-                    # Handle NAS upload
-                    nas_connection = connect_to_nas()
-                    if nas_connection:
-                        transport, sftp = nas_connection
-                        sftp.put(src_path, dest_path)
-                        transport.close()
-                else:
-                    # Handle HTTP upload
-                    with open(src_path, 'rb') as f:
-                        response = HTTP_SESSION.post(
-                            f"{BASE_DOMAIN}/api/ir_production/upload",
-                            files={'file': f},
-                            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-                            verify=False,
-                            timeout=30
-                        )
-                        response.raise_for_status()
-                self.progress_dialog.setValue(50)  # Update progress
-                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-                self.progress_dialog.setValue(100)
-                
-            app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-            
-        except Exception as e:
-            logger.error(f"File {action_type} error: {e}")
-            app_signals.append_log.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
-            app_signals.update_file_list.emit(dest_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
-            if self.progress_dialog:
-                self.progress_dialog.close()
-                
-        finally:
-            if self.progress_dialog:
-                self.progress_dialog.close()
 
     def check_connectivity(self):
         """Check API and NAS connectivity before processing tasks."""
@@ -627,7 +559,6 @@ class FileWatcherWorker(QObject):
             self.log_update.emit("[API Scan] Failed: No user_id or token found in cache for connectivity check")
             return False
 
-        # Use DOWNLOAD_UPLOAD_API as the health check endpoint
         api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
         headers = {"Authorization": f"Bearer {token}"}
         try:
@@ -647,21 +578,80 @@ class FileWatcherWorker(QObject):
             if response.status_code != 200:
                 logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
                 self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
-                return True  # Proceed anyway to attempt task processing
+                return False
             self.log_update.emit("[API Scan] API connectivity check passed")
         except Exception as e:
             logger.warning(f"API connectivity check failed: {str(e)}")
             self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
-            return True  # Proceed anyway to attempt task processing
+            return False
 
         if NAS_AVAILABLE:
             nas_connection = connect_to_nas()
             if not nas_connection:
                 logger.warning("NAS connectivity check failed, continuing without NAS")
                 self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
-                return True  # Continue without NAS
+                return True  # Allow processing without NAS
             nas_connection[0].close()
         return True
+
+    def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        try:
+            # Emit progress signals instead of showing dialog directly
+            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
+            self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
+        except Exception as e:
+            logger.error(f"Progress dialog error for {action_type}: {e}")
+            self.log_update.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
+
+    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        try:
+            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 10)
+            if action_type.lower() == "download":
+                if is_nas_src:
+                    nas_connection = connect_to_nas()
+                    if nas_connection:
+                        transport, sftp = nas_connection
+                        sftp.get(src_path, dest_path)
+                        transport.close()
+                    else:
+                        raise Exception("NAS connection failed")
+                else:
+                    response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
+                    response.raise_for_status()
+                    with open(dest_path, 'wb') as f:
+                        f.write(response.content)
+                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
+                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
+                app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+            elif action_type.lower() == "upload":
+                if is_nas_dest:
+                    nas_connection = connect_to_nas()
+                    if nas_connection:
+                        transport, sftp = nas_connection
+                        sftp.put(src_path, dest_path)
+                        transport.close()
+                    else:
+                        raise Exception("NAS connection failed")
+                else:
+                    with open(src_path, 'rb') as f:
+                        response = HTTP_SESSION.post(
+                            f"{BASE_DOMAIN}/api/ir_production/upload",
+                            files={'file': f},
+                            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+                            verify=False,
+                            timeout=30
+                        )
+                        response.raise_for_status()
+                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
+                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
+                app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_dest)
+        except Exception as e:
+            logger.error(f"File {action_type} error: {e}")
+            self.log_update.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
+            app_signals.update_file_list.emit(dest_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
+            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
 
     def run(self):
         global FILE_WATCHER_RUNNING, LAST_API_HIT_TIME, NEXT_API_HIT_TIME
@@ -696,7 +686,6 @@ class FileWatcherWorker(QObject):
                 logger.error("No user_id or token found in cache, stopping file watcher")
                 self.status_update.emit("No user_id or token found in cache")
                 self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
-                app_signals.append_log.emit("[API Scan] Failed: No user_id or token found in cache")
                 FILE_WATCHER_RUNNING = False
                 return
             headers = {"Authorization": f"Bearer {token}"}
@@ -756,78 +745,28 @@ class FileWatcherWorker(QObject):
                     self.status_update.emit(f"Downloading {file_name}")
                     self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-                    # Perform download directly
-                    try:
-                        if is_online:
-                            response = HTTP_SESSION.get(file_path, verify=False, timeout=30)
-                            response.raise_for_status()
-                            with open(local_path, 'wb') as f:
-                                f.write(response.content)
-                        else:
-                            nas_connection = connect_to_nas()
-                            if nas_connection:
-                                transport, sftp = nas_connection
-                                sftp.get(file_path, local_path)
-                                transport.close()
-                            else:
-                                raise Exception("NAS connection failed")
-                        app_signals.update_file_list.emit(local_path, "Download Completed", "download", 100, not is_online)
-                        cache = load_cache()
-                        cache["downloaded_files"].append(local_path)
-                        timer_response = start_timer_api(file_path, cache["token"])
-                        if timer_response:
-                            cache["timer_responses"][local_path] = timer_response
-                        save_cache(cache)
-                        self.status_update.emit(f"Downloaded {file_name}")
-                        self.log_update.emit(f"[API Scan] Downloaded {file_name}")
-                        app_signals.append_log.emit(f"[API Scan] Download completed: {file_name}")
-                        if not is_online:
-                            self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
-                        self.processed_tasks.add(task_key)
-                    except Exception as e:
-                        logger.error(f"Download error for {file_name}: {e}")
-                        app_signals.append_log.emit(f"[API Scan] Failed: Download error for {file_name} - {str(e)}")
-                        app_signals.update_file_list.emit(local_path, f"Download Failed: {str(e)}", "download", 0, not is_online)
-
+                    self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
+                    cache = load_cache()
+                    cache["downloaded_files"].append(local_path)
+                    timer_response = start_timer_api(file_path, cache["token"])
+                    if timer_response:
+                        cache["timer_responses"][local_path] = timer_response
+                    save_cache(cache)
+                    self.processed_tasks.add(task_key)
+                    if not is_online:
+                        self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
                 elif action_type == "upload" and Path(local_path).exists():
                     self.status_update.emit(f"Uploading {file_name}")
                     self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
                     app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-                    # Perform upload directly
-                    try:
-                        if is_online:
-                            with open(local_path, 'rb') as f:
-                                response = HTTP_SESSION.post(
-                                    f"{BASE_DOMAIN}/api/ir_production/upload",
-                                    files={'file': f},
-                                    headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-                                    verify=False,
-                                    timeout=30
-                                )
-                                response.raise_for_status()
-                        else:
-                            nas_connection = connect_to_nas()
-                            if nas_connection:
-                                transport, sftp = nas_connection
-                                sftp.put(local_path, file_path)
-                                transport.close()
-                            else:
-                                raise Exception("NAS connection failed")
-                        app_signals.update_file_list.emit(file_path, "Upload Completed", "upload", 100, False)
-                        cache = load_cache()
-                        cache["uploaded_files"].append(file_path)
-                        timer_response = cache.get("timer_responses", {}).get(local_path)
-                        if timer_response:
-                            end_timer_api(file_path, timer_response, cache["token"])
-                        save_cache(cache)
-                        self.status_update.emit(f"Uploaded {file_name}")
-                        self.log_update.emit(f"[API Scan] Uploaded {file_name}")
-                        app_signals.append_log.emit(f"[API Scan] Upload completed: {file_name}")
-                        self.processed_tasks.add(task_key)
-                    except Exception as e:
-                        logger.error(f"Upload error for {file_name}: {e}")
-                        app_signals.append_log.emit(f"[API Scan] Failed: Upload error for {file_name} - {str(e)}")
-                        app_signals.update_file_list.emit(file_path, f"Upload Failed: {str(e)}", "upload", 0, False)
+                    self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
+                    cache = load_cache()
+                    cache["uploaded_files"].append(file_path)
+                    timer_response = cache.get("timer_responses", {}).get(local_path)
+                    if timer_response:
+                        end_timer_api(file_path, timer_response, cache["token"])
+                    save_cache(cache)
+                    self.processed_tasks.add(task_key)
                 self.status_update.emit("File tasks check completed")
                 self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks[:5])} tasks")
                 app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks[:5])} tasks")
@@ -952,7 +891,8 @@ class FileListWindow(QDialog):
 
         self.load_files()
         app_signals.update_file_list.connect(self.update_file_list, Qt.QueuedConnection)
-        app_signals.append_log.emit(f"[Files] {file_type} window initialized")
+        self.file_watcher = FileWatcherWorker()
+        self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
 
     def load_files(self):
         cache = load_cache()
@@ -1081,24 +1021,59 @@ class FileListWindow(QDialog):
         except Exception as e:
             logger.error(f"Error updating file list: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+            
+    def update_progress(self, title, file_path, progress):
+        try:
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == file_path:
+                    progress_col = 5 if self.file_type == "downloaded" else 4
+                    progress_bar = self.table.cellWidget(row, progress_col)
+                    if not progress_bar or isinstance(progress_bar, QWidget):
+                        progress_bar = QProgressBar(self)
+                        progress_bar.setMinimum(0)
+                        progress_bar.setMaximum(100)
+                        progress_bar.setFixedHeight(20)
+                        self.table.setCellWidget(row, progress_col, progress_bar)
+                    progress_bar.setValue(progress)
+                    app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+                    return
+        except Exception as e:
+            logger.error(f"Error updating progress: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+# LoginWorker (provided, with fixes)
 
 class LoginWorker(QObject):
     success = Signal(dict)
     failure = Signal(str)
-
-    def __init__(self, username, password, remember_me, status_bar=None, tray_icon=None):
+    
+    def __init__(self, username, password, remember_me, tray_icon, status_bar):
         super().__init__()
         self.username = username
         self.password = password
         self.rememberme = remember_me
-        self.status_bar = status_bar
         self.tray_icon = tray_icon
-
+        self.status_bar = status_bar
+    
     def run(self):
         try:
             logger.debug("Starting LoginWorker.run")
             app_signals.append_log.emit("[Login] Starting LoginWorker.run")
-            token_resp = HTTP_SESSION.post(
+            logger.debug(f"OAuth request data: {{\n"
+                        f"  grant_type: password,\n"
+                        f"  username: {self.username},\n"
+                        f"  password: {'*' * len(self.password)},\n"
+                        f"  client_id: hZBc4VyhUSQgZobyjdVH7ZPk4WRey2BIjqws_UxF5cM,\n"
+                        f"  client_secret: crazy-cloud,\n"
+                        f"  scope: pm_client\n}}")
+            
+            if self.status_bar is None:
+                logger.warning("Status bar is None, cannot update message")
+            else:
+                self.status_bar.showMessage("Requesting access token...")
+            
+            # Create a new session for thread safety
+            session = requests.Session()
+            token_resp = session.post(
                 OAUTH_URL,
                 data={
                     "grant_type": "password",
@@ -1108,58 +1083,86 @@ class LoginWorker(QObject):
                     "client_secret": "crazy-cloud",
                     "scope": "pm_client"
                 },
-                verify=False,
-                timeout=30
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                verify=False,  # Enable SSL verification
+                timeout=60
             )
+            logger.debug(f"Token response raw: {token_resp.text}")
             app_signals.api_call_status.emit(
                 OAUTH_URL,
-                "Success" if token_resp.status_code == 200 else f"Failed: {token_resp.status_code}",
+                f"Status: {token_resp.status_code}, Response: {token_resp.text}",
                 token_resp.status_code
             )
-            app_signals.append_log.emit(f"[Login] Login token API response: {token_resp.status_code}")
+            app_signals.append_log.emit(f"[Login] Token API response: {token_resp.status_code}, {token_resp.text}")
+            
+            if self.status_bar:
+                self.status_bar.showMessage(f"Token API response: {token_resp.status_code}")
+            
+            if token_resp.status_code in (400, 401):
+                try:
+                    error_details = token_resp.json()
+                    error_msg = f"Bad request: {error_details.get('error_description', token_resp.text)}"
+                except ValueError:
+                    error_msg = f"Bad request: {token_resp.text}"
+                logger.error(f"Token API error: {error_msg}")
+                raise Exception(error_msg)
+            
             token_resp.raise_for_status()
-            access_token = token_resp.json().get("access_token")
+            token_data = token_resp.json()
+            logger.debug(f"Token response JSON: {token_data}")
+            access_token = token_data.get("access_token")
             if not access_token:
-                raise Exception("No access token received")
+                raise Exception("No access token received in response")
 
-            info_resp = HTTP_SESSION.get(
+            if self.status_bar:
+                self.status_bar.showMessage("Fetching user info...")
+            info_resp = session.get(
                 f"{BASE_DOMAIN}/api/user/getinfo?emailid={self.username}",
                 headers={"Authorization": f"Bearer {access_token}"},
                 verify=False,
-                timeout=30
+                timeout=60
             )
+            logger.debug(f"User info response raw: {info_resp.text}")
             app_signals.api_call_status.emit(
                 f"{BASE_DOMAIN}/api/user/getinfo?emailid={self.username}",
-                "Success" if info_resp.status_code == 200 else f"Failed: {info_resp.status_code}",
+                f"Status: {info_resp.status_code}, Response: {info_resp.text}",
                 info_resp.status_code
             )
-            app_signals.append_log.emit(f"[Login] User info API response: {info_resp.status_code}")
+            app_signals.append_log.emit(f"[Login] User info API response: {info_resp.status_code}, {info_resp.text}")
+            if self.status_bar:
+                self.status_bar.showMessage(f"User info API response: {info_resp.status_code}")
             info_resp.raise_for_status()
             user_info = info_resp.json()
 
-            user_resp = HTTP_SESSION.get(
+            if self.status_bar:
+                self.status_bar.showMessage("Fetching user data...")
+            user_resp = session.get(
                 f"{BASE_DOMAIN}/jsonapi/user/user?filter[name]={self.username}",
                 headers={"Authorization": f"Bearer {access_token}"},
                 verify=False,
-                timeout=30
+                timeout=60
             )
+            logger.debug(f"User data response raw: {user_resp.text}")
             app_signals.api_call_status.emit(
                 f"{BASE_DOMAIN}/jsonapi/user/user?filter[name]={self.username}",
-                "Success" if user_resp.status_code == 200 else f"Failed: {user_resp.status_code}",
+                f"Status: {user_resp.status_code}, Response: {user_resp.text}",
                 user_resp.status_code
             )
-            app_signals.append_log.emit(f"[Login] User data API response: {user_resp.status_code}")
+            app_signals.append_log.emit(f"[Login] User data API response: {user_resp.status_code}, {user_resp.text}")
+            if self.status_bar:
+                self.status_bar.showMessage(f"User data API response: {user_resp.status_code}")
             user_resp.raise_for_status()
             user_data = user_resp.json()
 
-            cache = load_cache()
+            cache = load_cache() or {}  # Handle case where load_cache returns None
+            logger.debug(f"Loaded cache: {cache}")
             cache_data = {
                 "token": access_token,
                 "user": self.username,
                 "user_id": user_info.get('uid', ''),
-                "user_info": user_info,
-                "info_resp": user_info,
-                "user_data": user_data,
+                "user_info": dict(user_info),
+                "info_resp": dict(user_info),
+                "user_data": dict(user_data),
                 "data": self.username,
                 "downloaded_files": cache.get("downloaded_files", []),
                 "uploaded_files": cache.get("uploaded_files", []),
@@ -1169,62 +1172,148 @@ class LoginWorker(QObject):
                 "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
             }
             save_cache(cache_data)
+            logger.debug(f"Cache saved: {cache_data}")
+            app_signals.append_log.emit(f"[Login] Cache saved for user: {self.username}")
+            
+            logger.debug("Emitting success signal")
             self.success.emit(user_info)
             app_signals.append_log.emit(f"[Login] Successful login for user: {self.username}")
+            if self.status_bar:
+                self.status_bar.showMessage(f"Successful login for {self.username}")
+        
+        except requests.exceptions.SSLError as e:
+            error_msg = f"SSL error: {str(e)}"
+            logger.error(error_msg)
+            self.failure.emit(error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
+            if self.status_bar:
+                self.status_bar.showMessage(error_msg)
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"Connection error: {str(e)}"
+            logger.error(error_msg)
+            self.failure.emit(error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
+            if self.status_bar:
+                self.status_bar.showMessage(error_msg)
+        except requests.exceptions.Timeout as e:
+            error_msg = f"Request timed out: {str(e)}"
+            logger.error(error_msg)
+            self.failure.emit(error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
+            if self.status_bar:
+                self.status_bar.showMessage(error_msg)
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Network error: {str(e)}"
+            logger.error(error_msg)
+            self.failure.emit(error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
+            if self.status_bar:
+                self.status_bar.showMessage(error_msg)
         except Exception as e:
-            logger.error(f"Login error: {e}")
-            self.failure.emit(str(e))
-            app_signals.append_log.emit(f"[Login] Failed: Login error - {str(e)}")
+            error_msg = f"Login error: {str(e)}"
+            logger.error(error_msg)
+            self.failure.emit(error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
+            if self.status_bar:
+                self.status_bar.showMessage(error_msg)
 
-class LoginDialog(QDialog, Ui_Dialog):
+class LoginDialog(QDialog):
     def __init__(self, tray_icon, on_success_callback=None):
         super().__init__()
-        self.setupUi(self)
+        self.is_logged_in = False
         self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
         self.setWindowTitle("PremediaApp Login")
         self.tray_icon = tray_icon
         self.on_success_callback = on_success_callback
-        self.status_bar = QStatusBar(self)
-
-        layout = QVBoxLayout()
-        for widget in [self.usernametxt, self.passwordtxt, self.rememberme, self.buttonBox]:
-            if widget:
-                layout.addWidget(widget)
-        layout.addWidget(self.status_bar)
-        self.setLayout(layout)
-
-        self.setMinimumSize(400, 300)
-        self.resize(400, 300)
-        try:
-            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        except NameError as e:
-            logger.warning(f"QSizePolicy not available: {e}")
-            app_signals.append_log.emit(f"[Init] QSizePolicy not available: {str(e)}")
-
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
 
+        # Load UI
+        self.ui = Ui_Dialog()
+        self.ui.setupUi(self)
+
+        # Create status bar
+        self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self.status_bar.setFixedHeight(20)
+        self.status_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+        # Add status bar to layout
+        main_layout = QVBoxLayout()
+        main_layout.addStretch(1)
+        main_layout.addWidget(self.status_bar, stretch=0)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+        self.setLayout(main_layout)
+
+        # Initialize tray menu
+        self.tray_menu = QMenu()
+        self.login_action = QAction("Login", self)
+        self.logout_action = QAction("Logout", self)
+        self.exit_action = QAction("Exit", self)
+        self.login_action.triggered.connect(self.show)
+        self.logout_action.triggered.connect(self.logout)
+        self.exit_action.triggered.connect(QApplication.quit)
+        self.tray_menu.addAction(self.login_action)
+        self.tray_menu.addAction(self.logout_action)
+        self.tray_menu.addAction(self.exit_action)
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.update_tray_menu()
+
+        # Check cache for valid token
         cache = load_cache()
+        if cache.get("token") and cache.get("user"):
+            self.is_logged_in = True
+            self.update_tray_menu()
+            logger.info(f"Auto-login from cache for user: {cache['user']}")
+            app_signals.append_log.emit(f"[Login] Auto-login from cache for user: {cache['user']}")
+
+        # Load saved credentials
         if cache.get("saved_username") and cache.get("saved_password"):
-            self.usernametxt.setText(cache["saved_username"])
-            self.passwordtxt.setText(cache["saved_password"])
-            self.rememberme.setChecked(True)
-            self.status_bar.showMessage("Credentials loaded")
+            self.ui.usernametxt.setText(cache["saved_username"])
+            self.ui.passwordtxt.setText(cache["saved_password"])
+            self.ui.rememberme.setChecked(True)
             app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+            self.status_bar.showMessage("Loaded saved credentials")
         else:
             app_signals.append_log.emit("[Login] No saved credentials found in cache")
+            self.status_bar.showMessage("No saved credentials found")
 
-        # Disconnect existing connections to prevent duplicates
-        try:
-            self.buttonBox.accepted.disconnect()
-            self.buttonBox.rejected.disconnect()
-        except Exception:
-            pass
+        # Connect signals
+        app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
+        self.ui.buttonBox.accepted.connect(self.handle_login)
 
-        self.buttonBox.accepted.connect(self.handle_login)
-        self.buttonBox.rejected.connect(self.reject)
         self.progress = None
-        logger.debug(f"LoginDialog initialized with widgets: usernametxt={self.usernametxt}, passwordtxt={self.passwordtxt}, rememberme={self.rememberme}, buttonBox={self.buttonBox}")
+        logger.debug("[Login] LoginDialog initialized")
         app_signals.append_log.emit("[Login] Initializing LoginDialog")
+        self.status_bar.showMessage("Login dialog initialized")
+
+        self.resize(764, 669)
+
+    def update_tray_menu(self):
+        self.login_action.setVisible(not self.is_logged_in)
+        self.logout_action.setVisible(self.is_logged_in)
+        logger.debug(f"Updated tray menu: logged_in={self.is_logged_in}, actions=[{', '.join([action.text() for action in self.tray_menu.actions()])}]")
+        app_signals.append_log.emit(f"[Tray] Updated menu: Login={not self.is_logged_in}, Logout={self.is_logged_in}")
+        self.tray_icon.setContextMenu(self.tray_menu)  # Refresh menu
+        self.tray_icon.show()  # Ensure tray icon is visible
+
+    def logout(self):
+        try:
+            self.is_logged_in = False
+            self.update_tray_menu()
+            cache = load_cache()
+            cache["token"] = ""
+            cache["saved_username"] = "" if not self.ui.rememberme.isChecked() else cache["saved_username"]
+            cache["saved_password"] = "" if not self.ui.rememberme.isChecked() else cache["saved_password"]
+            save_cache(cache)
+            logger.info("Logged out successfully")
+            app_signals.append_log.emit("[Login] Logged out successfully")
+            self.status_bar.showMessage("Logged out successfully")
+            self.show()
+        except Exception as e:
+            logger.error(f"Logout error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
+            self.status_bar.showMessage(f"Logout error: {str(e)}")
 
     def show_progress(self, message):
         try:
@@ -1233,37 +1322,50 @@ class LoginDialog(QDialog, Ui_Dialog):
             self.progress.setCancelButton(None)
             self.progress.setMinimumDuration(0)
             self.progress.setWindowTitle("Please wait")
-            self.progress.setWindowIcon(load_icon(ICON_PATH, "progress dialog"))
+            try:
+                self.progress.setWindowIcon(load_icon(ICON_PATH, "progress dialog"))
+            except Exception as e:
+                logger.warning(f"Failed to load progress dialog icon: {e}")
             self.progress.show()
+            QApplication.processEvents()
+            logger.debug(f"Progress dialog shown: {message}, visible={self.progress.isVisible()}")
             app_signals.append_log.emit(f"[Login] Showing progress: {message}")
+            self.status_bar.showMessage(message)
         except Exception as e:
             logger.error(f"Progress dialog error: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Progress dialog error - {str(e)}")
+            self.status_bar.showMessage(f"Progress error: {str(e)}")
 
     def handle_login(self):
         try:
-            username = self.usernametxt.text().strip()
-            password = self.passwordtxt.text().strip()
-            logger.debug(f"Login attempt with username: {username}, rememberme: {self.rememberme.isChecked()}")
+            logger.debug("handle_login called")
+            username = self.ui.usernametxt.text().strip()
+            password = self.ui.passwordtxt.text().strip()
+            logger.debug(f"Login attempt with username: {username}, rememberme: {self.ui.rememberme.isChecked()}")
             app_signals.append_log.emit(f"[Login] Attempting login with username: {username}")
+            self.status_bar.showMessage(f"Attempting login for {username}")
             if not username or not password:
                 QMessageBox.warning(self, "Input Error", "Please enter both username and password.")
-                self.status_bar.showMessage("Login failed: Missing credentials")
                 app_signals.append_log.emit("[Login] Failed: Missing username or password")
+                self.status_bar.showMessage("Missing username or password")
                 return
             self.show_progress("Validating credentials...")
             self.perform_login(username, password)
             logger.info("Login process started")
             app_signals.append_log.emit("[Login] Login process started")
+            self.status_bar.showMessage("Login process started")
         except Exception as e:
             logger.error(f"Error in handle_login: {e}")
-            self.status_bar.showMessage(f"Login error: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Handle login error - {str(e)}")
+            self.status_bar.showMessage(f"Login error: {str(e)}")
+            if self.progress:
+                self.progress.close()
 
     def perform_login(self, username, password):
         try:
+            logger.debug("Starting login thread")
             self.thread = QThread()
-            self.worker = LoginWorker(username, password, self.rememberme.isChecked(), self.status_bar, self.tray_icon)
+            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=self.tray_icon, status_bar=self.status_bar)
             self.worker.moveToThread(self.thread)
             self.thread.started.connect(self.worker.run)
             self.worker.success.connect(self.on_login_success)
@@ -1275,10 +1377,178 @@ class LoginDialog(QDialog, Ui_Dialog):
             self.thread.finished.connect(self.thread.deleteLater)
             self.thread.start()
             app_signals.append_log.emit(f"[Login] Starting login thread for user: {username}")
+            self.status_bar.showMessage(f"Starting login for {username}")
         except Exception as e:
             logger.error(f"Login thread error: {e}")
-            self.status_bar.showMessage(f"Login thread error: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Login thread error - {str(e)}")
+            self.status_bar.showMessage(f"Login thread error: {str(e)}")
+            if self.progress:
+                self.progress.close()
+
+    def on_login_success(self, user_info):
+        try:
+            if self.progress:
+                self.progress.close()
+            self.is_logged_in = True
+            self.update_tray_menu()
+            if self.tray_icon:
+                self.tray_icon.show()
+            logger.debug(f"Login success: {user_info}")
+            logger.debug("Showing success QMessageBox")
+            QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
+            app_signals.append_log.emit(f"[Login] Login successful for user: {user_info.get('uid', 'Unknown')}")
+            self.status_bar.showMessage(f"Login successful for user: {user_info.get('uid', 'Unknown')}")
+            if self.on_success_callback:
+                self.on_success_callback()
+            self.accept()
+        except Exception as e:
+            logger.error(f"Error in on_login_success: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login success handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login success error: {str(e)}")
+
+    def on_login_failure(self, error_msg):
+        try:
+            if self.progress:
+                self.progress.close()
+            logger.debug(f"Login failure: {error_msg}")
+            QMessageBox.critical(self, "Login Failed", error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: Login error - {error_msg}")
+            self.status_bar.showMessage(f"Login failed: {error_msg}")
+        except Exception as e:
+            logger.error(f"Error in on_login_failure: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login failure handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login failure error: {str(e)}")
+
+    def closeEvent(self, event):
+        try:
+            app_signals.update_status.disconnect(self.status_bar.showMessage)
+        except Exception:
+            pass
+        super().closeEvent(event)
+    def __init__(self, tray_icon, on_success_callback=None):
+        super().__init__()
+
+        self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
+        self.setWindowTitle("PremediaApp Login")
+        self.tray_icon = tray_icon
+        self.on_success_callback = on_success_callback
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+
+        # Load UI
+        self.ui = Ui_Dialog()
+        self.ui.setupUi(self)
+
+        # Create status bar
+        self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self.status_bar.setFixedHeight(20)
+        self.status_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+        # Add status bar to layout
+        main_layout = QVBoxLayout()
+        main_layout.addStretch(1)
+        main_layout.addWidget(self.status_bar, stretch=0)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+        self.setLayout(main_layout)
+
+        # Set size policy
+        try:
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        except Exception as e:
+            logger.warning(f"QSizePolicy not available: {e}")
+            app_signals.append_log.emit(f"[Init] QSizePolicy not available: {str(e)}")
+
+        # Load saved credentials
+        cache = load_cache()
+        if cache.get("saved_username") and cache.get("saved_password"):
+            self.ui.usernametxt.setText(cache["saved_username"])
+            self.ui.passwordtxt.setText(cache["saved_password"])
+            self.ui.rememberme.setChecked(True)
+            app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+            self.status_bar.showMessage("Loaded saved credentials")
+        else:
+            app_signals.append_log.emit("[Login] No saved credentials found in cache")
+            self.status_bar.showMessage("No saved credentials found")
+
+        # Connect signals
+        app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
+        self.ui.buttonBox.accepted.connect(self.handle_login)
+
+        self.progress = None
+        logger.debug("[Login] LoginDialog initialized")
+        app_signals.append_log.emit("[Login] Initializing LoginDialog")
+        self.status_bar.showMessage("Login dialog initialized")
+
+        self.resize(764, 669)
+
+    def show_progress(self, message):
+        try:
+            self.progress = QProgressDialog(message, None, 0, 0, self)
+            self.progress.setWindowModality(Qt.WindowModal)
+            self.progress.setCancelButton(None)
+            self.progress.setMinimumDuration(0)
+            self.progress.setWindowTitle("Please wait")
+            try:
+                self.progress.setWindowIcon(load_icon(ICON_PATH, "progress dialog"))
+            except Exception as e:
+                logger.warning(f"Failed to load progress dialog icon: {e}")
+            self.progress.show()
+            QApplication.processEvents()
+            logger.debug(f"Progress dialog shown: {message}")
+            app_signals.append_log.emit(f"[Login] Showing progress: {message}")
+            self.status_bar.showMessage(message)
+        except Exception as e:
+            logger.error(f"Progress dialog error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Progress dialog error - {str(e)}")
+            self.status_bar.showMessage(f"Progress error: {str(e)}")
+
+    def handle_login(self):
+        try:
+            logger.debug("handle_login called")
+            username = self.ui.usernametxt.text().strip()
+            password = self.ui.passwordtxt.text().strip()
+            logger.debug(f"Login attempt with username: {username}, rememberme: {self.ui.rememberme.isChecked()}")
+            app_signals.append_log.emit(f"[Login] Attempting login with username: {username}")
+            self.status_bar.showMessage(f"Attempting login for {username}")
+            if not username or not password:
+                QMessageBox.warning(self, "Input Error", "Please enter both username and password.")
+                app_signals.append_log.emit("[Login] Failed: Missing username or password")
+                self.status_bar.showMessage("Missing username or password")
+                return
+            self.show_progress("Validating credentials...")
+            self.perform_login(username, password)
+            logger.info("Login process started")
+            app_signals.append_log.emit("[Login] Login process started")
+            self.status_bar.showMessage("Login process started")
+        except Exception as e:
+            logger.error(f"Error in handle_login: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Handle login error - {str(e)}")
+            self.status_bar.showMessage(f"Login error: {str(e)}")
+            if self.progress:
+                self.progress.close()
+
+    def perform_login(self, username, password):
+        try:
+            logger.debug("Starting login thread")
+            self.thread = QThread()
+            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=self.tray_icon, status_bar=self.status_bar)
+            self.worker.moveToThread(self.thread)
+            self.thread.started.connect(self.worker.run)
+            self.worker.success.connect(self.on_login_success)
+            self.worker.failure.connect(self.on_login_failure)
+            self.worker.success.connect(self.thread.quit)
+            self.worker.failure.connect(self.thread.quit)
+            self.worker.success.connect(self.worker.deleteLater)
+            self.worker.failure.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+            app_signals.append_log.emit(f"[Login] Starting login thread for user: {username}")
+            self.status_bar.showMessage(f"Starting login for {username}")
+        except Exception as e:
+            logger.error(f"Login thread error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login thread error - {str(e)}")
+            self.status_bar.showMessage(f"Login thread error: {str(e)}")
             if self.progress:
                 self.progress.close()
 
@@ -1288,28 +1558,30 @@ class LoginDialog(QDialog, Ui_Dialog):
                 self.progress.close()
             if self.tray_icon:
                 self.tray_icon.show()
-            self.accept()
+            logger.debug(f"Login success: {user_info}")
             QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
-            self.status_bar.showMessage(f"Logged in as {user_info.get('uid', 'Unknown')}")
             app_signals.append_log.emit(f"[Login] Login successful for user: {user_info.get('uid', 'Unknown')}")
+            self.status_bar.showMessage(f"Login successful for user: {user_info.get('uid', 'Unknown')}")
             if self.on_success_callback:
                 self.on_success_callback()
+            self.accept()
         except Exception as e:
             logger.error(f"Error in on_login_success: {e}")
-            self.status_bar.showMessage(f"Login success handling error: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Login success handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login success error: {str(e)}")
 
     def on_login_failure(self, error_msg):
         try:
             if self.progress:
                 self.progress.close()
+            logger.debug(f"Login failure: {error_msg}")
             QMessageBox.critical(self, "Login Failed", error_msg)
-            self.status_bar.showMessage(f"Login failed: {error_msg}")
             app_signals.append_log.emit(f"[Login] Failed: Login error - {error_msg}")
+            self.status_bar.showMessage(f"Login failed: {error_msg}")
         except Exception as e:
             logger.error(f"Error in on_login_failure: {e}")
-            self.status_bar.showMessage(f"Login failure handling error: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Login failure handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login failure error: {str(e)}")
 
     def closeEvent(self, event):
         try:
@@ -1472,20 +1744,32 @@ class PremediaApp:
                 app_signals.append_log.emit("[Cache] Cache file does not exist")
                 QMessageBox.warning(None, "Cache Error", "Cache file does not exist.")
                 return
-            system = platform.system()
-            if system == "Windows":
-                subprocess.run(["notepad", str(cache_file)], check=True)
-            elif system == "Darwin":
-                subprocess.run(["open", "-t", str(cache_file)], check=True)
-            elif system == "Linux":
-                subprocess.run(["xdg-open", str(cache_file)], check=True)
-            else:
-                logger.warning(f"Unsupported platform for opening cache file: {system}")
-                app_signals.append_log.emit(f"[Cache] Unsupported platform for opening cache file: {system}")
-                QMessageBox.warning(None, "Platform Error", f"Unsupported platform: {system}")
-                return
+
+            # Read the cache file content
+            with cache_file.open('r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Create a dialog to display the file content
+            dialog = QDialog()
+            dialog.setWindowTitle("Cache File Content")
+            dialog.setMinimumSize(600, 400)  # Set a reasonable size for the dialog
+
+            # Create a QTextEdit to display the content
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)  # Make it read-only to prevent editing
+            text_edit.setPlainText(content)  # Set the file content
+
+            # Set up the layout
+            layout = QVBoxLayout()
+            layout.addWidget(text_edit)
+            dialog.setLayout(layout)
+
+            # Show the dialog
+            dialog.exec_()
+
             app_signals.update_status.emit("Opened cache file")
             app_signals.append_log.emit(f"[Cache] Opened cache file: {cache_file}")
+
         except Exception as e:
             logger.error(f"Error opening cache file: {e}")
             app_signals.append_log.emit(f"[Cache] Failed: Error opening cache file - {str(e)}")
@@ -1572,7 +1856,7 @@ class PremediaApp:
                 FILE_WATCHER_RUNNING = False
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait()
+                self.file_watcher_thread.wait(2000)  # Wait up to 2 seconds
             if self.tray_icon:
                 self.tray_icon.hide()
             HTTP_SESSION.close()

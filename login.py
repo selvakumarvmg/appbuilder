@@ -18,6 +18,7 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog,
     QDialogButtonBox, QGroupBox, QLabel, QLineEdit,
     QSizePolicy, QWidget)
+import icons_rc
 
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
@@ -25,7 +26,7 @@ class Ui_Dialog(object):
             Dialog.setObjectName(u"Dialog")
         Dialog.resize(764, 669)
         icon = QIcon()
-        icon.addFile(u"../../../../../home/vmgdigital/.designer/backup/premedia.png", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
+        icon.addFile(u":/newPrefix/premedia.png", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
         Dialog.setWindowIcon(icon)
         Dialog.setStyleSheet(u"/* ===============================\n"
 "\ud83c\udf10 Base Form Style (Clean/Neutral)\n"
@@ -243,7 +244,7 @@ class Ui_Dialog(object):
         self.label = QLabel(Dialog)
         self.label.setObjectName(u"label")
         self.label.setGeometry(QRect(240, 10, 271, 121))
-        self.label.setPixmap(QPixmap(u"../../../../../home/vmgdigital/.designer/backup/vmg-premedia-logo.png"))
+        self.label.setPixmap(QPixmap(u":/icons/icons/vmg-premedia-logo.png"))
         self.label.setScaledContents(True)
 
         self.retranslateUi(Dialog)
@@ -254,7 +255,7 @@ class Ui_Dialog(object):
     # setupUi
 
     def retranslateUi(self, Dialog):
-        Dialog.setWindowTitle(QCoreApplication.translate("Dialog", u"Dialog", None))
+        Dialog.setWindowTitle(QCoreApplication.translate("Dialog", u"Premedia App Login", None))
         self.groupBox.setTitle(QCoreApplication.translate("Dialog", u"LOGIN", None))
         self.label_3.setText(QCoreApplication.translate("Dialog", u"Enter Password Here", None))
         self.usernametxt.setPlaceholderText(QCoreApplication.translate("Dialog", u"USER EMAIL ID", None))

@@ -11,11 +11,11 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Dialog</string>
+   <string>Premedia App Login</string>
   </property>
   <property name="windowIcon">
    <iconset>
-    <normaloff>../../../../../home/vmgdigital/.designer/backup/premedia.png</normaloff>../../../../../home/vmgdigital/.designer/backup/premedia.png</iconset>
+    <normaloff>:/newPrefix/premedia.png</normaloff>:/newPrefix/premedia.png</iconset>
   </property>
   <property name="styleSheet">
    <string notr="true">/* ===============================
@@ -351,14 +351,16 @@ QDialogButtonBox QPushButton:pressed {
     <string/>
    </property>
    <property name="pixmap">
-    <pixmap>../../../../../home/vmgdigital/.designer/backup/vmg-premedia-logo.png</pixmap>
+    <pixmap resource="icons.qrc">:/icons/icons/vmg-premedia-logo.png</pixmap>
    </property>
    <property name="scaledContents">
     <bool>true</bool>
    </property>
   </widget>
  </widget>
- <resources/>
+ <resources>
+  <include location="icons.qrc"/>
+ </resources>
  <connections>
   <connection>
    <sender>buttonBox</sender>
