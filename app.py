@@ -573,15 +573,27 @@ from PySide6.QtWidgets import QProgressDialog
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
-    progress_update = Signal(str, str, int)  # Added for progress updates
+    progress_update = Signal(str, str, int)
 
-    def __init__(self):
-        super().__init__()
+    _instance = None
+
+    def __init__(self, parent=None):
+        if FileWatcherWorker._instance is not None:
+            logger.warning("FileWatcherWorker already instantiated, skipping new instance")
+            return
+        super().__init__(parent)
+        FileWatcherWorker._instance = self
         self.processed_tasks = set()
         self.progress_dialog = None
 
+    @staticmethod
+    def get_instance(parent=None):
+        """Return the singleton instance of FileWatcherWorker."""
+        if FileWatcherWorker._instance is None:
+            FileWatcherWorker._instance = FileWatcherWorker(parent)
+        return FileWatcherWorker._instance
+
     def check_connectivity(self):
-        """Check API and NAS connectivity before processing tasks."""
         cache = load_cache()
         user_id = cache.get('user_id', '')
         token = cache.get('token', '')
@@ -595,17 +607,8 @@ class FileWatcherWorker(QObject):
         try:
             logger.debug(f"Checking API connectivity: {api_url}")
             self.log_update.emit(f"[API Scan] Checking API connectivity: {api_url}")
-            response = HTTP_SESSION.get(
-                api_url,
-                headers=headers,
-                verify=False,
-                timeout=10
-            )
-            app_signals.api_call_status.emit(
-                api_url,
-                "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
-                response.status_code
-            )
+            response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=10)
+            app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
             if response.status_code != 200:
                 logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
                 self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
@@ -621,7 +624,7 @@ class FileWatcherWorker(QObject):
             if not nas_connection:
                 logger.warning("NAS connectivity check failed, continuing without NAS")
                 self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
-                return True  # Allow processing without NAS
+                return True
             nas_connection[0].close()
         return True
 
@@ -710,6 +713,9 @@ class FileWatcherWorker(QObject):
                 f"Interval: {API_POLL_INTERVAL/1000:.1f}s"
             )
             cache = load_cache()
+            logger.debug(f"Cache contents before processing: {json.dumps(cache, indent=2)}")
+            self.log_update.emit(f"[API Scan] Cache contents: {json.dumps(cache, indent=2)}")
+
             user_id = cache.get('user_id', '')
             token = cache.get('token', '')
             if not user_id or not token:
@@ -726,19 +732,10 @@ class FileWatcherWorker(QObject):
                     api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
                     logger.debug(f"Hitting API: {api_url}")
                     app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
-                    response = HTTP_SESSION.get(
-                        api_url,
-                        headers=headers,
-                        verify=False,
-                        timeout=60
-                    )
+                    response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
                     logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
-                    app_signals.api_call_status.emit(
-                        api_url,
-                        "Success" if response.status_code == 200 else f"Failed: {response.status_code}",
-                        response.status_code
-                    )
+                    app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
                     if response.status_code == 401:
                         logger.warning("Unauthorized: Token may be invalid, stopping file watcher")
                         self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
@@ -746,6 +743,12 @@ class FileWatcherWorker(QObject):
                         return
                     response.raise_for_status()
                     tasks = response.json() if isinstance(response.json(), list) else response.json().get('data', [])
+                    logger.debug(f"Tasks retrieved: {json.dumps(tasks, indent=2)}")
+                    self.log_update.emit(f"[API Scan] Tasks retrieved: {json.dumps(tasks[:5], indent=2)}")
+                    if not isinstance(tasks, list):
+                        logger.error(f"API returned non-list tasks: {type(tasks)}")
+                        self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
+                        return
                     self.log_update.emit(f"[API Scan] Retrieved {len(tasks)} tasks")
                     app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
                     break
@@ -759,9 +762,33 @@ class FileWatcherWorker(QObject):
                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
                         return
 
+            # Validate cache
+            cache = load_cache()
+            if not isinstance(cache.get("downloaded_files", {}), dict):
+                logger.warning("Invalid downloaded_files in cache, resetting to dict")
+                self.log_update.emit("[API Scan] Invalid downloaded_files in cache, resetting to dict")
+                cache["downloaded_files"] = {}
+                save_cache(cache)
+            if not isinstance(cache.get("downloaded_files_with_metadata", {}), dict):
+                logger.warning("Invalid downloaded_files_with_metadata in cache, resetting to dict")
+                self.log_update.emit("[API Scan] Invalid downloaded_files_with_metadata in cache, resetting to dict")
+                cache["downloaded_files_with_metadata"] = {}
+                save_cache(cache)
+            if not isinstance(cache.get("uploaded_files", []), list):
+                logger.warning("Invalid uploaded_files in cache, resetting to list")
+                self.log_update.emit("[API Scan] Invalid uploaded_files in cache, resetting to list")
+                cache["uploaded_files"] = []
+                save_cache(cache)
+
             for item in tasks[:5]:
+                if not isinstance(item, dict):
+                    logger.error(f"Invalid task item type: {type(item)}, item: {item}")
+                    self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
+                    continue
                 task_key = f"{item.get('file_path', '')}:{item.get('request_type', '')}"
-                task_id = item.get('id', '')
+                task_id = str(item.get('id', ''))  # Ensure task_id is string
+                logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}")
+                self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}")
                 if task_key in self.processed_tasks or (task_id and task_id in cache.get('downloaded_files_with_metadata', {})):
                     logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
                     self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
@@ -778,23 +805,19 @@ class FileWatcherWorker(QObject):
                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
                     self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
                     cache = load_cache()
-                    # Store downloaded file with API response using id as key
                     if "downloaded_files_with_metadata" not in cache:
                         cache["downloaded_files_with_metadata"] = {}
                     if "downloaded_files" not in cache:
                         cache["downloaded_files"] = {}
-                    if task_id:  # Only store if task_id is present
-                        cache["downloaded_files_with_metadata"][task_id] = {
-                            "local_path": local_path,
-                            "api_response": item
-                        }
+                    if task_id:
+                        cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
                         cache["downloaded_files"][task_id] = local_path
                     timer_response = start_timer_api(file_path, cache["token"])
                     if timer_response:
                         cache["timer_responses"][local_path] = timer_response
                     save_cache(cache)
                     self.processed_tasks.add(task_key)
-                    if not is_online:
+                    if not is_online and self.parent():
                         self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
                 elif action_type == "upload" and Path(local_path).exists():
                     self.status_update.emit(f"Uploading {file_name}")
@@ -816,7 +839,6 @@ class FileWatcherWorker(QObject):
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-
 class LogWindow(QDialog):
     def __init__(self):
         super().__init__()
@@ -908,13 +930,15 @@ class LogWindow(QDialog):
         super().closeEvent(event)
 
 class FileListWindow(QDialog):
-    def __init__(self, file_type):
-        super().__init__()
+    def __init__(self, file_type, parent=None):
+        super().__init__(parent)
         self.file_type = file_type.lower()
         self.setWindowTitle(f"{file_type.capitalize()} Files")
         self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
         self.setMinimumSize(800, 400)
         self.resize(800, 400)
+        logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
+        app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
 
         self.table = QTableWidget(self)
         self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
@@ -934,59 +958,71 @@ class FileListWindow(QDialog):
         layout.addWidget(self.table)
         self.setLayout(layout)
 
-        self.load_files()
+        try:
+            self.load_files()
+        except Exception as e:
+            logger.error(f"Error loading files in FileListWindow: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+
         app_signals.update_file_list.connect(self.update_file_list, Qt.QueuedConnection)
-        self.file_watcher = FileWatcherWorker()
+        self.file_watcher = FileWatcherWorker.get_instance(parent=self)  # Use singleton
         self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
 
     def load_files(self):
         """Load files into the table based on file_type."""
-        cache = load_cache()
-        files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-        self.table.setRowCount(0)  # Clear existing rows
+        try:
+            cache = load_cache()
+            logger.debug(f"Loading files for {self.file_type}, cache: {json.dumps(cache, indent=2)}")
+            app_signals.append_log.emit(f"[Files] Loading files for {self.file_type}")
+            files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
+            logger.debug(f"Files retrieved: {files}")
+            self.table.setRowCount(0)
 
-        # Handle dictionary for downloaded files, list for uploaded files
-        file_list = files.items() if isinstance(files, dict) else enumerate(files)
-        for task_id, file_path in file_list:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            filename = Path(file_path).name
-            path_item = QTableWidgetItem(filename)
-            self.table.setItem(row, 0, path_item)
+            file_list = files.items() if isinstance(files, dict) else enumerate(files)
+            for task_id, file_path in file_list:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                filename = Path(file_path).name
+                path_item = QTableWidgetItem(filename)
+                self.table.setItem(row, 0, path_item)
 
-            folder_btn = QPushButton()
-            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-            folder_btn.setIconSize(QSize(24, 24))
-            folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
-            self.table.setCellWidget(row, 1, folder_btn)
+                folder_btn = QPushButton()
+                folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+                folder_btn.setIconSize(QSize(24, 24))
+                folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
+                self.table.setCellWidget(row, 1, folder_btn)
 
-            photoshop_btn = QPushButton()
-            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-            photoshop_btn.setIconSize(QSize(24, 24))
-            photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
-            self.table.setCellWidget(row, 2, photoshop_btn)
+                photoshop_btn = QPushButton()
+                photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+                photoshop_btn.setIconSize(QSize(24, 24))
+                photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
+                self.table.setCellWidget(row, 2, photoshop_btn)
 
-            if self.file_type == "downloaded":
-                source = cache.get("downloaded_files_with_metadata", {}).get(task_id, {}).get("api_response", {}).get("file_path", "Unknown")
-                source_item = QTableWidgetItem(source)
-                self.table.setItem(row, 3, source_item)
-                status_col = 4
-                progress_col = 5
-            else:
-                status_col = 3
-                progress_col = 4
+                if self.file_type == "downloaded":
+                    source = cache.get("downloaded_files_with_metadata", {}).get(task_id, {}).get("api_response", {}).get("file_path", "Unknown")
+                    source_item = QTableWidgetItem(source)
+                    self.table.setItem(row, 3, source_item)
+                    status_col = 4
+                    progress_col = 5
+                else:
+                    status_col = 3
+                    progress_col = 4
 
-            status_item = QTableWidgetItem("Completed")
-            self.table.setItem(row, status_col, status_item)
-            progress_bar = QProgressBar(self)
-            progress_bar.setMinimum(0)
-            progress_bar.setMaximum(100)
-            progress_bar.setValue(100)  # Assume completed for existing files
-            progress_bar.setFixedHeight(20)
-            self.table.setCellWidget(row, progress_col, progress_bar)
+                status_item = QTableWidgetItem("Completed")
+                self.table.setItem(row, status_col, status_item)
+                progress_bar = QProgressBar(self)
+                progress_bar.setMinimum(0)
+                progress_bar.setMaximum(100)
+                progress_bar.setValue(100)
+                progress_bar.setFixedHeight(20)
+                self.table.setCellWidget(row, progress_col, progress_bar)
 
-        self.table.resizeColumnsToContents()
-        app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
+            self.table.resizeColumnsToContents()
+            app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
+        except Exception as e:
+            logger.error(f"Error in load_files for {self.file_type}: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
+            raise
 
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
@@ -1182,6 +1218,8 @@ class FileListWindow(QDialog):
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
+
 # LoginWorker (provided, with fixes)
 
 class LoginWorker(QObject):
