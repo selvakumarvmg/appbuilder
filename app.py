@@ -570,7 +570,6 @@ class FileConversionWorker(QObject):
             self.error.emit(str(e), Path(self.src_path).name)
 
 from PySide6.QtWidgets import QProgressDialog
-
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
@@ -628,7 +627,6 @@ class FileWatcherWorker(QObject):
 
     def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
         try:
-            # Emit progress signals instead of showing dialog directly
             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
             self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
         except Exception as e:
@@ -763,9 +761,10 @@ class FileWatcherWorker(QObject):
 
             for item in tasks[:5]:
                 task_key = f"{item.get('file_path', '')}:{item.get('request_type', '')}"
-                if task_key in self.processed_tasks:
-                    logger.debug(f"Skipping already processed task: {task_key}")
-                    self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key}")
+                task_id = item.get('id', '')
+                if task_key in self.processed_tasks or (task_id and task_id in cache.get('downloaded_files_with_metadata', {})):
+                    logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
+                    self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
                     continue
                 file_path = item.get('file_path', '')
                 file_name = item.get('file_name', Path(file_path).name)
@@ -779,14 +778,17 @@ class FileWatcherWorker(QObject):
                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
                     self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
                     cache = load_cache()
-                    # Store downloaded file with API response
+                    # Store downloaded file with API response using id as key
                     if "downloaded_files_with_metadata" not in cache:
-                        cache["downloaded_files_with_metadata"] = []
-                    cache["downloaded_files_with_metadata"].append({
-                        "local_path": local_path,
-                        "api_response": item
-                    })
-                    cache["downloaded_files"].append(local_path)
+                        cache["downloaded_files_with_metadata"] = {}
+                    if "downloaded_files" not in cache:
+                        cache["downloaded_files"] = {}
+                    if task_id:  # Only store if task_id is present
+                        cache["downloaded_files_with_metadata"][task_id] = {
+                            "local_path": local_path,
+                            "api_response": item
+                        }
+                        cache["downloaded_files"][task_id] = local_path
                     timer_response = start_timer_api(file_path, cache["token"])
                     if timer_response:
                         cache["timer_responses"][local_path] = timer_response
@@ -814,6 +816,7 @@ class FileWatcherWorker(QObject):
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+
 class LogWindow(QDialog):
     def __init__(self):
         super().__init__()
@@ -919,7 +922,11 @@ class FileListWindow(QDialog):
         if self.file_type == "downloaded":
             headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        header = self.table.horizontalHeader()
+        header.setSectionsMovable(True)
+        header.setStretchLastSection(True)
+        for i in range(self.table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.Interactive)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
@@ -937,7 +944,10 @@ class FileListWindow(QDialog):
         files = cache.get(f"{self.file_type}_files", [])
         self.table.setRowCount(len(files))
         for row, file_path in enumerate(files):
-            path_item = QTableWidgetItem(file_path)
+            filename = Path(file_path).name
+
+            # Then set it to the table cell
+            path_item = QTableWidgetItem(filename)
             self.table.setItem(row, 0, path_item)
 
             folder_btn = QPushButton()
@@ -1999,27 +2009,90 @@ class PremediaApp:
             app_signals.append_log.emit(f"[Conversion] Failed: Error handling conversion error - {str(e)}")
 
     def open_with_photoshop(self, file_path):
+        """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
             system = platform.system()
+            photoshop_path = None
+
             if system == "Windows":
-                photoshop_path = "C:/Program Files/Adobe/Adobe Photoshop 2023/Photoshop.exe"
-                if not Path(photoshop_path).exists():
-                    photoshop_path = "C:/Program Files/Adobe/Adobe Photoshop 2022/Photoshop.exe"
-                subprocess.run([photoshop_path, file_path], check=True)
+                # Search Program Files and Program Files (x86) for Photoshop
+                search_dirs = [
+                    Path("C:/Program Files/Adobe"),
+                    Path("C:/Program Files (x86)/Adobe")
+                ]
+                for base_dir in search_dirs:
+                    if not base_dir.exists():
+                        continue
+                    # Find all Photoshop executables, sort by version (descending)
+                    photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                    if photoshop_exes:
+                        # Pick the latest version based on directory name (e.g., "Adobe Photoshop 2023")
+                        photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                        photoshop_path = str(photoshop_exes[0])
+                        break
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
             elif system == "Darwin":
-                subprocess.run(["open", "-a", "Adobe Photoshop", file_path], check=True)
+                # Use mdfind to locate Photoshop or check common paths
+                try:
+                    result = subprocess.run(
+                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
+                        capture_output=True, text=True, check=True
+                    )
+                    if result.stdout.strip():
+                        photoshop_path = result.stdout.strip().split("\n")[0]
+                except subprocess.CalledProcessError:
+                    # Fallback to common paths
+                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
+                    if photoshop_apps:
+                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                        photoshop_path = str(photoshop_apps[0])
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+
             elif system == "Linux":
-                subprocess.run(["wine", "Photoshop.exe", file_path], check=True)
+                # Check for wine and Photoshop in common Wine directories
+                try:
+                    subprocess.run(["wine", "--version"], capture_output=True, check=True)
+                    # Check common Wine program files
+                    wine_dirs = [
+                        Path.home() / ".wine/drive_c/Program Files/Adobe",
+                        Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+                    ]
+                    for base_dir in wine_dirs:
+                        if not base_dir.exists():
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            break
+                    if not photoshop_path:
+                        raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                except subprocess.CalledProcessError:
+                    raise FileNotFoundError("Wine is not installed or not functioning")
+
             else:
                 logger.warning(f"Unsupported platform for Photoshop: {system}")
                 app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
+                app_signals.update_status.emit(f"Unsupported platform: {system}")
                 return
+
+            # Open the file with Photoshop
+            if system == "Darwin":
+                subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+            else:
+                subprocess.run([photoshop_path, file_path], check=True)
+
+            logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
+            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
             app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
-            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name}")
+
         except Exception as e:
             logger.error(f"Failed to open {file_path} in Photoshop: {e}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
             app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
 
     def post_login_processes(self):
         global FILE_WATCHER_RUNNING
