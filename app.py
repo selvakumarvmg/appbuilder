@@ -625,7 +625,16 @@ class FileWatcherWorker(QObject):
                 logger.warning("NAS connectivity check failed, continuing without NAS")
                 self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
                 return True
-            nas_connection[0].close()
+            transport, sftp = nas_connection
+            try:
+                sftp.stat("/irdev")  # Verify share exists
+                self.log_update.emit("[API Scan] NAS share /irdev accessible")
+            except Exception as e:
+                logger.warning(f"NAS share check failed: {str(e)}")
+                self.log_update.emit(f"[API Scan] NAS share check failed: {str(e)}")
+                transport.close()
+                return True
+            transport.close()
         return True
 
     def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
@@ -642,12 +651,22 @@ class FileWatcherWorker(QObject):
             if action_type.lower() == "download":
                 if is_nas_src:
                     nas_connection = connect_to_nas()
-                    if nas_connection:
-                        transport, sftp = nas_connection
+                    if not nas_connection:
+                        raise Exception(f"NAS connection failed to {NAS_IP}")
+                    transport, sftp = nas_connection
+                    try:
+                        # Use NAS_SHARE for path
+                        nas_base_path = "/irdev"
+                        if not src_path.startswith("/"):
+                            src_path = f"{nas_base_path}/{src_path}"
+                        logger.debug(f"Attempting NAS download: {src_path} to {dest_path}")
+                        self.log_update.emit(f"[Transfer] Attempting NAS download: {src_path} to {dest_path}")
+                        sftp.stat(src_path)  # Check if file exists
                         sftp.get(src_path, dest_path)
                         transport.close()
-                    else:
-                        raise Exception("NAS connection failed")
+                    except Exception as e:
+                        transport.close()
+                        raise Exception(f"NAS download failed for {src_path}: {str(e)}")
                 else:
                     response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
                     response.raise_for_status()
@@ -660,12 +679,18 @@ class FileWatcherWorker(QObject):
             elif action_type.lower() == "upload":
                 if is_nas_dest:
                     nas_connection = connect_to_nas()
-                    if nas_connection:
-                        transport, sftp = nas_connection
+                    if not nas_connection:
+                        raise Exception(f"NAS connection failed to {NAS_IP}")
+                    transport, sftp = nas_connection
+                    try:
+                        nas_base_path = "/irdev"
+                        if not dest_path.startswith("/"):
+                            dest_path = f"{nas_base_path}/{dest_path}"
                         sftp.put(src_path, dest_path)
                         transport.close()
-                    else:
-                        raise Exception("NAS connection failed")
+                    except Exception as e:
+                        transport.close()
+                        raise Exception(f"NAS upload failed for {dest_path}: {str(e)}")
                 else:
                     with open(src_path, 'rb') as f:
                         response = HTTP_SESSION.post(
@@ -742,13 +767,25 @@ class FileWatcherWorker(QObject):
                         FILE_WATCHER_RUNNING = False
                         return
                     response.raise_for_status()
-                    tasks = response.json() if isinstance(response.json(), list) else response.json().get('data', [])
-                    logger.debug(f"Tasks retrieved: {json.dumps(tasks, indent=2)}")
-                    self.log_update.emit(f"[API Scan] Tasks retrieved: {json.dumps(tasks[:5], indent=2)}")
+                    response_data = response.json()
+                    logger.debug(f"Raw API response: {json.dumps(response_data, indent=2)}")
+                    self.log_update.emit(f"[API Scan] Raw API response: {json.dumps(response_data[:5], indent=2)}")
+                    tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
                     if not isinstance(tasks, list):
-                        logger.error(f"API returned non-list tasks: {type(tasks)}")
+                        logger.error(f"API returned non-list tasks: {type(tasks)}, data: {tasks}")
                         self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
                         return
+                    for i, task in enumerate(tasks):
+                        if not isinstance(task, dict):
+                            logger.error(f"Invalid task at index {i}: {type(task)}, data: {task}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid task at index {i}: {type(task)}")
+                            continue
+                        if not task.get('id') or not task.get('file_path'):
+                            logger.error(f"Invalid task at index {i}: Missing id or file_path, task: {task}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid task at index {i}: Missing id or file_path")
+                            continue
+                    logger.debug(f"Tasks retrieved: {json.dumps(tasks, indent=2)}")
+                    self.log_update.emit(f"[API Scan] Tasks retrieved: {json.dumps(tasks[:5], indent=2)}")
                     self.log_update.emit(f"[API Scan] Retrieved {len(tasks)} tasks")
                     app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
                     break
@@ -839,6 +876,7 @@ class FileWatcherWorker(QObject):
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+            
 class LogWindow(QDialog):
     def __init__(self):
         super().__init__()
