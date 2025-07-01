@@ -47,6 +47,13 @@ jobs:
             --exclude-module=matplotlib `
             --name PremediaApp app.py --log-level DEBUG
 
+      - name: Debug dist folder contents
+        run: |
+          echo "Listing dist/ folder:"
+          dir dist
+          echo "Listing installer/ folder:"
+          dir installer
+
       - name: Package Windows installer
         run: |
           iscc installer/installer.iss || echo "Inno Setup failed, check logs"

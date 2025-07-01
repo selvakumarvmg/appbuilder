@@ -1,23 +1,24 @@
 [Setup]
 AppName=PremediaApp
 AppVersion=1.0.0
-DefaultDirName={autopf}\PremediaApp
+DefaultDirName={autopf}\\PremediaApp
 DefaultGroupName=PremediaApp
-OutputDir=Output
 OutputBaseFilename=PremediaApp-Setup
-SetupIconFile=dist\icons\premedia.ico
+OutputDir=Output
 Compression=lzma
 SolidCompression=yes
-WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64
+SetupIconFile=icons\\premedia.ico
 
 [Files]
-Source: "dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
-Source: "dist\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
-Source: "dist\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
-Source: "dist\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\license.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "terms.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "license.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "icons\\premedia.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
-Name: "{group}\Uninstall PremediaApp"; Filename: "{uninstallexe}"
+Name: "{group}\\PremediaApp"; Filename: "{app}\\PremediaApp.exe"; IconFilename: "{app}\\premedia.ico"
+Name: "{commondesktop}\\PremediaApp"; Filename: "{app}\\PremediaApp.exe"; IconFilename: "{app}\\premedia.ico"
+
+[Run]
+Filename: "{app}\\PremediaApp.exe"; Description: "Launch PremediaApp"; Flags: nowait postinstall skipifsilent
