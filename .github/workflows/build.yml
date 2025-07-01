@@ -1,126 +1,196 @@
-name: Build and Package PremediaApp
+name: PremediaApp Build
 
 on:
   push:
-    branches: [main]
-
-env:
-  APP_NAME: PremediaApp
-  APP_VERSION: 1.0.0
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential fakeroot dpkg-dev libgl1
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - name: Build with PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed --onefile --icon=pm.png --name=${{ env.APP_NAME }} app.py
-
-      - name: Prepare DEB package structure
-        run: |
-          mkdir -p package-root/DEBIAN
-          mkdir -p package-root/usr/local/bin
-          mkdir -p package-root/usr/share/applications
-          mkdir -p package-root/usr/share/icons/hicolor/128x128/apps
-
-          cp dist/${{ env.APP_NAME }} package-root/usr/local/bin/
-          cp ${{ env.APP_NAME }}.desktop package-root/usr/share/applications/
-          cp pm.png package-root/usr/share/icons/hicolor/128x128/apps/premediaapp.png
-
-          echo "Package: ${{ env.APP_NAME }}" > package-root/DEBIAN/control
-          echo "Version: ${{ env.APP_VERSION }}" >> package-root/DEBIAN/control
-          echo "Section: base" >> package-root/DEBIAN/control
-          echo "Priority: optional" >> package-root/DEBIAN/control
-          echo "Architecture: amd64" >> package-root/DEBIAN/control
-          echo "Depends: python3" >> package-root/DEBIAN/control
-          echo "Maintainer: VMG DIGITAL PVT LTD" >> package-root/DEBIAN/control
-          echo "Description: PremediaApp is a media asset management and conversion tool." >> package-root/DEBIAN/control
-
-      - name: Build .deb package
-        run: |
-          dpkg-deb --build package-root
-          mv package-root.deb ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
-
-      - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: premediaapp-deb
-          path: ${{ env.APP_NAME }}_*.deb
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - name: Build Windows EXE
-        run: |
-          pyinstaller --noconfirm --windowed --onefile --icon=pm.ico --name=${{ env.APP_NAME }} app.py
-
-      - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: premediaapp-windows
-          path: dist/${{ env.APP_NAME }}.exe
-
-  build-macos:
-    runs-on: macos-latest
-
-    env:
-      APP_NAME: PremediaApp
-      APP_VERSION: 1.0.0
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10']
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
 
-      - name: Build macOS .app using PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed --name="${APP_NAME}" \
-            --icon=pm.icns app.py
+    - name: Install additional dependencies for Ubuntu
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-glx desktop-file-utils dpkg-dev
 
-      - name: Show app structure
-        run: |
-          ls -R dist/${APP_NAME}.app
+    - name: Build executable
+      run: |
+        pyinstaller --noconfirm --onefile \
+          --add-data "icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons" \
+          --add-data "terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
+          --add-data "license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
+          --icon icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} \
+          --name PremediaApp app.py
 
-      - name: Upload macOS .app bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: premediaapp-macos
-          path: dist/${{ env.APP_NAME }}.app
+    - name: Package macOS app bundle
+      if: matrix.os == 'macos-latest'
+      run: |
+        mkdir -p dist/PremediaApp.app/Contents/MacOS
+        mkdir -p dist/PremediaApp.app/Contents/Resources
+        mv dist/PremediaApp dist/PremediaApp.app/Contents/MacOS/PremediaApp
+        mv dist/icons dist/PremediaApp.app/Contents/Resources/icons
+        mv dist/terms.txt dist/PremediaApp.app/Contents/Resources/
+        mv dist/license.txt dist/PremediaApp.app/Contents/Resources/
+        echo '<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>PremediaApp</string>
+            <key>CFBundleIconFile</key>
+            <string>premedia.icns</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.xai.PremediaApp</string>
+            <key>CFBundleName</key>
+            <string>PremediaApp</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>CFBundleURLTypes</key>
+            <array>
+                <dict>
+                    <key>CFBundleURLName</key>
+                    <string>com.xai.PremediaApp</string>
+                    <key>CFBundleURLSchemes</key>
+                    <array>
+                        <string>premediaapp</string>
+                    </array>
+                </dict>
+            </array>
+        </dict>
+        </plist>' > dist/PremediaApp.app/Contents/Info.plist
+        hdiutil create -volname "PremediaApp" -srcfolder dist/PremediaApp.app -ov -format UDZO dist/PremediaApp.dmg
+
+    - name: Package Windows installer
+      if: matrix.os == 'windows-latest'
+      run: |
+        iscc installer.iss
+      env:
+        ISCC_PATH: "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
+
+    - name: Package Ubuntu .deb
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        # Install additional dependencies for debugging
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev
+
+        # Create directory structure for .deb package
+        mkdir -p deb-package/DEBIAN
+        mkdir -p deb-package/opt/PremediaApp
+        mkdir -p deb-package/usr/share/applications
+        mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
+        mkdir -p deb-package/usr/share/mime/packages
+
+        # Copy PyInstaller output to package directory
+        cp dist/PremediaApp deb-package/opt/PremediaApp/
+        cp -r dist/icons deb-package/opt/PremediaApp/
+        cp dist/terms.txt deb-package/opt/PremediaApp/
+        cp dist/license.txt deb-package/opt/PremediaApp/
+        chmod -R 755 deb-package/opt/PremediaApp
+
+        # Debug: Check executable
+        file deb-package/opt/PremediaApp/PremediaApp
+        ldd deb-package/opt/PremediaApp/PremediaApp || true
+
+        # Create .desktop files
+        cat > deb-package/usr/share/applications/premediaapp.desktop << EOL
+        [Desktop Entry]
+        Name=PremediaApp
+        Comment=Image Retouching Application
+        Exec=/opt/PremediaApp/PremediaApp
+        Type=Application
+        Terminal=false
+        Icon=premedia
+        Categories=Utility;Graphics;
+        EOL
+
+        cat > deb-package/usr/share/applications/premediaapp-terms.desktop << EOL
+        [Desktop Entry]
+        Name=PremediaApp Terms
+        Comment=View PremediaApp Terms of Service
+        Exec=xdg-open /opt/PremediaApp/terms.txt
+        Type=Application
+        Terminal=false
+        Icon=premedia
+        Categories=Utility;
+        EOL
+
+        cat > deb-package/usr/share/applications/premediaapp-license.desktop << EOL
+        [Desktop Entry]
+        Name=PremediaApp License
+        Comment=View PremediaApp License
+        Exec=xdg-open /opt/PremediaApp/license.txt
+        Type=Application
+        Terminal=false
+        Icon=premedia
+        Categories=Utility;
+        EOL
+
+        # Copy icon to standard location
+        cp dist/icons/premedia.png deb-package/usr/share/icons/hicolor/scalable/apps/premedia.png
+
+        # Create DEBIAN/control file
+        cat > deb-package/DEBIAN/control << EOL
+        Package: premediaapp
+        Version: 1.0.0
+        Architecture: all
+        Maintainer: Your Name <your.email@example.com>
+        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-glx, python3-tk
+        Section: utils
+        Priority: optional
+        Homepage: https://example.com
+        Description: PremediaApp Image Retouching Application
+         PremediaApp is a cross-platform application for image retouching.
+        EOL
+
+        # Create post-install script
+        cat > deb-package/DEBIAN/postinst << EOL
+        #!/bin/sh
+        set -e
+        update-desktop-database
+        gtk-update-icon-cache /usr/share/icons/hicolor || true
+        EOL
+        chmod 755 deb-package/DEBIAN/postinst
+
+        # Build the .deb package
+        dpkg-deb --build deb-package dist/premediaapp_1.0.0_all.deb
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-${{ matrix.os }}-${{ matrix.python-version }}
+        path: |
+          dist/premediaapp_1.0.0_all.deb
+          dist/*.dmg
+          Output/*.exe
+
+    - name: Run tests
+      run: |
+        pip install -r dev-requirements.txt
+        pytest --cov=./ --cov-report=xml
