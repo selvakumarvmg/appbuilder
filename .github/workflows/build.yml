@@ -35,7 +35,7 @@ jobs:
           pip install pyinstaller==6.14.1
 
       - name: Build with PyInstaller
-        timeout-minutes: 30
+        timeout-minutes: 40
         run: |
           dir icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico `
@@ -44,7 +44,7 @@ jobs:
             --add-data "license.txt;." `
             --hidden-import=paramiko `
             --hidden-import=tzdata `
-            --name PremediaApp app.py
+            --name PremediaApp app.py --log-level DEBUG
           dir dist
 
       - name: Package Windows installer
@@ -89,17 +89,17 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 30
+        timeout-minutes: 40
         run: |
           ls -R icons
           pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
-            --add-data "icons;icons" \
-            --add-data "terms.txt;." \
-            --add-data "license.txt;." \
+            --add-data "icons:icons" \
+            --add-data "terms.txt:." \
+            --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --target-arch universal2 \
-            --name PremediaApp app.py
+            --name PremediaApp app.py --log-level DEBUG
           ls -R dist
 
       - name: Update Info.plist
@@ -173,16 +173,16 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: |
           ls -R icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
-            --add-data "icons;icons" \
-            --add-data "terms.txt;." \
-            --add-data "license.txt;." \
+            --add-data "icons:icons" \
+            --add-data "terms.txt:." \
+            --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
-            --name PremediaApp app.py
+            --name PremediaApp app.py --log-level DEBUG
           ls -R dist
 
       - name: Create .deb package
