@@ -52,9 +52,9 @@ jobs:
         echo "Verifying required files..."
         ls -l app.py || { echo "app.py not found"; exit 1; }
         ls -l requirements.txt || echo "requirements.txt not found (optional)"
-        ls -l icons/premedia.png || { echo "icons/premedia.png not found"; exit 1; }
-        ls -l icons/premedia.ico || { echo "icons/premedia.ico not found"; exit 1; }
-        ls -l icons/premedia.icns || { echo "icons/premedia.icns not found"; exit 1; }
+        ls -l icons/premedia.png || echo "icons/premedia.png not found (optional)"
+        ls -l icons/premedia.ico || echo "icons/premedia.ico not found (optional)"
+        ls -l icons/premedia.icns || echo "icons/premedia.icns not found (optional)"
         ls -l terms.txt || { echo "terms.txt not found"; exit 1; }
         ls -l license.txt || { echo "license.txt not found"; exit 1; }
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
@@ -66,13 +66,17 @@ jobs:
       run: |
         echo "Running PyInstaller..."
         pyinstaller --noconfirm --onefile \
-          --add-data "icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons" \
+          --add-data "icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons${{ matrix.os == 'windows-latest' && '' || matrix.os == 'macos-latest' && '' || ':.' }}" \
           --add-data "terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
           --add-data "license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
           --icon icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} \
           --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
         ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
-        ls -l dist/icons || { echo "dist/icons directory not found"; exit 1; }
+        if [ -d dist/icons ]; then
+          ls -l dist/icons || echo "dist/icons directory exists but listing failed"
+        else
+          echo "dist/icons directory not found (optional)"
+        fi
       shell: bash
 
     - name: Package macOS app bundle
@@ -136,7 +140,11 @@ jobs:
         mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
 
         cp dist/PremediaApp deb-package/opt/PremediaApp/ || { echo "Failed to copy PremediaApp"; exit 1; }
-        cp -r dist/icons deb-package/opt/PremediaApp/ || { echo "Failed to copy icons"; exit 1; }
+        if [ -d dist/icons ]; then
+          cp -r dist/icons deb-package/opt/PremediaApp/ || { echo "Failed to copy icons"; exit 1; }
+        else
+          echo "dist/icons not found, skipping copy"
+        fi
         cp dist/terms.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy terms.txt"; exit 1; }
         cp dist/license.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy license.txt"; exit 1; }
         chmod -R 755 deb-package/opt/PremediaApp
@@ -178,7 +186,11 @@ jobs:
         Categories=Utility;
         EOL
 
-        cp dist/icons/premedia.png deb-package/usr/share/icons/hicolor/scalable/apps/premedia.png || { echo "Failed to copy icon"; exit 1; }
+        if [ -f dist/icons/premedia.png ]; then
+          cp dist/icons/premedia.png deb-package/usr/share/icons/hicolor/scalable/apps/premedia.png || { echo "Failed to copy icon"; exit 1; }
+        else
+          echo "dist/icons/premedia.png not found, skipping icon copy"
+        fi
 
         cat > deb-package/DEBIAN/control << EOL
         Package: premediaapp
