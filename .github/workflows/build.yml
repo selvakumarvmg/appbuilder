@@ -16,10 +16,10 @@ jobs:
         python-version: ["3.9", "3.10"]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -45,19 +45,20 @@ jobs:
           iscc installer.iss
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Windows-${{ matrix.python-version }}
           path: Output/PremediaApp-Setup.exe
+          retention-days: 5
 
   build-macos:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.9
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
@@ -101,19 +102,20 @@ jobs:
             -format UDZO Output/PremediaApp.dmg
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-macOS
           path: Output/PremediaApp.dmg
+          retention-days: 5
 
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.9
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
@@ -172,7 +174,8 @@ jobs:
           gtk-update-icon-cache dist/debian/usr/share/icons/hicolor -f || echo "Icon cache update failed"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Ubuntu
           path: Output/PremediaApp.deb
+          retention-days: 5
