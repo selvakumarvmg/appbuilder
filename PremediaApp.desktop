@@ -1,9 +1,8 @@
 [Desktop Entry]
 Name=PremediaApp
-Comment=Media asset management and conversion tool
-Exec=/usr/local/bin/PremediaApp
-Icon=premediaapp
-Terminal=false
+Comment=Image Retouching Application
+Exec=/usr/bin/python3 /opt/PremediaApp/main.py
 Type=Application
-Categories=Utility;
-StartupNotify=true
+Terminal=false
+Icon=/opt/PremediaApp/icons/premedia.png
+Categories=Utility;Graphics;

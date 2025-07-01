@@ -1,0 +1,396 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>764</width>
+    <height>669</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Dialog</string>
+  </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>../../../../../home/vmgdigital/.designer/backup/premedia.png</normaloff>../../../../../home/vmgdigital/.designer/backup/premedia.png</iconset>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">/* ===============================
+🌐 Base Form Style (Clean/Neutral)
+================================== */
+QDialog, QWidget {
+    background-color: #f4f6f8;  /* light neutral background */
+    font-family: &quot;Segoe UI&quot;, &quot;Helvetica Neue&quot;, sans-serif;
+    font-size: 14px;
+    color: #333333;
+}
+
+/* ===============================
+🖼️ QLabel Styling
+================================== */
+QLabel {
+    background-color: transparent;
+    font-size: 13px;
+    color: #2e2e2e;
+}
+
+QLabel#label_2,
+QLabel#label_3 {
+    background-color: #e0e0e0;
+    padding: 6px 10px;
+    border-radius: 0px 5px 0px 5px;
+    font-weight: 500;
+    color: #1a1a1a;
+}
+
+QLabel#label {
+    qproperty-alignment: AlignCenter;
+    padding: 10px;
+}
+
+/* ===============================
+📦 QGroupBox Styling
+================================== */
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #d1d1d1;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 10px;
+    font-weight: bold;
+}
+
+QGroupBox::title {
+    subcontrol-origin: content;
+    subcontrol-position: top left;
+    margin-top: -12px;
+    padding: 4px 10px;
+    font-size: 15px;
+    color: #0078d7;
+}
+
+/* ===============================
+🔤 QLineEdit (Inputs)
+================================== */
+QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #bfc5ca;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #333;
+}
+
+QLineEdit:focus {
+    border: 1px solid #0078d7;
+    background-color: #f0faff;
+}
+
+/* ===============================
+✅ QCheckBox with Clean Label Background
+================================== */
+QCheckBox {
+    spacing: 6px;
+    font-size: 13px;
+    color: #1a1a1a;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background-color: #eeeeee;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #999;
+    background-color: #ffffff;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #0078d7;
+    image: none;
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #3399ff;
+}
+
+/* ===============================
+🔘 QRadioButton Styling
+================================== */
+QRadioButton {
+    spacing: 6px;
+    font-size: 13px;
+    color: #2e2e2e;
+    padding: 6px 8px;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 2px solid #0078d7;
+    background-color: white;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #0078d7;
+}
+
+QRadioButton::indicator:unchecked {
+    background-color: white;
+    border: 2px solid #bbb;
+}
+
+/* ===============================
+🧩 QPushButton Styling (Flat &amp; Modern)
+================================== */
+QPushButton {
+    background-color: #0078d7;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 5px;
+    font-weight: bold;
+    min-width: 90px;
+    min-height: 30px;
+    border: none;
+}
+
+QPushButton:hover {
+    background-color: #005a9e;
+}
+
+QPushButton:pressed {
+    background-color: #004578;
+}
+
+/* ===============================
+💬 QDialogButtonBox Buttons
+================================== */
+QDialogButtonBox QPushButton {
+    background-color: #0078d7;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 5px;
+    font-weight: bold;
+    border: none;
+    min-width: 90px;
+    min-height: 30px;
+}
+
+QDialogButtonBox QPushButton:hover {
+    background-color: #005a9e;
+}
+
+QDialogButtonBox QPushButton:pressed {
+    background-color: #004578;
+}
+</string>
+  </property>
+  <widget class="QGroupBox" name="groupBox">
+   <property name="geometry">
+    <rect>
+     <x>60</x>
+     <y>130</y>
+     <width>631</width>
+     <height>461</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Segoe UI</family>
+     <pointsize>-1</pointsize>
+     <weight>75</weight>
+     <bold>true</bold>
+    </font>
+   </property>
+   <property name="title">
+    <string>LOGIN</string>
+   </property>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>90</x>
+      <y>200</y>
+      <width>161</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Segoe UI</family>
+      <pointsize>-1</pointsize>
+      <weight>63</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string>Enter Password Here</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="usernametxt">
+    <property name="geometry">
+     <rect>
+      <x>80</x>
+      <y>120</y>
+      <width>441</width>
+      <height>61</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Segoe UI</family>
+      <pointsize>-1</pointsize>
+     </font>
+    </property>
+    <property name="placeholderText">
+     <string>USER EMAIL ID</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="passwordtxt">
+    <property name="geometry">
+     <rect>
+      <x>80</x>
+      <y>230</y>
+      <width>441</width>
+      <height>61</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Segoe UI</family>
+      <pointsize>-1</pointsize>
+     </font>
+    </property>
+    <property name="echoMode">
+     <enum>QLineEdit::Password</enum>
+    </property>
+    <property name="placeholderText">
+     <string>USER PASSWORD</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="rememberme">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>80</x>
+      <y>310</y>
+      <width>181</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Segoe UI</family>
+      <pointsize>-1</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Remember Password</string>
+    </property>
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_2">
+    <property name="geometry">
+     <rect>
+      <x>90</x>
+      <y>90</y>
+      <width>171</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Segoe UI</family>
+      <pointsize>-1</pointsize>
+      <weight>63</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string>Enter User Name Here</string>
+    </property>
+   </widget>
+   <widget class="QDialogButtonBox" name="buttonBox">
+    <property name="geometry">
+     <rect>
+      <x>350</x>
+      <y>370</y>
+      <width>251</width>
+      <height>61</height>
+     </rect>
+    </property>
+    <property name="orientation">
+     <enum>Qt::Horizontal</enum>
+    </property>
+    <property name="standardButtons">
+     <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>240</x>
+     <y>10</y>
+     <width>271</width>
+     <height>121</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../../../../../home/vmgdigital/.designer/backup/vmg-premedia-logo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>Dialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>Dialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>248</x>
+     <y>254</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>157</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
