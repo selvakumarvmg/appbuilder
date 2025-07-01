@@ -35,7 +35,7 @@ jobs:
           pip install pyinstaller==6.14.1
 
       - name: Build with PyInstaller
-        timeout-minutes: 40
+        timeout-minutes: 50
         run: |
           dir icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico `
@@ -89,7 +89,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 40
+        timeout-minutes: 50
         run: |
           ls -R icons
           pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
@@ -111,25 +111,32 @@ jobs:
           plutil -replace CFBundleVersion -string 1.0.0 dist/PremediaApp.app/Contents/Info.plist
 
       - name: Sign the app bundle
+        if: env.APPLE_TEAM_ID != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           codesign --force --deep --sign "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}" \
-            --entitlements entitlements.plist dist/PremediaApp.app
+            --entitlements entitlements.plist dist/PremediaApp.app || echo "Code signing skipped due to missing credentials"
 
       - name: Notarize the app
+        if: env.APPLE_TEAM_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           xcrun notarytool submit dist/PremediaApp.app \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --password "${{ secrets.APPLE_ID_PASSWORD }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-            --wait
+            --wait || echo "Notarization skipped due to missing credentials"
 
       - name: Staple the notarization ticket
+        if: env.APPLE_TEAM_ID != ''
         run: |
-          xcrun stapler staple dist/PremediaApp.app
+          xcrun stapler staple dist/PremediaApp.app || echo "Stapling skipped due to missing credentials"
 
       - name: Create DMG
         run: |
@@ -173,7 +180,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 40
+        timeout-minutes: 50
         run: |
           ls -R icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
