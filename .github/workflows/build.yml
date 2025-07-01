@@ -27,10 +27,10 @@ jobs:
 
     - name: Install dependencies
       run: |
+        echo "Installing Python dependencies..."
         python -m pip install --upgrade pip
-        echo "Checking for requirements.txt..."
         if [ -f requirements.txt ]; then
-          echo "Installing requirements.txt..."
+          echo "Found requirements.txt, installing..."
           pip install -r requirements.txt || { echo "Failed to install requirements.txt"; exit 1; }
         else
           echo "requirements.txt not found, skipping..."
@@ -43,8 +43,8 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         echo "Installing Ubuntu dependencies..."
-        sudo apt-get update
-        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-glx desktop-file-utils dpkg-dev || { echo "Failed to install Ubuntu dependencies"; exit 1; }
+        sudo apt-get update || { echo "apt-get update failed"; exit 1; }
+        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-glx desktop-file-utils dpkg-dev || { echo "apt-get install failed"; exit 1; }
       shell: bash
 
     - name: Verify required files
@@ -71,7 +71,7 @@ jobs:
           --add-data "license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
           --icon icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} \
           --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
-        ls -l dist/PremediaApp || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
+        ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
       shell: bash
 
     - name: Package macOS app bundle
@@ -134,7 +134,7 @@ jobs:
         cp -r dist/icons deb-package/opt/PremediaApp/ || { echo "Failed to copy icons"; exit 1; }
         cp dist/terms.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy terms.txt"; exit 1; }
         cp dist/license.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy license.txt"; exit 1; }
-        chmod -R 755 deb-packagesays/opt/PremediaApp
+        chmod -R 755 deb-package/opt/PremediaApp
 
         echo "Checking executable..."
         file deb-package/opt/PremediaApp/PremediaApp || { echo "Executable not found"; exit 1; }
