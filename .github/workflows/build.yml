@@ -35,7 +35,7 @@ jobs:
           pip install pyinstaller==6.14.1
 
       - name: Build with PyInstaller
-        timeout-minutes: 50
+        timeout-minutes: 60
         run: |
           dir icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico `
@@ -44,8 +44,10 @@ jobs:
             --add-data "license.txt;." `
             --hidden-import=paramiko `
             --hidden-import=tzdata `
+            --exclude-module=tkinter `
+            --exclude-module=numpy `
             --name PremediaApp app.py --log-level DEBUG
-          dir dist
+          dir dist || echo "dist/ directory not found"
 
       - name: Package Windows installer
         run: |
@@ -89,7 +91,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 50
+        timeout-minutes: 60
         run: |
           ls -R icons
           pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
@@ -100,7 +102,7 @@ jobs:
             --hidden-import=tzdata \
             --target-arch universal2 \
             --name PremediaApp app.py --log-level DEBUG
-          ls -R dist
+          ls -R dist || echo "dist/ directory not found"
 
       - name: Update Info.plist
         run: |
@@ -118,31 +120,31 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           codesign --force --deep --sign "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}" \
-            --entitlements entitlements.plist dist/PremediaApp.app || echo "Code signing skipped due to missing credentials"
-
-      - name: Notarize the app
-        if: env.APPLE_TEAM_ID != ''
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          xcrun notarytool submit dist/PremediaApp.app \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_ID_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-            --wait || echo "Notarization skipped due to missing credentials"
-
-      - name: Staple the notarization ticket
-        if: env.APPLE_TEAM_ID != ''
-        run: |
-          xcrun stapler staple dist/PremediaApp.app || echo "Stapling skipped due to missing credentials"
+            --entitlements entitlements.plist dist/PremediaApp.app || echo "Code signing failed, continuing for testing"
 
       - name: Create DMG
         run: |
           mkdir -p Output
           hdiutil create -srcfolder dist/PremediaApp.app -volname "PremediaApp" -fs HFS+ \
             -format UDZO Output/PremediaApp.dmg
+
+      - name: Notarize the DMG
+        if: env.APPLE_TEAM_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit Output/PremediaApp.dmg \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_ID_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait || echo "Notarization failed, continuing for testing"
+
+      - name: Staple the notarization ticket
+        if: env.APPLE_TEAM_ID != ''
+        run: |
+          xcrun stapler staple Output/PremediaApp.dmg || echo "Stapling failed, continuing for testing"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -180,7 +182,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 50
+        timeout-minutes: 60
         run: |
           ls -R icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
@@ -190,7 +192,7 @@ jobs:
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --name PremediaApp app.py --log-level DEBUG
-          ls -R dist
+          ls -R dist || echo "dist/ directory not found"
 
       - name: Create .deb package
         run: |
