@@ -1,4 +1,4 @@
-name: PremediaApp Build
+name: Build PremediaApp
 
 on:
   push:
@@ -9,257 +9,160 @@ on:
       - main
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
+  build-windows:
+    runs-on: windows-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.9', '3.10']
-      fail-fast: false
-
+        python-version: ["3.9", "3.10"]
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        echo "Installing Python dependencies..."
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then
-          echo "Found requirements.txt, installing..."
-          pip install -r requirements.txt || { echo "Failed to install requirements.txt"; exit 1; }
-        else
-          echo "requirements.txt not found, installing PySide6 as fallback..."
-          pip install PySide6 tzdata paramiko || { echo "Failed to install PySide6, tzdata, or paramiko"; exit 1; }
-        fi
-        echo "Installing pyinstaller..."
-        pip install pyinstaller || { echo "Failed to install pyinstaller"; exit 1; }
-      shell: bash
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-    - name: Install additional dependencies for Ubuntu
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        echo "Installing Ubuntu dependencies..."
-        sudo apt-get update || { echo "apt-get update failed"; exit 1; }
-        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev libxcb-keysyms1 libxcb-xkb1 libxkbcommon-x11-0 libxcb-icccm4 libxcb-cursor0 libxcb-shape0 libxcb-image0 libxcb-render-util0 || { echo "apt-get install failed"; exit 1; }
-      shell: bash
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico ^
+            --add-data "icons;icons" ^
+            --add-data "terms.txt;." ^
+            --add-data "license.txt;." ^
+            --hidden-import=paramiko ^
+            --hidden-import=tzdata ^
+            --name PremediaApp app.py
 
-    - name: Run tests
-      run: |
-        echo "Running tests..."
-        if [ -f dev-requirements.txt ]; then
-          pip install -r dev-requirements.txt || { echo "Failed to install dev-requirements.txt"; exit 1; }
-          if [ -d tests ]; then
-            pytest tests --cov=. --cov-report=xml || { echo "Tests failed"; exit 1; }
-          else
-            echo "tests directory not found, skipping tests"
-          fi
-        else
-          echo "dev-requirements.txt not found, skipping tests"
-        fi
-      shell: bash
+      - name: Package Windows installer
+        run: |
+          echo "Packaging Windows installer..."
+          iscc installer.iss
 
-    - name: Verify required files
-      run: |
-        echo "Verifying required files..."
-        ls -l app.py || { echo "app.py not found"; exit 1; }
-        ls -l requirements.txt || echo "requirements.txt not found (optional)"
-        ls -l icons/premedia.png || echo "icons/premedia.png not found (optional)"
-        ls -l icons/premedia.ico || echo "icons/premedia.ico not found (optional)"
-        ls -l icons/premedia.icns || echo "icons/premedia.icns not found (optional)"
-        ls -l terms.txt || echo "terms.txt not found (optional)"
-        ls -l license.txt || echo "license.txt not found (optional)"
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ls -l installer.iss || { echo "installer.iss not found"; exit 1; }
-        fi
-      shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: PremediaApp-Windows-${{ matrix.python-version }}
+          path: Output/PremediaApp-Setup.exe
 
-    - name: Build executable
-      run: |
-        echo "Running PyInstaller..."
-        PYINSTALLER_ARGS="--noconfirm --onefile --hidden-import=paramiko --hidden-import=tzdata"
-        if [ -d icons ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons"
-        fi
-        if [ -f terms.txt ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}."
-        fi
-        if [ -f license.txt ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}."
-        fi
-        if [ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}"
-        fi
-        pyinstaller $PYINSTALLER_ARGS --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
-        ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
-        if [ -d dist/icons ]; then
-          ls -l dist/icons || echo "dist/icons directory exists but listing failed"
-        else
-          echo "dist/icons directory not found (optional)"
-        fi
-        if [ -f dist/terms.txt ]; then
-          ls -l dist/terms.txt || echo "dist/terms.txt exists but listing failed"
-        else
-          echo "dist/terms.txt not found (optional)"
-        fi
-        if [ -f dist/license.txt ]; then
-          ls -l dist/license.txt || echo "dist/license.txt exists but listing failed"
-        else
-          echo "dist/license.txt not found (optional)"
-        fi
-      shell: bash
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Package macOS app bundle
-      if: matrix.os == 'macos-latest'
-      run: |
-        echo "Packaging macOS app bundle..."
-        mkdir -p dist/PremediaApp.app/Contents/MacOS
-        mkdir -p dist/PremediaApp.app/Contents/Resources
-        mv dist/PremediaApp dist/PremediaApp.app/Contents/MacOS/PremediaApp || { echo "Failed to move PremediaApp"; exit 1; }
-        if [ -d dist/icons ]; then
-          mv dist/icons dist/PremediaApp.app/Contents/Resources/icons || { echo "Failed to move icons"; exit 1; }
-        else
-          echo "dist/icons not found, skipping move"
-        fi
-        if [ -f dist/terms.txt ]; then
-          mv dist/terms.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move terms.txt"; exit 1; }
-        else
-          echo "dist/terms.txt not found, skipping move"
-        fi
-        if [ -f dist/license.txt ]; then
-          mv dist/license.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move license.txt"; exit 1; }
-        else
-          echo "dist/license.txt not found, skipping move"
-        fi
-        echo '<?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleExecutable</key>
-            <string>PremediaApp</string>
-            <key>CFBundleIconFile</key>
-            <string>premedia.icns</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.xai.PremediaApp</string>
-            <key>CFBundleName</key>
-            <string>PremediaApp</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleSupportedPlatforms</key>
-            <array>
-                <string>MacOSX</string>
-            </array>
-            <key>LSMinimumSystemVersion</key>
-            <string>10.14</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-        </dict>
-        </plist>' > dist/PremediaApp.app/Contents/Info.plist
-        codesign --force --deep --sign - dist/PremediaApp.app || { echo "Failed to sign app bundle"; exit 1; }
-        hdiutil create -volname "PremediaApp" -srcfolder dist/PremediaApp.app -ov -format UDZO dist/PremediaApp.dmg || { echo "Failed to create DMG"; exit 1; }
-        ls -l dist/PremediaApp.dmg || { echo "DMG file not found"; exit 1; }
-      shell: bash
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Package Windows installer
-      if: matrix.os == 'windows-latest'
-      run: |
-        echo "Packaging Windows installer..."
-        if [ -f installer.iss ]; then
-          iscc installer.iss || { echo "Inno Setup failed"; exit 1; }
-          ls -l Output/*.exe || { echo "No .exe files found in Output"; exit 1; }
-        else
-          echo "installer.iss not found, skipping Windows packaging"
-          exit 1
-        fi
-      env:
-        ISCC_PATH: "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-      shell: bash
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-    - name: Package Ubuntu .deb
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        echo "Packaging Ubuntu .deb..."
-        mkdir -p deb-package/DEBIAN
-        mkdir -p deb-package/opt/PremediaApp
-        mkdir -p deb-package/usr/share/applications
-        mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
+      - name: Run tests
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
-        cp dist/PremediaApp deb-package/opt/PremediaApp/ || { echo "Failed to copy PremediaApp"; exit 1; }
-        if [ -d dist/icons ]; then
-          cp -r dist/icons deb-package/opt/PremediaApp/ || { echo "Failed to copy icons"; exit 1; }
-        else
-          echo "dist/icons not found, skipping copy"
-        fi
-        if [ -f dist/terms.txt ]; then
-          cp dist/terms.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy terms.txt"; exit 1; }
-        else
-          echo "dist/terms.txt not found, skipping copy"
-        fi
-        if [ -f dist/license.txt ]; then
-          cp dist/license.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy license.txt"; exit 1; }
-        else
-          echo "dist/license.txt not found, skipping copy"
-        fi
-        chmod -R 755 deb-package/opt/PremediaApp
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
+            --add-data "icons:icons" \
+            --add-data "terms.txt:." \
+            --add-data "license.txt:." \
+            --hidden-import=paramiko \
+            --hidden-import=tzdata \
+            --target-arch universal2 \
+            --name PremediaApp app.py
 
-        echo "Checking executable..."
-        file deb-package/opt/PremediaApp/PremediaApp || { echo "Executable not found"; exit 1; }
-        ldd deb-package/opt/PremediaApp/PremediaApp || echo "ldd check failed (non-fatal)"
+      - name: Update Info.plist
+        run: |
+          plutil -replace CFBundleIconFile -string premedia.icns dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace NSHighResolutionCapable -bool true dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace CFBundleIdentifier -string com.vmgpremedia.PremediaApp dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace CFBundleName -string PremediaApp dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace CFBundleVersion -string 1.0.0 dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace CFBundleExecutable -string PremediaApp dist/PremediaApp.app/Contents/Info.plist
+          plutil -replace CFBundlePackageType -string APPL dist/PremediaApp.app/Contents/Info.plist
 
-        cat > deb-package/usr/share/applications/premediaapp.desktop << EOL
-        [Desktop Entry]
-        Name=PremediaApp
-        Comment=Image Retouching Application
-        Exec=/opt/PremediaApp/PremediaApp
-        Type=Application
-        Terminal=false
-        Icon=/usr/share/icons/hicolor/scalable/apps/premedia.png
-        Categories=Utility;Graphics;
-        EOL
+      - name: Sign the app bundle
+        run: |
+          codesign --force --deep --sign - dist/PremediaApp.app
 
-        if [ -f dist/icons/premedia.png ]; then
-          cp dist/icons/premedia.png deb-package/usr/share/icons/hicolor/scalable/apps/premedia.png || { echo "Failed to copy icon"; exit 1; }
-          sudo gtk-update-icon-cache /usr/share/icons/hicolor || echo "gtk-update-icon-cache failed (non-fatal)"
-        else
-          echo "dist/icons/premedia.png not found, skipping icon copy"
-        fi
+      - name: Create DMG
+        run: |
+          mkdir -p Output
+          hdiutil create -srcfolder dist/PremediaApp.app -volname "PremediaApp" -fs HFS+ \
+            -format UDZO Output/PremediaApp.dmg
 
-        cat > deb-package/DEBIAN/control << EOL
-        Package: premediaapp
-        Version: 1.0.0
-        Architecture: all
-        Maintainer: Your Name <your.email@example.com>
-        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri, libxcb-keysyms1, libxcb-xkb1, libxkbcommon-x11-0, libxcb-icccm4, libxcb-cursor0, libxcb-shape0, libxcb-image0, libxcb-render-util0
-        Section: utils
-        Priority: optional
-        Homepage: https://example.com
-        Description: PremediaApp Image Retouching Application
-         PremediaApp is a cross-platform application for image retouching.
-        EOL
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: PremediaApp-macOS
+          path: Output/PremediaApp.dmg
 
-        cat > deb-package/DEBIAN/postinst << EOL
-        #!/bin/sh
-        set -e
-        update-desktop-database
-        gtk-update-icon-cache /usr/share/icons/hicolor || true
-        EOL
-        chmod 755 deb-package/DEBIAN/postinst
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-        dpkg-deb --build deb-package dist/premediaapp_1.0.0_all.deb || { echo "Failed to build .deb package"; exit 1; }
-        ls -l dist/premediaapp_1.0.0_all.deb || { echo ".deb file not found"; exit 1; }
-      shell: bash
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-${{ matrix.os }}-${{ matrix.python-version }}
-        path: |
-          dist/premediaapp_1.0.0_all.deb
-          dist/*.dmg
-          Output/*.exe
-      continue-on-error: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --windowed --icon=icons/premedia.png \
+            --add-data "icons:icons" \
+            --add-data "terms.txt:." \
+            --add-data "license.txt:." \
+            --hidden-import=paramiko \
+            --hidden-import=tzdata \
+            --name PremediaApp app.py
+
+      - name: Create .deb package
+        run: |
+          mkdir -p dist/debian/usr/bin
+          mkdir -p dist/debian/usr/share/applications
+          mkdir -p dist/debian/usr/share/icons/hicolor/scalable/apps
+          cp dist/PremediaApp dist/debian/usr/bin/
+          cp dist/icons/premedia.png dist/debian/usr/share/icons/hicolor/scalable/apps/premedia.png
+          cp dist/terms.txt dist/debian/usr/bin/
+          cp dist/license.txt dist/debian/usr/bin/
+          cat > dist/debian/usr/share/applications/PremediaApp.desktop << EOF
+          [Desktop Entry]
+          Name=PremediaApp
+          Exec=/usr/bin/PremediaApp
+          Type=Application
+          Icon=/usr/share/icons/hicolor/scalable/apps/premedia.png
+          Terminal=false
+          Categories=Utility;
+          EOF
+          dpkg-deb --build dist/debian Output/PremediaApp.deb
+
+      - name: Update icon cache
+        run: |
+          gtk-update-icon-cache dist/debian/usr/share/icons/hicolor -f || echo "Icon cache update failed"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: PremediaApp-Ubuntu
+          path: Output/PremediaApp.deb

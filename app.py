@@ -18,7 +18,12 @@ import json
 from urllib.parse import urlparse, parse_qs, quote
 from pathlib import Path
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+    TIMEZONE_AVAILABLE = True
+except ImportError:
+    TIMEZONE_AVAILABLE = False
+    logging.warning("zoneinfo not available, falling back to UTC without validation")
 from PIL import Image
 import subprocess
 from queue import Queue

@@ -1,4 +1,3 @@
-; installer.iss
 [Setup]
 AppName=PremediaApp
 AppVersion=1.0.0
@@ -6,13 +5,16 @@ DefaultDirName={autopf}\PremediaApp
 DefaultGroupName=PremediaApp
 OutputDir=Output
 OutputBaseFilename=PremediaApp-Setup
+SetupIconFile=dist\icons\premedia.ico
 Compression=lzma
 SolidCompression=yes
-SetupIconFile=icons\premedia.ico
+WizardStyle=modern
 
 [Files]
 Source: "dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\icons\*"; DestDir: "{app}\icons"; Flags: ignoreversion recursesubdirs
+Source: "dist\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "dist\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "dist\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "dist\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 
