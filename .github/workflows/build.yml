@@ -72,6 +72,7 @@ jobs:
           --icon icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} \
           --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
         ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
+        ls -l dist/icons || { echo "dist/icons directory not found"; exit 1; }
       shell: bash
 
     - name: Package macOS app bundle
@@ -81,7 +82,11 @@ jobs:
         mkdir -p dist/PremediaApp.app/Contents/MacOS
         mkdir -p dist/PremediaApp.app/Contents/Resources
         mv dist/PremediaApp dist/PremediaApp.app/Contents/MacOS/PremediaApp || { echo "Failed to move PremediaApp"; exit 1; }
-        mv dist/icons dist/PremediaApp.app/Contents/Resources/icons || { echo "Failed to move icons"; exit 1; }
+        if [ -d dist/icons ]; then
+          mv dist/icons dist/PremediaApp.app/Contents/Resources/icons || { echo "Failed to move icons"; exit 1; }
+        else
+          echo "dist/icons not found, skipping move"
+        fi
         mv dist/terms.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move terms.txt"; exit 1; }
         mv dist/license.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move license.txt"; exit 1; }
         echo '<?xml version="1.0" encoding="UTF-8"?>
@@ -169,7 +174,7 @@ jobs:
         Exec=xdg-open /opt/PremediaApp/license.txt
         Type=Application
         Terminal=false
-        Icon=pre premedia
+        Icon=premedia
         Categories=Utility;
         EOL
 
