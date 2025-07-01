@@ -362,15 +362,15 @@ def parse_custom_url():
             return ""
         url = args[0]
         parsed_url = urlparse(url)
-        if parsed_url.scheme != "myapp":
+        if parsed_url.scheme != "premediaapp":
             logger.warning(f"Invalid scheme in URL: {url}")
             app_signals.append_log.emit(f"[Init] Invalid scheme in URL: {url}")
             return ""
         query_params = parse_qs(parsed_url.query)
-        key = query_params.get("key", [""])[0]
-        logger.info(f"Parsed key: {key[:8]}..." if key else "No key found")
-        app_signals.append_log.emit(f"[Init] Parsed key: {key[:8]}..." if key else "[Init] No key found")
-        return key
+        file_path = query_params.get("file", [""])[0]
+        logger.info(f"Parsed file: {file_path[:50]}..." if file_path else "No file found")
+        app_signals.append_log.emit(f"[Init] Parsed file: {file_path[:50]}..." if file_path else "[Init] No file found")
+        return file_path
     except Exception as e:
         logger.error(f"Error parsing custom URL: {e}")
         app_signals.append_log.emit(f"[Init] Failed to parse custom URL: {str(e)}")

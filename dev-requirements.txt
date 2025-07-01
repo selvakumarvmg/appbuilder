@@ -1,5 +1,8 @@
-pyinstaller
-pytest
-flake8
-black
-mypy
+# Development dependencies for PremediaApp
+-r requirements.txt  # Include production dependencies
+pytest>=7.0.0
+pytest-qt>=4.0.0
+flake8>=5.0.0
+black>=22.0.0
+mypy>=0.950
+coverage>=6.0.0

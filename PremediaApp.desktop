@@ -1,10 +1,8 @@
 [Desktop Entry]
-Version=1.0
 Name=PremediaApp
-Comment=Image Production Automation
-Exec=python3 /var/www/html/python/appbuilder/app.py
-Icon=/var/www/html/python/appbuilder/premedia.png
-Terminal=false
+Comment=Image Retouching Application
+Exec=/usr/bin/python3 /opt/PremediaApp/main.py
 Type=Application
-Categories=Graphics;Utility;
-StartupWMClass=PremediaApp
+Terminal=false
+Icon=/opt/PremediaApp/icons/premedia.png
+Categories=Utility;Graphics;
