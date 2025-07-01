@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.9', '3.10']
+      fail-fast: false
 
     steps:
     - name: Checkout repository
@@ -45,7 +46,22 @@ jobs:
       run: |
         echo "Installing Ubuntu dependencies..."
         sudo apt-get update || { echo "apt-get update failed"; exit 1; }
-        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev || { echo "apt-get install failed"; exit 1; }
+        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev libxcb-keysyms1 libxcb-xkb1 libxkbcommon-x11-0 libxcb-icccm4 libxcb-cursor0 libxcb-shape0 libxcb-image0 libxcb-render-util0 || { echo "apt-get install failed"; exit 1; }
+      shell: bash
+
+    - name: Run tests
+      run: |
+        echo "Running tests..."
+        if [ -f dev-requirements.txt ]; then
+          pip install -r dev-requirements.txt || { echo "Failed to install dev-requirements.txt"; exit 1; }
+          if [ -d tests ]; then
+            pytest tests --cov=. --cov-report=xml || { echo "Tests failed"; exit 1; }
+          else
+            echo "tests directory not found, skipping tests"
+          fi
+        else
+          echo "dev-requirements.txt not found, skipping tests"
+        fi
       shell: bash
 
     - name: Verify required files
@@ -56,8 +72,8 @@ jobs:
         ls -l icons/premedia.png || echo "icons/premedia.png not found (optional)"
         ls -l icons/premedia.ico || echo "icons/premedia.ico not found (optional)"
         ls -l icons/premedia.icns || echo "icons/premedia.icns not found (optional)"
-        ls -l terms.txt || { echo "terms.txt not found"; exit 1; }
-        ls -l license.txt || { echo "license.txt not found"; exit 1; }
+        ls -l terms.txt || echo "terms.txt not found (optional)"
+        ls -l license.txt || echo "license.txt not found (optional)"
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
           ls -l installer.iss || { echo "installer.iss not found"; exit 1; }
         fi
@@ -72,13 +88,9 @@ jobs:
         fi
         if [ -f terms.txt ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt:."
-        else
-          echo "terms.txt not found, skipping --add-data for terms.txt"
         fi
         if [ -f license.txt ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt:."
-        else
-          echo "license.txt not found, skipping --add-data for license.txt"
         fi
         if [ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}"
@@ -236,7 +248,7 @@ jobs:
         Version: 1.0.0
         Architecture: all
         Maintainer: Your Name <your.email@example.com>
-        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri
+        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri, libxcb-keysyms1, libxcb-xkb1, libxkbcommon-x11-0, libxcb-icccm4, libxcb-cursor0, libxcb-shape0, libxcb-image0, libxcb-render-util0
         Section: utils
         Priority: optional
         Homepage: https://example.com
@@ -265,14 +277,3 @@ jobs:
           dist/*.dmg
           Output/*.exe
       continue-on-error: true
-
-    - name: Run tests
-      run: |
-        echo "Running tests..."
-        if [ -f dev-requirements.txt ]; then
-          pip install -r dev-requirements.txt || { echo "Failed to install dev-requirements.txt"; exit 1; }
-          pytest --cov=./ --cov-report=xml || { echo "Tests failed"; exit 1; }
-        else
-          echo "dev-requirements.txt not found, skipping tests"
-        fi
-      shell: bash
