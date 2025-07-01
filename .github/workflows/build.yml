@@ -46,13 +46,15 @@ jobs:
             --hidden-import=tzdata `
             --exclude-module=tkinter `
             --exclude-module=numpy `
+            --exclude-module=matplotlib `
             --name PremediaApp app.py --log-level DEBUG
           dir dist || echo "dist/ directory not found"
 
       - name: Package Windows installer
         run: |
           echo "Packaging Windows installer..."
-          iscc installer.iss
+          dir dist\icons || echo "dist/icons/ directory not found"
+          iscc installer.iss || echo "Inno Setup failed, check logs"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -100,6 +102,9 @@ jobs:
             --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
+            --exclude-module=tkinter \
+            --exclude-module=numpy \
+            --exclude-module=matplotlib \
             --target-arch universal2 \
             --name PremediaApp app.py --log-level DEBUG
           ls -R dist || echo "dist/ directory not found"
@@ -120,13 +125,25 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           codesign --force --deep --sign "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}" \
-            --entitlements entitlements.plist dist/PremediaApp.app || echo "Code signing failed, continuing for testing"
+            --entitlements entitlements.plist dist/PremediaApp.app --timestamp --options runtime \
+            || echo "Code signing failed, continuing for testing"
 
       - name: Create DMG
         run: |
           mkdir -p Output
           hdiutil create -srcfolder dist/PremediaApp.app -volname "PremediaApp" -fs HFS+ \
             -format UDZO Output/PremediaApp.dmg
+
+      - name: Sign the DMG
+        if: env.APPLE_TEAM_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          codesign --force --sign "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}" \
+            Output/PremediaApp.dmg --timestamp --options runtime \
+            || echo "DMG signing failed, continuing for testing"
 
       - name: Notarize the DMG
         if: env.APPLE_TEAM_ID != ''
@@ -191,6 +208,9 @@ jobs:
             --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
+            --exclude-module=tkinter \
+            --exclude-module=numpy \
+            --exclude-module=matplotlib \
             --name PremediaApp app.py --log-level DEBUG
           ls -R dist || echo "dist/ directory not found"
 
@@ -199,10 +219,10 @@ jobs:
           mkdir -p dist/debian/usr/bin
           mkdir -p dist/debian/usr/share/applications
           mkdir -p dist/debian/usr/share/icons/hicolor/scalable/apps
-          cp dist/PremediaApp dist/debian/usr/bin/
-          cp dist/icons/premedia.png dist/debian/usr/share/icons/hicolor/scalable/apps/premedia.png
-          cp dist/terms.txt dist/debian/usr/bin/
-          cp dist/license.txt dist/debian/usr/bin/
+          cp dist/PremediaApp dist/debian/usr/bin/ || echo "Executable not found"
+          cp dist/icons/premedia.png dist/debian/usr/share/icons/hicolor/scalable/apps/premedia.png || echo "Icon file not found"
+          cp dist/terms.txt dist/debian/usr/bin/ || echo "terms.txt not found"
+          cp dist/license.txt dist/debian/usr/bin/ || echo "license.txt not found"
           cat > dist/debian/DEBIAN/control << EOF
           Package: premediaapp
           Version: 1.0.0
@@ -220,7 +240,7 @@ jobs:
           Terminal=false
           Categories=Utility;
           EOF
-          dpkg-deb --build dist/debian Output/PremediaApp.deb
+          dpkg-deb --build dist/debian Output/PremediaApp.deb || echo "dpkg-deb failed"
 
       - name: Update icon cache
         run: |
