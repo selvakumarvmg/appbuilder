@@ -45,7 +45,7 @@ jobs:
       run: |
         echo "Installing Ubuntu dependencies..."
         sudo apt-get update || { echo "apt-get update failed"; exit 1; }
-        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev || { echo "apt-get install failed"; exit 1; }
+        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev python3-pyside6 || { echo "apt-get install failed"; exit 1; }
       shell: bash
 
     - name: Verify required files
@@ -66,12 +66,16 @@ jobs:
     - name: Build executable
       run: |
         echo "Running PyInstaller..."
-        pyinstaller --noconfirm --onefile \
-          $([ -d icons ] && echo "--add-data=icons:icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons") \
-          --add-data=terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}. \
-          --add-data=license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}. \
-          $([ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ] && echo "--icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}") \
-          --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
+        PYINSTALLER_ARGS="--noconfirm --onefile"
+        if [ -d icons ]; then
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=icons:icons"
+        fi
+        PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt:."
+        PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt:."
+        if [ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ]; then
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}"
+        fi
+        pyinstaller $PYINSTALLER_ARGS --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
         ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
         if [ -d dist/icons ]; then
           ls -l dist/icons || echo "dist/icons directory exists but listing failed"
