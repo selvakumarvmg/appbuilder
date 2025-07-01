@@ -70,8 +70,16 @@ jobs:
         if [ -d icons ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=icons:icons"
         fi
-        PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt:."
-        PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt:."
+        if [ -f terms.txt ]; then
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt:."
+        else
+          echo "terms.txt not found, skipping --add-data for terms.txt"
+        fi
+        if [ -f license.txt ]; then
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt:."
+        else
+          echo "license.txt not found, skipping --add-data for license.txt"
+        fi
         if [ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}"
         fi
@@ -81,6 +89,16 @@ jobs:
           ls -l dist/icons || echo "dist/icons directory exists but listing failed"
         else
           echo "dist/icons directory not found (optional)"
+        fi
+        if [ -f dist/terms.txt ]; then
+          ls -l dist/terms.txt || echo "dist/terms.txt exists but listing failed"
+        else
+          echo "dist/terms.txt not found (optional)"
+        fi
+        if [ -f dist/license.txt ]; then
+          ls -l dist/license.txt || echo "dist/license.txt exists but listing failed"
+        else
+          echo "dist/license.txt not found (optional)"
         fi
       shell: bash
 
@@ -96,8 +114,16 @@ jobs:
         else
           echo "dist/icons not found, skipping move"
         fi
-        mv dist/terms.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move terms.txt"; exit 1; }
-        mv dist/license.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move license.txt"; exit 1; }
+        if [ -f dist/terms.txt ]; then
+          mv dist/terms.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move terms.txt"; exit 1; }
+        else
+          echo "dist/terms.txt not found, skipping move"
+        fi
+        if [ -f dist/license.txt ]; then
+          mv dist/license.txt dist/PremediaApp.app/Contents/Resources/ || { echo "Failed to move license.txt"; exit 1; }
+        else
+          echo "dist/license.txt not found, skipping move"
+        fi
         echo '<?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -150,8 +176,16 @@ jobs:
         else
           echo "dist/icons not found, skipping copy"
         fi
-        cp dist/terms.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy terms.txt"; exit 1; }
-        cp dist/license.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy license.txt"; exit 1; }
+        if [ -f dist/terms.txt ]; then
+          cp dist/terms.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy terms.txt"; exit 1; }
+        else
+          echo "dist/terms.txt not found, skipping copy"
+        fi
+        if [ -f dist/license.txt ]; then
+          cp dist/license.txt deb-package/opt/PremediaApp/ || { echo "Failed to copy license.txt"; exit 1; }
+        else
+          echo "dist/license.txt not found, skipping copy"
+        fi
         chmod -R 755 deb-package/opt/PremediaApp
 
         echo "Checking executable..."
