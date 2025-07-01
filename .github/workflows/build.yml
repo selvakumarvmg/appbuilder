@@ -215,7 +215,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-min with timeout-minutes: 60
+        timeout-minutes: 60
         run: |
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
             --add-data "icons:icons" \
