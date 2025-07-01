@@ -36,15 +36,15 @@ jobs:
       - name: Build with PyInstaller
         timeout-minutes: 60
         run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico \
-            --add-data "icons;icons" \
-            --add-data "terms.txt;." \
-            --add-data "license.txt;." \
-            --hidden-import=paramiko \
-            --hidden-import=tzdata \
-            --exclude-module=tkinter \
-            --exclude-module=numpy \
-            --exclude-module=matplotlib \
+          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico `
+            --add-data "icons;icons" `
+            --add-data "terms.txt;." `
+            --add-data "license.txt;." `
+            --hidden-import=paramiko `
+            --hidden-import=tzdata `
+            --exclude-module=tkinter `
+            --exclude-module=numpy `
+            --exclude-module=matplotlib `
             --name PremediaApp app.py --log-level DEBUG
 
       - name: Package Windows installer
@@ -187,7 +187,7 @@ jobs:
           Icon=premedia
           Terminal=false
           Categories=Utility;" > dist/debian/usr/share/applications/PremediaApp.desktop
-                    dpkg-deb --build dist/debian Output/PremediaApp.deb || echo "dpkg-deb failed"
+          dpkg-deb --build dist/debian Output/PremediaApp.deb || echo "dpkg-deb failed"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
