@@ -45,7 +45,7 @@ jobs:
       run: |
         echo "Installing Ubuntu dependencies..."
         sudo apt-get update || { echo "apt-get update failed"; exit 1; }
-        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev python3-pyside6 || { echo "apt-get install failed"; exit 1; }
+        sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dri desktop-file-utils dpkg-dev || { echo "apt-get install failed"; exit 1; }
       shell: bash
 
     - name: Verify required files
@@ -202,7 +202,7 @@ jobs:
         Version: 1.0.0
         Architecture: all
         Maintainer: Your Name <your.email@example.com>
-        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri, python3-pyside6
+        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri
         Section: utils
         Priority: optional
         Homepage: https://example.com
