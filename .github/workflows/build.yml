@@ -35,8 +35,9 @@ jobs:
           pip install pyinstaller==6.14.1
 
       - name: Build with PyInstaller
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
+          dir icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico `
             --add-data "icons;icons" `
             --add-data "terms.txt;." `
@@ -88,12 +89,13 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
       - name: Build with PyInstaller
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
+          ls -R icons
           pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
-            --add-data "icons:icons" \
-            --add-data "terms.txt:." \
-            --add-data "license.txt:." \
+            --add-data "icons;icons" \
+            --add-data "terms.txt;." \
+            --add-data "license.txt;." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --target-arch universal2 \
@@ -109,8 +111,25 @@ jobs:
           plutil -replace CFBundleVersion -string 1.0.0 dist/PremediaApp.app/Contents/Info.plist
 
       - name: Sign the app bundle
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --force --deep --sign - dist/PremediaApp.app
+          codesign --force --deep --sign "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}" \
+            --entitlements entitlements.plist dist/PremediaApp.app
+
+      - name: Notarize the app
+        run: |
+          xcrun notarytool submit dist/PremediaApp.app \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_ID_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+
+      - name: Staple the notarization ticket
+        run: |
+          xcrun stapler staple dist/PremediaApp.app
 
       - name: Create DMG
         run: |
@@ -156,10 +175,11 @@ jobs:
       - name: Build with PyInstaller
         timeout-minutes: 20
         run: |
+          ls -R icons
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
-            --add-data "icons:icons" \
-            --add-data "terms.txt:." \
-            --add-data "license.txt:." \
+            --add-data "icons;icons" \
+            --add-data "terms.txt;." \
+            --add-data "license.txt;." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --name PremediaApp app.py
