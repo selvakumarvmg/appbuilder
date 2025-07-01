@@ -33,7 +33,8 @@ jobs:
           echo "Found requirements.txt, installing..."
           pip install -r requirements.txt || { echo "Failed to install requirements.txt"; exit 1; }
         else
-          echo "requirements.txt not found, skipping..."
+          echo "requirements.txt not found, installing PySide6 as fallback..."
+          pip install PySide6 || { echo "Failed to install PySide6"; exit 1; }
         fi
         echo "Installing pyinstaller..."
         pip install pyinstaller || { echo "Failed to install pyinstaller"; exit 1; }
@@ -66,10 +67,10 @@ jobs:
       run: |
         echo "Running PyInstaller..."
         pyinstaller --noconfirm --onefile \
-          --add-data "icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons${{ matrix.os == 'windows-latest' && '' || matrix.os == 'macos-latest' && '' || ':.' }}" \
-          --add-data "terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
-          --add-data "license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
-          --icon icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} \
+          $([ -d icons ] && echo "--add-data=icons:icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons") \
+          --add-data=terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}. \
+          --add-data=license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}. \
+          $([ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ] && echo "--icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}") \
           --name PremediaApp app.py || { echo "PyInstaller failed"; exit 1; }
         ls -l dist/PremediaApp* || { echo "PyInstaller output (dist/PremediaApp) not found"; exit 1; }
         if [ -d dist/icons ]; then
@@ -197,7 +198,7 @@ jobs:
         Version: 1.0.0
         Architecture: all
         Maintainer: Your Name <your.email@example.com>
-        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri
+        Depends: python3 (>= 3.9), libegl1-mesa, libgl1-mesa-dri, python3-pyside6
         Section: utils
         Priority: optional
         Homepage: https://example.com
