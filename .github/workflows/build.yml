@@ -35,7 +35,7 @@ jobs:
           pip install -r requirements.txt || { echo "Failed to install requirements.txt"; exit 1; }
         else
           echo "requirements.txt not found, installing PySide6 as fallback..."
-          pip install PySide6 || { echo "Failed to install PySide6"; exit 1; }
+          pip install PySide6 tzdata paramiko || { echo "Failed to install PySide6, tzdata, or paramiko"; exit 1; }
         fi
         echo "Installing pyinstaller..."
         pip install pyinstaller || { echo "Failed to install pyinstaller"; exit 1; }
@@ -82,15 +82,15 @@ jobs:
     - name: Build executable
       run: |
         echo "Running PyInstaller..."
-        PYINSTALLER_ARGS="--noconfirm --onefile"
+        PYINSTALLER_ARGS="--noconfirm --onefile --hidden-import=paramiko --hidden-import=tzdata"
         if [ -d icons ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=icons:icons"
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=icons${{ matrix.os == 'windows-latest' && ';' || ':' }}icons"
         fi
         if [ -f terms.txt ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt:."
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=terms.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}."
         fi
         if [ -f license.txt ]; then
-          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt:."
+          PYINSTALLER_ARGS="$PYINSTALLER_ARGS --add-data=license.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}."
         fi
         if [ -f icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }} ]; then
           PYINSTALLER_ARGS="$PYINSTALLER_ARGS --icon=icons/premedia.${{ matrix.os == 'windows-latest' && 'ico' || matrix.os == 'macos-latest' && 'icns' || 'png' }}"
@@ -150,10 +150,17 @@ jobs:
             <string>PremediaApp</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
+            <key>CFBundleSupportedPlatforms</key>
+            <array>
+                <string>MacOSX</string>
+            </array>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.14</string>
             <key>NSHighResolutionCapable</key>
             <true/>
         </dict>
         </plist>' > dist/PremediaApp.app/Contents/Info.plist
+        codesign --force --deep --sign - dist/PremediaApp.app || { echo "Failed to sign app bundle"; exit 1; }
         hdiutil create -volname "PremediaApp" -srcfolder dist/PremediaApp.app -ov -format UDZO dist/PremediaApp.dmg || { echo "Failed to create DMG"; exit 1; }
         ls -l dist/PremediaApp.dmg || { echo "DMG file not found"; exit 1; }
       shell: bash
@@ -211,34 +218,13 @@ jobs:
         Exec=/opt/PremediaApp/PremediaApp
         Type=Application
         Terminal=false
-        Icon=premedia
+        Icon=/usr/share/icons/hicolor/scalable/apps/premedia.png
         Categories=Utility;Graphics;
-        EOL
-
-        cat > deb-package/usr/share/applications/premediaapp-terms.desktop << EOL
-        [Desktop Entry]
-        Name=PremediaApp Terms
-        Comment=View PremediaApp Terms of Service
-        Exec=xdg-open /opt/PremediaApp/terms.txt
-        Type=Application
-        Terminal=false
-        Icon=premedia
-        Categories=Utility;
-        EOL
-
-        cat > deb-package/usr/share/applications/premediaapp-license.desktop << EOL
-        [Desktop Entry]
-        Name=PremediaApp License
-        Comment=View PremediaApp License
-        Exec=xdg-open /opt/PremediaApp/license.txt
-        Type=Application
-        Terminal=false
-        Icon=premedia
-        Categories=Utility;
         EOL
 
         if [ -f dist/icons/premedia.png ]; then
           cp dist/icons/premedia.png deb-package/usr/share/icons/hicolor/scalable/apps/premedia.png || { echo "Failed to copy icon"; exit 1; }
+          sudo gtk-update-icon-cache /usr/share/icons/hicolor || echo "gtk-update-icon-cache failed (non-fatal)"
         else
           echo "dist/icons/premedia.png not found, skipping icon copy"
         fi
