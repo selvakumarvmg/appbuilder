@@ -9,51 +9,53 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: cmd
+
     steps:
-      - name: Checkout Code
+      - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 🐍 Set up Python 3.9.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.9.13'
 
-      - name: Install Dependencies
+      - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-        shell: cmd
 
-      - name: Verify Required Files
+      - name: 🔍 List Installed Packages
+        run: pip list
+
+      - name: 🧪 Check Required Files
         run: |
-          dir app.py
-          dir terms.txt
-          dir license.txt
-          dir icons\premedia.ico
-        shell: cmd
+          if not exist app.spec exit /b 1
+          if not exist app.py exit /b 1
+          if not exist installer\installer.iss exit /b 1
+          if not exist icons\premedia.ico exit /b 1
 
-      - name: Build Executable with PyInstaller (.spec fallback if exists)
-        run: |
-          if exist app.spec (
-            pyinstaller app.spec --clean --noconfirm
-          ) else (
-            pyinstaller app.py --name PremediaApp --onefile --windowed --icon=icons\premedia.ico
-          )
-        shell: cmd
+      - name: 🏗️ Build Executable with PyInstaller
+        run: pyinstaller app.spec --clean --noconfirm
 
-      - name: Confirm dist\PremediaApp.exe exists
+      - name: 🧾 Confirm .exe Output
         run: dir dist
-        shell: cmd
 
-      - name: Run Inno Setup to Create Installer
+      - name: 🧰 Build Installer with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
 
-      - name: Upload Windows Installer Artifact
+      - name: 📂 Show Output Directory
+        run: dir Output
+
+      - name: 🚀 Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Windows
+          name: PremediaApp-Windows-Installer
           path: Output\PremediaApp-Setup.exe
-          retention-days: 5
+          retention-days: 10
