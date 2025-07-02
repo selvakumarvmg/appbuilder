@@ -24,6 +24,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           pip check
+          pip list
         shell: cmd
         continue-on-error: true
 
@@ -49,6 +50,20 @@ jobs:
         shell: cmd
         if: always()
 
+      - name: Minimal PyInstaller test
+        run: |
+          pyinstaller --onefile --name PremediaApp app.py
+        shell: cmd
+        continue-on-error: true
+
+      - name: Debug minimal PyInstaller logs
+        run: |
+          type warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
+          type build\PremediaApp\PremediaApp.spec || echo "PremediaApp.spec not found"
+        shell: cmd
+        if: always()
+        continue-on-error: true
+
       - name: Build Executable
         run: |
           pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
@@ -70,15 +85,12 @@ jobs:
             --hidden-import=PIL.Image ^
             --hidden-import=icons_rc ^
             --hidden-import=login ^
-            --exclude-module=tkinter ^
-            --exclude-module=numpy ^
-            --exclude-module=matplotlib ^
             --log-level=DEBUG ^
             --name PremediaApp app.py
         shell: cmd
         continue-on-error: true
 
-      - name: Debug PyInstaller logs
+      - name: Debug full PyInstaller logs
         run: |
           type warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
           type build\PremediaApp\PremediaApp.spec || echo "PremediaApp.spec not found"
