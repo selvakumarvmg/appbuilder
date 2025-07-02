@@ -31,7 +31,7 @@ CreateUninstallRegKey=yes
 Uninstallable=yes
 
 [Files]
-Source: "..\dist\app.exe"; DestDir: "{app}"; DestName: "PremediaApp.exe"; Flags: ignoreversion
+Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; DestName: "PremediaApp.exe"; Flags: ignoreversion
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
