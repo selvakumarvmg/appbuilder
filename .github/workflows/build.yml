@@ -89,24 +89,6 @@ jobs:
         shell: cmd
         if: always()
 
-      - name: Build Executable with GUI and icon
-        run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico --name PremediaApp app.py > pyinstaller_gui_icon.log 2>&1
-        shell: cmd
-        continue-on-error: true
-
-      - name: Preserve GUI and icon build output
-        run: |
-          if exist dist\PremediaApp.exe copy dist\PremediaApp.exe dist\PremediaApp_gui_icon.exe
-        shell: cmd
-        if: always()
-        continue-on-error: true
-
-      - name: Debug dist folder after GUI and icon build
-        run: dir dist
-        shell: cmd
-        if: always()
-
       - name: Build Executable with console for debugging
         run: |
           pyinstaller --noconfirm --onefile --console --icon=icons\premedia.ico ^
@@ -120,6 +102,7 @@ jobs:
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "login.py;." ^
+            --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
@@ -154,6 +137,7 @@ jobs:
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "login.py;." ^
+            --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
@@ -179,7 +163,6 @@ jobs:
         run: |
           type pyinstaller_minimal.log || echo "pyinstaller_minimal.log not found"
           type pyinstaller_gui.log || echo "pyinstaller_gui.log not found"
-          type pyinstaller_gui_icon.log || echo "pyinstaller_gui_icon.log not found"
           type pyinstaller_console.log || echo "pyinstaller_console.log not found"
           type pyinstaller_full.log || echo "pyinstaller_full.log not found"
           type build\PremediaApp\warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
@@ -190,7 +173,6 @@ jobs:
 
       - name: Restore executable for Inno Setup
         run: |
-          if exist dist\PremediaApp_gui_icon.exe copy dist\PremediaApp_gui_icon.exe dist\PremediaApp.exe
           if exist dist\PremediaApp_minimal.exe copy dist\PremediaApp_minimal.exe dist\PremediaApp.exe
         shell: cmd
         if: always()
