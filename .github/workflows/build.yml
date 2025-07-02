@@ -26,16 +26,10 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
-      - name: Verify Required Files
+      - name: Build Executable with PyInstaller
         run: |
-          dir app.py
-          dir icons\premedia.ico
-          dir installer\installer.iss
-        shell: cmd
-
-      - name: Build Executable with PyInstaller (onedir)
-        run: |
-          pyinstaller --noconfirm --windowed --icon=icons\premedia.ico ^
+          pyinstaller --noconfirm --onefile --windowed ^
+            --icon=icons\premedia.ico ^
             --add-data "icons\premedia.ico;icons" ^
             --add-data "icons\photoshop.png;icons" ^
             --add-data "icons\folder.png;icons" ^
@@ -46,7 +40,7 @@ jobs:
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "login.py;." ^
-            --add-data "%PYTHONPATH%\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
+            --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
@@ -54,19 +48,15 @@ jobs:
             --hidden-import=PySide6.QtGui ^
             --hidden-import=PySide6.uic ^
             --hidden-import=PIL ^
+            --hidden-import=PIL.Image ^
+            --hidden-import=login ^
             --hidden-import=icons_rc ^
             --collect-all PySide6 ^
             --name PremediaApp app.py
         shell: cmd
 
-      - name: Debug Build Directory
-        run: dir dist\PremediaApp /s
-        shell: cmd
-
-      - name: Copy Executable for Installer
-        run: |
-          mkdir Output
-          copy dist\PremediaApp\PremediaApp.exe dist\
+      - name: Create Output directory
+        run: mkdir Output
         shell: cmd
 
       - name: Package with Inno Setup
