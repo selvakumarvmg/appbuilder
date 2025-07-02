@@ -60,6 +60,13 @@ jobs:
         shell: cmd
         continue-on-error: true
 
+      - name: Validate icon file
+        run: |
+          if exist icons\premedia.ico echo Icon file exists and is accessible
+          dir icons\premedia.ico
+        shell: cmd
+        continue-on-error: true
+
       - name: Minimal PyInstaller test
         run: |
           pyinstaller --onefile --name PremediaApp app.py > pyinstaller_minimal.log 2>&1
@@ -91,6 +98,12 @@ jobs:
       - name: Build Executable with GUI
         run: |
           pyinstaller --noconfirm --onefile --windowed --name PremediaApp app.py > pyinstaller_gui.log 2>&1
+        shell: cmd
+        continue-on-error: true
+
+      - name: Build Executable with GUI and icon
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico --name PremediaApp app.py > pyinstaller_gui_icon.log 2>&1
         shell: cmd
         continue-on-error: true
 
@@ -128,8 +141,6 @@ jobs:
             --hidden-import=PySide6.uic ^
             --hidden-import=PIL ^
             --hidden-import=PIL.Image ^
-            --hidden-import=icons_rc ^
-            --hidden-import=login ^
             --collect-all PySide6 ^
             --log-level=DEBUG ^
             --name PremediaApp app.py > pyinstaller_full.log 2>&1
@@ -139,6 +150,7 @@ jobs:
       - name: Debug full PyInstaller logs
         run: |
           type pyinstaller_gui.log || echo "pyinstaller_gui.log not found"
+          type pyinstaller_gui_icon.log || echo "pyinstaller_gui_icon.log not found"
           type pyinstaller_icon_data.log || echo "pyinstaller_icon_data.log not found"
           type pyinstaller_full.log || echo "pyinstaller_full.log not found"
           type build\PremediaApp\warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
