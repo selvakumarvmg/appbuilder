@@ -19,8 +19,7 @@ AppPublisherURL=https://vmgdigital.com
 AppSupportURL=https://vmgdigital.com/support
 AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\terms.txt
-SilentInstall=yes
-SilentUninstall=yes
+
 
 [Files]
 Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
