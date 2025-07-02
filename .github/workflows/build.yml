@@ -58,11 +58,11 @@ jobs:
             --exclude-module=matplotlib `
             --name PremediaApp app.py --log-level DEBUG
 
-      - name: Debug PyInstaller output
+      - name: Check if PremediaApp.exe exists
         run: |
-          dir dist
           if (-not (Test-Path "dist\PremediaApp.exe")) {
-              Write-Output "PremediaApp.exe not found"
+              Write-Output "PremediaApp.exe not found in dist"
+              exit 1
           }
 
       - name: Package Windows installer
@@ -121,6 +121,11 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing to build..."
 
+      - name: Clean dist directory
+        run: |
+          rm -rf dist
+        continue-on-error: true
+
       - name: Build with PyInstaller
         timeout-minutes: 60
         run: |
@@ -136,9 +141,9 @@ jobs:
             --target-arch universal2 \
             --name PremediaApp app.py --log-level DEBUG
 
-      - name: Debug .app bundle contents
+      - name: List dist directory
         run: |
-          ls -R dist/PremediaApp.app || echo "PremediaApp.app not found"
+          ls -la dist
 
       - name: Update Info.plist
         run: |
@@ -147,6 +152,23 @@ jobs:
           plutil -replace CFBundleIdentifier -string com.vmgpremedia.PremediaApp dist/PremediaApp.app/Contents/Info.plist
           plutil -replace CFBundleName -string PremediaApp dist/PremediaApp.app/Contents/Info.plist
           plutil -replace CFBundleVersion -string 1.0.0 dist/PremediaApp.app/Contents/Info.plist
+
+      # Optional: Code sign the application to avoid "unidentified developer" warning
+      # Requires an Apple Developer certificate and secrets setup in GitHub Actions
+      # - name: Code sign application
+      #   run: |
+      #     codesign -f -s "Developer ID" dist/PremediaApp.app
+      #   env:
+      #     DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+
+      # Optional: Notarize the application for distribution
+      # Requires an Apple Developer account and App Store Connect API key
+      # - name: Notarize application
+      #   run: |
+      #     xcrun altool --notarize-app -f dist/PremediaApp.app --primary-bundle-id com.vmgpremedia.PremediaApp -u "$APPLE_ID" -p "$APPLE_PASSWORD"
+      #   env:
+      #     APPLE_ID: ${{ secrets.APPLE_ID }}
+      #     APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
 
       - name: Install create-dmg
         run: |
