@@ -21,19 +21,20 @@ AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\terms.txt
 
 [Files]
-Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
+; IMPORTANT: Match the correct output file name from PyInstaller (app.exe)
+Source: "..\dist\app.exe"; DestDir: "{app}"; DestName: "PremediaApp.exe"; Flags: ignoreversion
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
-; Only include these if you need them at runtime (UI/Dev)
-Source: "..\login.ui"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\premediaapp.ui"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\icons.qrc"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\icons_rc.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\login.py"; DestDir: "{app}"; Flags: ignoreversion
+; Optional: Remove if not needed at runtime to reduce installer size
+; Source: "..\login.ui"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "..\premediaapp.ui"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "..\icons.qrc"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "..\icons_rc.py"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "..\login.py"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
