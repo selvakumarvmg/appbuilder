@@ -19,6 +19,8 @@ AppPublisherURL=https://vmgdigital.com
 AppSupportURL=https://vmgdigital.com/support
 AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\license.txt
+WizardImageFile=..\installer-assets\dmg-background.bmp
+WizardSmallImageFile=..\icons\premedia-logo.bmp
 DisableWelcomePage=no
 DisableDirPage=no
 DisableProgramGroupPage=no
@@ -57,11 +59,11 @@ Root: HKCU; Subkey: "Software\PremediaApp"; ValueType: string; ValueName: "Insta
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if (CurStep = ssInstall) then
+  if CurStep = ssInstall then
   begin
     if IsTaskSelected('autostart') then
     begin
-      // Ensure auto-start registry or shortcut is created only if selected
+      // Optional: Add logic for registry or task scheduler autostart if needed
     end;
   end;
 end;

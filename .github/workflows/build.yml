@@ -22,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller -r requirements.txt
+        pip install -r requirements.txt pyinstaller
         pip list > installed_packages.txt
       shell: cmd
 
@@ -37,6 +37,8 @@ jobs:
         dir icons\premedia.ico
         dir icons\photoshop.png
         dir icons\folder.png
+        dir installer-assets\dmg-background.bmp
+        dir icons\premedia-logo.bmp
         dir terms.txt
         dir license.txt
         dir login.ui
@@ -70,6 +72,7 @@ jobs:
           --hidden-import=PySide6.QtWidgets ^
           --hidden-import=PySide6.QtCore ^
           --hidden-import=PySide6.QtGui ^
+          --hidden-import=PySide6.QtSvg ^
           --hidden-import=PySide6.uic ^
           --hidden-import=PIL.Image ^
           --hidden-import=login ^
@@ -85,6 +88,13 @@ jobs:
       shell: cmd
       if: always()
 
+    - name: Upload PyInstaller log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-log
+        path: pyinstaller.log
+      if: always()
+
     - name: Check dist folder for EXE
       run: |
         echo Checking for dist\PremediaApp.exe
@@ -95,15 +105,9 @@ jobs:
         )
       shell: cmd
 
-    - name: Upload PyInstaller log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log
-        path: pyinstaller.log
-      if: always()
-
     - name: Set up Inno Setup
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+      continue-on-error: true
 
     - name: Package using Inno Setup
       run: |
@@ -114,8 +118,9 @@ jobs:
           exit 1
         )
       shell: cmd
+      continue-on-error: false
 
-    - name: Upload Installer Artifact
+    - name: Upload Windows Installer
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
