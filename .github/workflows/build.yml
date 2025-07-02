@@ -49,7 +49,17 @@ jobs:
         shell: cmd
         if: always()
 
-      - name: Build Executable
+      - name: Test app.py syntax
+        run: python app.py --version
+        shell: cmd
+        continue-on-error: true
+
+      - name: Test premediaapp.py syntax
+        run: python premediaapp.py --version
+        shell: cmd
+        continue-on-error: true
+
+      - name: Build Executable (app.py)
         run: |
           pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
             --add-data "icons;icons" ^
@@ -69,6 +79,7 @@ jobs:
             --hidden-import=PIL.Image ^
             --hidden-import=icons_rc ^
             --hidden-import=login ^
+            --hidden-import=premediaapp ^
             --exclude-module=tkinter ^
             --exclude-module=numpy ^
             --exclude-module=matplotlib ^
@@ -77,10 +88,39 @@ jobs:
         shell: cmd
         continue-on-error: true
 
+      - name: Build Executable (premediaapp.py)
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
+            --add-data "icons;icons" ^
+            --add-data "terms.txt;." ^
+            --add-data "license.txt;." ^
+            --add-data "login.ui;." ^
+            --add-data "premediaapp.ui;." ^
+            --add-data "icons.qrc;." ^
+            --add-data "icons_rc.py;." ^
+            --hidden-import=paramiko ^
+            --hidden-import=tzdata ^
+            --hidden-import=PySide6.QtWidgets ^
+            --hidden-import=PySide6.QtCore ^
+            --hidden-import=PySide6.QtGui ^
+            --hidden-import=PySide6.uic ^
+            --hidden-import=PIL ^
+            --hidden-import=PIL.Image ^
+            --hidden-import=icons_rc ^
+            --hidden-import=login ^
+            --hidden-import=premediaapp ^
+            --exclude-module=tkinter ^
+            --exclude-module=numpy ^
+            --exclude-module=matplotlib ^
+            --log-level=DEBUG ^
+            --name PremediaApp premediaapp.py
+        shell: cmd
+        continue-on-error: true
+
       - name: Debug PyInstaller logs
         run: |
-          type warn-PremediaApp.txt
-          type build\PremediaApp\PremediaApp.spec
+          type warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
+          type build\PremediaApp\PremediaApp.spec || echo "PremediaApp.spec not found"
         shell: cmd
         if: always()
         continue-on-error: true
