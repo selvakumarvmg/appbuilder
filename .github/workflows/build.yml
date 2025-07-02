@@ -51,9 +51,7 @@ jobs:
       run: |
         Set-Location $env:GITHUB_WORKSPACE
         pyinstaller app.spec --clean --noconfirm --log-level DEBUG *> pyinstaller.log
-        Write-Output "===== PyInstaller log start ====="
         Get-Content pyinstaller.log
-        Write-Output "===== PyInstaller log end ====="
         if ($LASTEXITCODE -ne 0) {
           Write-Error "PyInstaller build failed"
           exit $LASTEXITCODE
