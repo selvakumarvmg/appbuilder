@@ -60,6 +60,7 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer/installer.iss
+          options: /O"D:\a\appbuilder\appbuilder\installer\Output"
 
       - name: Verify Output folder
         run: |
@@ -110,7 +111,6 @@ jobs:
             --exclude-module=tkinter \
             --exclude-module=numpy \
             --exclude-module=matplotlib \
-            --target-arch universal2 \
             --name PremediaApp app.py --log-level DEBUG
 
       - name: Debug App Bundle
