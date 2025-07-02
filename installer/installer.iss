@@ -17,6 +17,10 @@ Source: "license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icons\premedia.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "login.ui"; DestDir: "{app}"; Flags: ignoreversion
+Source: "premediaapp.ui"; DestDir: "{app}"; Flags: ignoreversion
+Source: "icons.qrc"; DestDir: "{app}"; Flags: ignoreversion
+Source: "icons_rc.py"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\premedia.ico"

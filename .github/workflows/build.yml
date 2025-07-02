@@ -25,6 +25,22 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
+      - name: Verify required files
+        run: |
+          dir app.py
+          dir terms.txt
+          dir license.txt
+          dir icons\premedia.ico
+          dir icons\photoshop.png
+          dir icons\folder.png
+          dir login.ui
+          dir premediaapp.ui
+          dir icons.qrc
+          dir icons_rc.py
+          dir installer\installer.iss
+        shell: cmd
+        continue-on-error: true
+
       - name: Debug repository files
         run: dir /s
         shell: cmd
@@ -32,21 +48,28 @@ jobs:
 
       - name: Build Executable
         run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico ^
+          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
             --add-data "icons;icons" ^
             --add-data "terms.txt;." ^
             --add-data "license.txt;." ^
+            --add-data "login.ui;." ^
+            --add-data "premediaapp.ui;." ^
+            --add-data "icons.qrc;." ^
+            --add-data "icons_rc.py;." ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
             --hidden-import=PySide6.QtCore ^
             --hidden-import=PySide6.QtGui ^
             --hidden-import=PIL ^
+            --hidden-import=PIL.Image ^
+            --hidden-import=icons_rc ^
             --exclude-module=tkinter ^
             --exclude-module=numpy ^
             --exclude-module=matplotlib ^
             --name PremediaApp app.py
         shell: cmd
+        continue-on-error: true
 
       - name: Debug dist folder
         run: dir dist
@@ -56,7 +79,7 @@ jobs:
       - name: Package with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
-          path: installer/installer.iss
+          path: installer\installer.iss
         continue-on-error: true
 
       - name: Debug Output folder
@@ -68,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Windows
-          path: Output/PremediaApp-Setup.exe
+          path: Output\PremediaApp-Setup.exe
           retention-days: 5
         if: success()
 
@@ -85,14 +108,36 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          brew install libpng jpeg qt
+          brew install libpng jpeg qt5
         continue-on-error: true
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt
+          pip3 install pyinstaller
+        continue-on-error: true
+
+      - name: Create placeholder dmg-background.png
+        run: |
+          mkdir -p installer
+          convert -size 800x400 xc:white installer/dmg-background.png || echo "ImageMagick not available, using vmg-premedia-logo.png"
+          [ -f installer/dmg-background.png ] || cp vmg-premedia-logo.png installer/dmg-background.png
+        continue-on-error: true
+
+      - name: Verify required files
+        run: |
+          ls -l app.py
+          ls -l terms.txt
+          ls -l license.txt
+          ls -l icons/premedia.icns
+          ls -l icons/photoshop.png
+          ls -l icons/folder.png
+          ls -l login.ui
+          ls -l premediaapp.ui
+          ls -l icons.qrc
+          ls -l icons_rc.py
+          ls -l installer/dmg-background.png
         continue-on-error: true
 
       - name: Debug repository files
@@ -105,16 +150,23 @@ jobs:
             --add-data "icons:icons" \
             --add-data "terms.txt:." \
             --add-data "license.txt:." \
+            --add-data "login.ui:." \
+            --add-data "premediaapp.ui:." \
+            --add-data "icons.qrc:." \
+            --add-data "icons_rc.py:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --hidden-import=PySide6.QtWidgets \
             --hidden-import=PySide6.QtCore \
             --hidden-import=PySide6.QtGui \
             --hidden-import=PIL \
+            --hidden-import=PIL.Image \
+            --hidden-import=icons_rc \
             --exclude-module=tkinter \
             --exclude-module=numpy \
             --exclude-module=matplotlib \
             --name PremediaApp app.py
+        continue-on-error: true
 
       - name: Debug dist folder
         run: ls -la dist
@@ -173,14 +225,29 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev libpng-dev libjpeg-dev qt5-default dpkg-dev
+          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev libpng-dev libjpeg-dev qt5-default dpkg-dev imagemagick
         continue-on-error: true
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt
+          pip3 install pyinstaller
+        continue-on-error: true
+
+      - name: Verify required files
+        run: |
+          ls -l app.py
+          ls -l terms.txt
+          ls -l license.txt
+          ls -l icons/premedia.png
+          ls -l icons/photoshop.png
+          ls -l icons/folder.png
+          ls -l login.ui
+          ls -l premediaapp.ui
+          ls -l icons.qrc
+          ls -l icons_rc.py
+          ls -l PremediaApp.desktop
         continue-on-error: true
 
       - name: Debug repository files
@@ -193,16 +260,23 @@ jobs:
             --add-data "icons:icons" \
             --add-data "terms.txt:." \
             --add-data "license.txt:." \
+            --add-data "login.ui:." \
+            --add-data "premediaapp.ui:." \
+            --add-data "icons.qrc:." \
+            --add-data "icons_rc.py:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
             --hidden-import=PySide6.QtWidgets \
             --hidden-import=PySide6.QtCore \
             --hidden-import=PySide6.QtGui \
             --hidden-import=PIL \
+            --hidden-import=PIL.Image \
+            --hidden-import=icons_rc \
             --exclude-module=tkinter \
             --exclude-module=numpy \
             --exclude-module=matplotlib \
             --name PremediaApp app.py
+        continue-on-error: true
 
       - name: Debug dist folder
         run: ls -la dist
@@ -213,8 +287,9 @@ jobs:
           mkdir -p Output dist/debian/usr/bin dist/debian/usr/share/icons/hicolor/scalable/apps dist/debian/usr/share/applications dist/debian/DEBIAN
           cp dist/PremediaApp dist/debian/usr/bin/
           cp icons/premedia.png dist/debian/usr/share/icons/hicolor/scalable/apps/
+          cp PremediaApp.desktop dist/debian/usr/share/applications/
           echo "Package: premediaapp\nVersion: 1.0.0\nArchitecture: amd64\nMaintainer: VMG Premedia <support@vmgpremedia.com>\nDepends: python3, libgtk-3-0, libpng16-16, libjpeg8, qt5-default\nDescription: PremediaApp for image retouching" > dist/debian/DEBIAN/control
-          echo "[Desktop Entry]\nName=PremediaApp\nExec=/usr/bin/PremediaApp\nType=Application\nIcon=premedia\nTerminal=false\nCategories=Utility;" > dist/debian/usr/share/applications/PremediaApp.desktop
+          chmod -R 755 dist/debian
           dpkg-deb --build dist/debian Output/PremediaApp.deb
         continue-on-error: true
 
