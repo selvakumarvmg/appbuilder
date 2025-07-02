@@ -14,13 +14,11 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 SetupIconFile=..\icons\premedia.ico
 UninstallDisplayIcon={app}\icons\premedia.ico
-WizardImageFile=..\installer-assets\dmg-background.bmp
-WizardSmallImageFile=..\icons\premedia-logo.bmp
 AppPublisher=VMG Digital Pvt Ltd
 AppPublisherURL=https://vmgdigital.com
 AppSupportURL=https://vmgdigital.com/support
 AppUpdatesURL=https://vmgdigital.com/downloads
-LicenseFile=..\terms.txt
+LicenseFile=..\license.txt
 DisableWelcomePage=no
 DisableDirPage=no
 DisableProgramGroupPage=no
@@ -29,6 +27,9 @@ DisableFinishedPage=no
 ShowLanguageDialog=no
 CreateUninstallRegKey=yes
 Uninstallable=yes
+
+[Tasks]
+Name: autostart; Description: "Launch PremediaApp automatically on startup"; Flags: unchecked
 
 [Files]
 Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; DestName: "PremediaApp.exe"; Flags: ignoreversion
@@ -41,7 +42,7 @@ Source: "..\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 [Icons]
 Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
 Name: "{commondesktop}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
-Name: "{userstartup}\PremediaApp (Auto Start)"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
+Name: "{userstartup}\PremediaApp (Auto Start)"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"; Tasks: autostart
 
 [Run]
 Filename: "{app}\PremediaApp.exe"; Description: "Launch PremediaApp"; Flags: nowait postinstall skipifsilent
@@ -54,4 +55,13 @@ Type: dirifempty; Name: "{app}"
 Root: HKCU; Subkey: "Software\PremediaApp"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekeyifempty
 
 [Code]
-// Optional: Add custom uninstall behavior or validations here.
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssInstall) then
+  begin
+    if IsTaskSelected('autostart') then
+    begin
+      // Ensure auto-start registry or shortcut is created only if selected
+    end;
+  end;
+end;

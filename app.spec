@@ -16,7 +16,9 @@ a = Analysis(
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtCore',
+        'PySide6.QtSvg',  # Added for potential SVG support
         'PIL.Image',
+        'PIL.ImageQt',    # Added for PIL/PySide6 integration
         'tzdata',
     ],
     hookspath=[],
@@ -34,7 +36,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='app',
+    name='PremediaApp',  # Updated to match expected output
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -50,5 +52,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name='app',
+    name='PremediaApp',  # Updated to match expected output
 )

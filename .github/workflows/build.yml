@@ -2,54 +2,56 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build-windows:
-    name: Build Windows App
     runs-on: windows-latest
 
     steps:
-      - name: ⬇️ Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python 3.9
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.9"
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~\AppData\Local\pip\Cache
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
-      - name: 📦 Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller pyside6 pillow tzdata
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
 
-      - name: ⚙️ Build EXE with PyInstaller
-        run: |
-          pyinstaller app.py --noconfirm --clean --onefile --name PremediaApp --icon=icons/premedia.ico
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller PySide6 pillow tzdata
 
-      - name: 🧾 Confirm EXE Output
-        run: |
-          echo "Contents of dist directory:"
-          dir dist
+    - name: Build EXE with PyInstaller
+      run: pyinstaller app.spec --clean --noconfirm
 
-      - name: 🧪 Check if EXE was created
-        shell: pwsh
-        run: |
-          if (-Not (Test-Path "dist\PremediaApp.exe")) {
-            Write-Error "❌ PremediaApp.exe not found!"
-            exit 1
-          } else {
-            Write-Output "✅ EXE exists: dist\PremediaApp.exe"
-          }
+    - name: Show dist directory
+      run: Get-ChildItem -Recurse dist
 
-      - name: 🏗️ Build Installer with Inno Setup
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-        with:
-          path: installer/installer.iss
+    - name: Fail if EXE not created
+      run: |
+        if (!(Test-Path "dist\PremediaApp.exe")) {
+          Write-Error "PremediaApp.exe not found in dist/"
+          exit 1
+        }
 
-      - name: 📤 Upload Final Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: PremediaApp-Setup
-          path: Output/PremediaApp-Setup.exe
+    - name: Set up Inno Setup
+      uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+
+    - name: Build Installer with Inno Setup
+      run: |
+        iscc installer/installer.iss
+
+    - name: Upload Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-Installer
+        path: Output/PremediaApp-Setup.exe
