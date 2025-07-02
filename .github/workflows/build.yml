@@ -29,19 +29,39 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller PySide6 pillow tzdata
+      shell: powershell
+      continue-on-error: false
+
+    - name: Verify UPX availability
+      run: |
+        if (Get-Command upx -ErrorAction SilentlyContinue) {
+          Write-Output "UPX is available."
+        } else {
+          Write-Warning "UPX not found. PyInstaller may fail if upx=True in app.spec."
+        }
+      shell: powershell
 
     - name: Build EXE with PyInstaller
-      run: pyinstaller app.spec --clean --noconfirm
+      run: |
+        pyinstaller app.spec --clean --noconfirm
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "PyInstaller build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+      shell: powershell
 
     - name: Show dist directory
-      run: Get-ChildItem -Recurse dist
-
-    - name: Fail if EXE not created
       run: |
-        if (!(Test-Path "dist\PremediaApp.exe")) {
+        Write-Output "Listing contents of dist directory:"
+        Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
+        Write-Output "Checking for PremediaApp.exe:"
+        if (Test-Path "dist\PremediaApp.exe") {
+          Write-Output "PremediaApp.exe found in dist/"
+        } else {
           Write-Error "PremediaApp.exe not found in dist/"
           exit 1
         }
+      shell: powershell
 
     - name: Set up Inno Setup
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
@@ -49,6 +69,11 @@ jobs:
     - name: Build Installer with Inno Setup
       run: |
         iscc installer/installer.iss
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+      shell: powershell
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
