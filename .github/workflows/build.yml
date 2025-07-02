@@ -9,6 +9,7 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,9 +26,16 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
-      - name: Build Executable
+      - name: Verify Required Files
         run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
+          dir app.py
+          dir icons\premedia.ico
+          dir installer\installer.iss
+        shell: cmd
+
+      - name: Build Executable with PyInstaller (onedir)
+        run: |
+          pyinstaller --noconfirm --windowed --icon=icons\premedia.ico ^
             --add-data "icons\premedia.ico;icons" ^
             --add-data "icons\photoshop.png;icons" ^
             --add-data "icons\folder.png;icons" ^
@@ -38,7 +46,7 @@ jobs:
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "login.py;." ^
-            --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
+            --add-data "%PYTHONPATH%\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
@@ -46,26 +54,29 @@ jobs:
             --hidden-import=PySide6.QtGui ^
             --hidden-import=PySide6.uic ^
             --hidden-import=PIL ^
-            --hidden-import=PIL.Image ^
-            --hidden-import=login ^
             --hidden-import=icons_rc ^
             --collect-all PySide6 ^
-            --log-level=DEBUG ^
             --name PremediaApp app.py
         shell: cmd
 
-      - name: Verify dist
-        run: dir dist
+      - name: Debug Build Directory
+        run: dir dist\PremediaApp /s
         shell: cmd
 
-      - name: Run Inno Setup Compiler
+      - name: Copy Executable for Installer
+        run: |
+          mkdir Output
+          copy dist\PremediaApp\PremediaApp.exe dist\
+        shell: cmd
+
+      - name: Package with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
 
-      - name: Upload Installer Artifact
+      - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Windows-Installer
+          name: PremediaApp-Windows
           path: Output\PremediaApp-Setup.exe
           retention-days: 7

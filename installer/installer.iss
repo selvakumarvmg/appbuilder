@@ -1,4 +1,5 @@
 [Setup]
+AppId={{9ca9316f-48ec-47dd-ab0e-dbbb86de0a9f}}
 AppName=PremediaApp
 AppVersion=1.0.0
 DefaultDirName={autopf}\PremediaApp
@@ -12,12 +13,14 @@ SetupIconFile=..\icons\premedia.ico
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\icons\premedia.ico
 WizardImageFile=..\installer-assets\dmg-background.bmp
-WizardSmallImageFile=..\installer-assets\dmg-background.bmp
+WizardSmallImageFile=..\icons\premedia-logo.bmp
 AppPublisher=VMG Digital Pvt Ltd
 AppPublisherURL=https://vmgdigital.com
 AppSupportURL=https://vmgdigital.com/support
 AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\terms.txt
+SilentInstall=yes
+SilentUninstall=yes
 
 [Files]
 Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -26,6 +29,9 @@ Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+
+; Include only required UI + resource files if really needed at runtime
+; Otherwise remove .ui and .py to reduce size and improve launch time
 Source: "..\login.ui"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\premediaapp.ui"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons.qrc"; DestDir: "{app}"; Flags: ignoreversion
