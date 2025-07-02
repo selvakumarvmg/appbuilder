@@ -1,4 +1,4 @@
-# app.spec
+# app.spec (Onefile Mode)
 block_cipher = None
 
 a = Analysis(
@@ -11,23 +11,14 @@ a = Analysis(
         ('icons/folder.png', 'icons'),
         ('terms.txt', '.'),
         ('license.txt', '.'),
-        ('login.ui', '.'),
-        ('premediaapp.ui', '.'),
-        ('icons.qrc', '.'),
-        ('icons_rc.py', '.'),
-        ('login.py', '.'),
     ],
     hiddenimports=[
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtCore',
         'PySide6.uic',
-        'paramiko',
-        'PIL',
         'PIL.Image',
         'tzdata',
-        'icons_rc',
-        'login',
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -49,7 +40,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # Set to True to see terminal for debug
+    console=False,
     icon='icons/premedia.ico',
 )
 
@@ -61,5 +52,4 @@ coll = COLLECT(
     strip=False,
     upx=True,
     name='PremediaApp',
-    destdir='dist/PremediaApp'
 )

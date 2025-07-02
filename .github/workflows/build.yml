@@ -1,3 +1,4 @@
+# Updated build.yml for GitHub Actions (Onefile Build)
 name: Build PremediaApp Windows Installer
 
 on:
@@ -9,7 +10,6 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -26,22 +26,13 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
-      - name: Verify Input Files
+      - name: Build Executable (Onefile Mode)
         run: |
-          dir
-          dir icons
-          dir installer
+          pyinstaller app.py --noconfirm --clean --onefile --windowed --icon=icons\premedia.ico
         shell: cmd
 
-      - name: Build Executable with PyInstaller
-        run: |
-          pyinstaller app.spec --clean --noconfirm
-        shell: cmd
-
-      - name: Check .exe Output Path
-        run: |
-          dir dist
-          dir dist\PremediaApp
+      - name: Confirm EXE Output
+        run: dir dist
         shell: cmd
 
       - name: Run Inno Setup to Create Installer
@@ -49,13 +40,13 @@ jobs:
         with:
           path: installer\installer.iss
 
-      - name: Debug Output Folder
+      - name: List Final Output
         run: dir Output
         shell: cmd
 
-      - name: Upload Windows Installer Artifact
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Windows
+          name: PremediaApp-Installer
           path: Output\PremediaApp-Setup.exe
           retention-days: 5
