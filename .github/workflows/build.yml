@@ -26,32 +26,24 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
-      - name: Verify Required Files
-        run: |
-          dir app.py
-          dir app.spec
-          dir icons\premedia.ico
-          dir terms.txt
-          dir installer\installer.iss
-        shell: cmd
-
-      - name: Build EXE using app.spec
+      - name: Build Executable using app.spec
         run: |
           pyinstaller app.spec --clean --noconfirm
         shell: cmd
 
-      - name: Debug Dist Output
-        run: dir dist /s
+      - name: Verify dist folder
+        run: dir dist
         shell: cmd
 
-      - name: Move EXE to Root for Inno Setup
+      - name: Debug PyInstaller Logs
         run: |
-          move dist\PremediaApp\PremediaApp.exe dist\
+          type build\PremediaApp\warn-PremediaApp.txt || echo "No warnings"
+          type PremediaApp.spec || echo "No spec file output"
         shell: cmd
         continue-on-error: true
 
-      - name: Verify Dist EXE
-        run: dir dist
+      - name: Create Output directory
+        run: mkdir Output
         shell: cmd
 
       - name: Package with Inno Setup
@@ -59,13 +51,13 @@ jobs:
         with:
           path: installer\installer.iss
 
-      - name: Debug Output Folder
+      - name: Debug Output folder
         run: dir Output
         shell: cmd
 
-      - name: Upload Windows Installer Artifact
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Windows
           path: Output\PremediaApp-Setup.exe
-          retention-days: 5
+          retention-days: 7
