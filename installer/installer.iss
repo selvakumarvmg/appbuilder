@@ -1,7 +1,6 @@
 [Setup]
 AppName=PremediaApp
 AppVersion=1.0.0
-AppPublisher=VMG Digital Pvt Ltd
 DefaultDirName={autopf}\PremediaApp
 DefaultGroupName=PremediaApp
 OutputBaseFilename=PremediaApp-Setup
@@ -9,10 +8,14 @@ OutputDir=..\Output
 Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
-SetupIconFile=..\icons\premedia.ico
+SetupIconFile=premedia.ico
+WizardImageFile=compiler:WizModernImage-IS.bmp
+WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
+PrivilegesRequired=admin
+UninstallDisplayIcon={app}\icons\premedia.ico
 
 [Files]
-Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
