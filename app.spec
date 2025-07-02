@@ -49,7 +49,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=False,  # Set to True to see terminal for debug
     icon='icons/premedia.ico',
 )
 
@@ -61,5 +61,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     name='PremediaApp',
-    destdir='dist'  
+    destdir='dist/PremediaApp'
 )
