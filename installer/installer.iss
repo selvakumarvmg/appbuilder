@@ -21,7 +21,7 @@ AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\terms.txt
 
 [Files]
-Source: "..\dist\PremediaApp\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
