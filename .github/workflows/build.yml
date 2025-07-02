@@ -30,7 +30,6 @@ jobs:
       - name: Verify required files
         run: |
           dir app.py
-          dir premediaapp.py
           dir terms.txt
           dir license.txt
           dir icons\premedia.ico
@@ -54,12 +53,7 @@ jobs:
         shell: cmd
         continue-on-error: true
 
-      - name: Test premediaapp.py syntax
-        run: python premediaapp.py --version
-        shell: cmd
-        continue-on-error: true
-
-      - name: Build Executable (app.py)
+      - name: Build Executable
         run: |
           pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
             --add-data "icons;icons" ^
@@ -85,35 +79,6 @@ jobs:
             --exclude-module=matplotlib ^
             --log-level=DEBUG ^
             --name PremediaApp app.py
-        shell: cmd
-        continue-on-error: true
-
-      - name: Build Executable (premediaapp.py)
-        run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
-            --add-data "icons;icons" ^
-            --add-data "terms.txt;." ^
-            --add-data "license.txt;." ^
-            --add-data "login.ui;." ^
-            --add-data "premediaapp.ui;." ^
-            --add-data "icons.qrc;." ^
-            --add-data "icons_rc.py;." ^
-            --hidden-import=paramiko ^
-            --hidden-import=tzdata ^
-            --hidden-import=PySide6.QtWidgets ^
-            --hidden-import=PySide6.QtCore ^
-            --hidden-import=PySide6.QtGui ^
-            --hidden-import=PySide6.uic ^
-            --hidden-import=PIL ^
-            --hidden-import=PIL.Image ^
-            --hidden-import=icons_rc ^
-            --hidden-import=login ^
-            --hidden-import=premediaapp ^
-            --exclude-module=tkinter ^
-            --exclude-module=numpy ^
-            --exclude-module=matplotlib ^
-            --log-level=DEBUG ^
-            --name PremediaApp premediaapp.py
         shell: cmd
         continue-on-error: true
 
