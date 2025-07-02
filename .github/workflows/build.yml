@@ -23,77 +23,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-          pip check
-          pip list > installed_packages.txt
         shell: cmd
-        continue-on-error: true
 
-      - name: Debug installed packages
-        run: type installed_packages.txt
-        shell: cmd
-        if: always()
-
-      - name: Verify required files
+      - name: Verify Required Files
         run: |
           dir app.py
-          dir terms.txt
-          dir license.txt
           dir icons\premedia.ico
-          dir icons\photoshop.png
-          dir icons\folder.png
-          dir login.ui
-          dir premediaapp.ui
-          dir icons.qrc
-          dir icons_rc.py
           dir installer\installer.iss
-          dir login.py
         shell: cmd
-        continue-on-error: true
 
-      - name: Debug icons directory
-        run: dir icons /s
-        shell: cmd
-        if: always()
-
-      - name: Check login.py syntax
-        run: python -m py_compile login.py
-        shell: cmd
-        continue-on-error: true
-
-      - name: Build Executable with console for debugging
-        run: |
-          pyinstaller --noconfirm --onedir --console --icon=icons\premedia.ico ^
-            --add-data "icons\premedia.ico;icons" ^
-            --add-data "icons\photoshop.png;icons" ^
-            --add-data "icons\folder.png;icons" ^
-            --add-data "terms.txt;." ^
-            --add-data "license.txt;." ^
-            --add-data "login.ui;." ^
-            --add-data "premediaapp.ui;." ^
-            --add-data "icons_rc.py;." ^
-            --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
-            --hidden-import=paramiko ^
-            --hidden-import=tzdata ^
-            --hidden-import=PySide6.QtWidgets ^
-            --hidden-import=PySide6.QtCore ^
-            --hidden-import=PySide6.QtGui ^
-            --hidden-import=PySide6.uic ^
-            --hidden-import=PySide6.QtSystemTrayIcon ^
-            --hidden-import=PIL ^
-            --hidden-import=PIL.Image ^
-            --hidden-import=login ^
-            --hidden-import=icons_rc ^
-            --log-level=DEBUG ^
-            --name PremediaAppConsole app.py > pyinstaller_console.log 2>&1
-        shell: cmd
-        continue-on-error: true
-
-      - name: Debug dist folder after console build
-        run: dir dist /s
-        shell: cmd
-        if: always()
-
-      - name: Build Executable with GUI, icon, and data
+      - name: Build Executable with PyInstaller (Onedir)
         run: |
           pyinstaller --noconfirm --onedir --windowed --icon=icons\premedia.ico ^
             --add-data "icons\premedia.ico;icons" ^
@@ -103,6 +42,7 @@ jobs:
             --add-data "license.txt;." ^
             --add-data "login.ui;." ^
             --add-data "premediaapp.ui;." ^
+            --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
@@ -111,32 +51,23 @@ jobs:
             --hidden-import=PySide6.QtCore ^
             --hidden-import=PySide6.QtGui ^
             --hidden-import=PySide6.uic ^
-            --hidden-import=PySide6.QtSystemTrayIcon ^
             --hidden-import=PIL ^
             --hidden-import=PIL.Image ^
-            --hidden-import=login ^
-            --hidden-import=icons_rc ^
+            --collect-all PySide6 ^
             --log-level=DEBUG ^
-            --name PremediaApp app.py > pyinstaller_full.log 2>&1
+            --name PremediaApp app.py > pyinstaller_build.log 2>&1
         shell: cmd
-        continue-on-error: true
 
-      - name: Debug dist folder after full build
-        run: dir dist /s
-        shell: cmd
-        if: always()
-
-      - name: Debug PyInstaller logs
-        run: |
-          type pyinstaller_console.log || echo "pyinstaller_console.log not found"
-          type pyinstaller_full.log || echo "pyinstaller_full.log not found"
-          type build\PremediaApp\warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
-          type PremediaApp.spec || echo "PremediaApp.spec not found"
+      - name: Debug PyInstaller Build Log
+        run: type pyinstaller_build.log || echo "Log not found"
         shell: cmd
         if: always()
-        continue-on-error: true
 
-      - name: Create Output directory
+      - name: Check dist folder
+        run: dir dist\PremediaApp /s
+        shell: cmd
+
+      - name: Create Output Directory
         run: mkdir Output
         shell: cmd
         if: always()
@@ -145,9 +76,9 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
-        continue-on-error: true
+        continue-on-error: false
 
-      - name: Debug Output folder
+      - name: List Output
         run: dir Output
         shell: cmd
         if: always()
@@ -157,5 +88,4 @@ jobs:
         with:
           name: PremediaApp-Windows
           path: Output\PremediaApp-Setup.exe
-          retention-days: 5
-        if: success()
+          retention-days: 7
