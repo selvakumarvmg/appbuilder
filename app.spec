@@ -1,4 +1,4 @@
-# app.spec - OneFile Build, Named PremediaApp.exe
+# app.spec - one-file mode (no MERGE used)
 block_cipher = None
 
 a = Analysis(
@@ -16,7 +16,6 @@ a = Analysis(
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtCore',
-        'PySide6.uic',
         'PIL.Image',
         'tzdata',
     ],
@@ -44,8 +43,12 @@ exe = EXE(
     icon='icons/premedia.ico',
 )
 
-app = MERGE(
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
     name='PremediaApp',
-    onefile=True,  
 )
