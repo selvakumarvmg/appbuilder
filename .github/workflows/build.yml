@@ -9,96 +9,116 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Cache Python dependencies
-      uses: actions/cache@v4
-      with:
-        path: C:\Users\runneradmin\AppData\Local\pip\Cache
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller PySide6 pillow tzdata
-      shell: powershell
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PySide6 pillow tzdata
+        shell: powershell
+        continue-on-error: false
 
-    - name: Debug: Show source structure
-      run: |
-        Write-Output "Listing source files:"
-        Get-ChildItem -Recurse
-      shell: powershell
+      - name: Show source structure
+        run: |
+          Write-Output "Listing source files:"
+          Get-ChildItem -Recurse | Format-Table -Property Name, Length, LastWriteTime -AutoSize
+        shell: powershell
 
-    - name: Verify UPX availability
-      run: |
-        if (Get-Command upx -ErrorAction SilentlyContinue) {
-          Write-Output "UPX is available."
-        } else {
-          Write-Warning "UPX not found. Set upx=False in app.spec if needed."
-        }
-      shell: powershell
+      - name: Verify UPX availability
+        run: |
+          if (Get-Command upx -ErrorAction SilentlyContinue) {
+            Write-Output "UPX is available."
+          } else {
+            Write-Warning "UPX not found. Consider setting upx=False in app.spec."
+          }
+        shell: powershell
 
-    - name: Show app.spec contents
-      run: |
-        Write-Output "Contents of app.spec:"
-        Get-Content app.spec
-      shell: powershell
+      - name: Show app.spec contents
+        run: |
+          Write-Output "Contents of app.spec:"
+          Get-Content app.spec
+        shell: powershell
 
-    - name: Build EXE with PyInstaller
-      run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        pyinstaller app.spec --clean --noconfirm --log-level DEBUG *> pyinstaller.log
-        Write-Output "===== PyInstaller log start ====="
-        Get-Content pyinstaller.log
-        Write-Output "===== PyInstaller log end ====="
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "PyInstaller build failed"
-          exit $LASTEXITCODE
-        }
-      shell: powershell
+      - name: Build EXE with PyInstaller
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
+          Write-Output "===== PyInstaller log start ====="
+          Get-Content pyinstaller.log
+          Write-Output "===== PyInstaller log end ====="
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "PyInstaller build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+        shell: powershell
 
-    - name: Upload PyInstaller log on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log
-        path: pyinstaller.log
+      - name: Upload PyInstaller log
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-log
+          path: pyinstaller.log
 
-    - name: Verify dist directory and EXE
-      run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        Write-Output "Checking dist directory:"
-        Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
-        $exePath = "dist\PremediaApp.exe"
-        if (-not (Test-Path $exePath)) {
-          Write-Error "PremediaApp.exe not found in dist/"
-          exit 1
-        }
-      shell: powershell
+      - name: Verify dist directory and EXE
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          Write-Output "Checking dist directory:"
+          Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
+          Write-Output "Checking for PremediaApp.exe:"
+          $exePath = "dist\PremediaApp.exe"
+          $retryCount = 3
+          $found = $false
+          for ($i = 1; $i -le $retryCount; $i++) {
+            if (Test-Path $exePath -PathType Leaf) {
+              Write-Output "PremediaApp.exe found at $exePath"
+              $found = $true
+              break
+            } else {
+              Write-Output "Attempt $i of $retryCount: PremediaApp.exe not found at $exePath"
+              Start-Sleep -Seconds 2
+            }
+          }
+          if (-not $found) {
+            Write-Error "PremediaApp.exe not found in dist/ after $retryCount attempts"
+            exit 1
+          }
+          Write-Output "Checking for unexpected files in dist:"
+          $fileCount = (Get-ChildItem -Path dist -Recurse -File | Measure-Object).Count
+          if ($fileCount -gt 1) {
+            Write-Warning "Unexpected files found in dist directory. Expected only PremediaApp.exe for --onefile build."
+            Get-ChildItem -Path dist -Recurse -File | Format-Table -Property Name, Length -AutoSize
+            exit 1
+          }
+        shell: powershell
 
-    - name: Set up Inno Setup
-      uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+      - name: Set up Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
 
-    - name: Build Installer with Inno Setup
-      run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        iscc installer/installer.iss
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-      shell: powershell
+      - name: Build Installer with Inno Setup
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          iscc installer/installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+        shell: powershell
 
-    - name: Upload Installer Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Installer
-        path: Output/PremediaApp-Setup.exe
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-Installer
+          path: Output/PremediaApp-Setup.exe
