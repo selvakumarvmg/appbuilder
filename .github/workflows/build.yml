@@ -34,11 +34,14 @@ jobs:
           dir dist
 
       - name: 🧪 Check if EXE was created
+        shell: pwsh
         run: |
-          if not exist dist\PremediaApp.exe (
-            echo "❌ PremediaApp.exe not found!"
+          if (-Not (Test-Path "dist\PremediaApp.exe")) {
+            Write-Error "❌ PremediaApp.exe not found!"
             exit 1
-          )
+          } else {
+            Write-Output "✅ EXE exists: dist\PremediaApp.exe"
+          }
 
       - name: 🏗️ Build Installer with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
