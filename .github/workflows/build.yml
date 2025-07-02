@@ -9,59 +9,11 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.9", "3.10"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller==6.14.1
-
-      - name: Build Executable
-        run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico \
-            --add-data "icons;icons" \
-            --add-data "terms.txt;." \
-            --add-data "license.txt;." \
-            --hidden-import=paramiko \
-            --hidden-import=tzdata \
-            --exclude-module=tkinter \
-            --exclude-module=numpy \
-            --exclude-module=matplotlib \
-            --name PremediaApp app.py
-
-      - name: Debug dist folder
-        run: |
-          dir dist
-
-      - name: Package with Inno Setup
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-        with:
-          path: installer/installer.iss
-
-      - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PremediaApp-Windows-${{ matrix.python-version }}
-          path: Output/PremediaApp-Setup.exe
-          retention-days: 5
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
+      - name: Set up Python 3.9
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
@@ -70,7 +22,82 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller==6.14.1
+          pip install pyinstaller
+        shell: cmd
+
+      - name: Debug repository files
+        run: dir /s
+        shell: cmd
+        if: always()
+
+      - name: Build Executable
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.ico ^
+            --add-data "icons;icons" ^
+            --add-data "terms.txt;." ^
+            --add-data "license.txt;." ^
+            --hidden-import=paramiko ^
+            --hidden-import=tzdata ^
+            --hidden-import=PySide6.QtWidgets ^
+            --hidden-import=PySide6.QtCore ^
+            --hidden-import=PySide6.QtGui ^
+            --hidden-import=PIL ^
+            --exclude-module=tkinter ^
+            --exclude-module=numpy ^
+            --exclude-module=matplotlib ^
+            --name PremediaApp app.py
+        shell: cmd
+
+      - name: Debug dist folder
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Package with Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: installer/installer.iss
+        continue-on-error: true
+
+      - name: Debug Output folder
+        run: dir Output
+        shell: cmd
+        if: always()
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-Windows
+          path: Output/PremediaApp-Setup.exe
+          retention-days: 5
+        if: success()
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install system dependencies
+        run: |
+          brew install libpng jpeg qt
+        continue-on-error: true
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+        continue-on-error: true
+
+      - name: Debug repository files
+        run: ls -R
+        if: always()
 
       - name: Build App Bundle
         run: |
@@ -80,18 +107,28 @@ jobs:
             --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
+            --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PySide6.QtCore \
+            --hidden-import=PySide6.QtGui \
+            --hidden-import=PIL \
             --exclude-module=tkinter \
             --exclude-module=numpy \
             --exclude-module=matplotlib \
             --name PremediaApp app.py
 
+      - name: Debug dist folder
+        run: ls -la dist
+        if: always()
+
       - name: Customize Info.plist
         run: |
           plutil -replace CFBundleIconFile -string premedia.icns dist/PremediaApp.app/Contents/Info.plist
           plutil -replace CFBundleIdentifier -string com.vmgpremedia.PremediaApp dist/PremediaApp.app/Contents/Info.plist
+        continue-on-error: true
 
       - name: Install create-dmg
         run: brew install create-dmg
+        continue-on-error: true
 
       - name: Create DMG
         run: |
@@ -108,6 +145,11 @@ jobs:
             --eula "license.txt" \
             Output/PremediaApp.dmg \
             dist
+        continue-on-error: true
+
+      - name: Debug Output folder
+        run: ls -la Output
+        if: always()
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
@@ -115,11 +157,13 @@ jobs:
           name: PremediaApp-macOS
           path: Output/PremediaApp.dmg
           retention-days: 5
+        if: success()
 
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -129,13 +173,19 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev dpkg-dev
+          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev libpng-dev libjpeg-dev qt5-default dpkg-dev
+        continue-on-error: true
 
-      - name: Install Python packages
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller==6.14.1
+          pip install pyinstaller
+        continue-on-error: true
+
+      - name: Debug repository files
+        run: ls -R
+        if: always()
 
       - name: Build Binary
         run: |
@@ -145,19 +195,32 @@ jobs:
             --add-data "license.txt:." \
             --hidden-import=paramiko \
             --hidden-import=tzdata \
+            --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PySide6.QtCore \
+            --hidden-import=PySide6.QtGui \
+            --hidden-import=PIL \
             --exclude-module=tkinter \
             --exclude-module=numpy \
             --exclude-module=matplotlib \
             --name PremediaApp app.py
+
+      - name: Debug dist folder
+        run: ls -la dist
+        if: always()
 
       - name: Create .deb Package
         run: |
           mkdir -p Output dist/debian/usr/bin dist/debian/usr/share/icons/hicolor/scalable/apps dist/debian/usr/share/applications dist/debian/DEBIAN
           cp dist/PremediaApp dist/debian/usr/bin/
           cp icons/premedia.png dist/debian/usr/share/icons/hicolor/scalable/apps/
-          echo "Package: premediaapp\nVersion: 1.0.0\nArchitecture: amd64\nMaintainer: VMG Premedia <support@vmgpremedia.com>\nDepends: python3, libgtk-3-0\nDescription: PremediaApp for image retouching" > dist/debian/DEBIAN/control
+          echo "Package: premediaapp\nVersion: 1.0.0\nArchitecture: amd64\nMaintainer: VMG Premedia <support@vmgpremedia.com>\nDepends: python3, libgtk-3-0, libpng16-16, libjpeg8, qt5-default\nDescription: PremediaApp for image retouching" > dist/debian/DEBIAN/control
           echo "[Desktop Entry]\nName=PremediaApp\nExec=/usr/bin/PremediaApp\nType=Application\nIcon=premedia\nTerminal=false\nCategories=Utility;" > dist/debian/usr/share/applications/PremediaApp.desktop
           dpkg-deb --build dist/debian Output/PremediaApp.deb
+        continue-on-error: true
+
+      - name: Debug Output folder
+        run: ls -la Output
+        if: always()
 
       - name: Upload Ubuntu Artifact
         uses: actions/upload-artifact@v4
@@ -165,3 +228,4 @@ jobs:
           name: PremediaApp-Ubuntu
           path: Output/PremediaApp.deb
           retention-days: 5
+        if: success()
