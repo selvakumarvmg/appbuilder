@@ -24,9 +24,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           pip check
-          pip list
+          pip list > installed_packages.txt
         shell: cmd
         continue-on-error: true
+
+      - name: Debug installed packages
+        run: type installed_packages.txt
+        shell: cmd
+        if: always()
 
       - name: Verify required files
         run: |
@@ -50,14 +55,20 @@ jobs:
         shell: cmd
         if: always()
 
+      - name: Check login.py syntax
+        run: python -m py_compile login.py
+        shell: cmd
+        continue-on-error: true
+
       - name: Minimal PyInstaller test
         run: |
-          pyinstaller --onefile --name PremediaApp app.py
+          pyinstaller --onefile --name PremediaApp app.py > pyinstaller_minimal.log 2>&1
         shell: cmd
         continue-on-error: true
 
       - name: Debug minimal PyInstaller logs
         run: |
+          type pyinstaller_minimal.log || echo "pyinstaller_minimal.log not found"
           type warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
           type build\PremediaApp\PremediaApp.spec || echo "PremediaApp.spec not found"
         shell: cmd
@@ -86,12 +97,13 @@ jobs:
             --hidden-import=icons_rc ^
             --hidden-import=login ^
             --log-level=DEBUG ^
-            --name PremediaApp app.py
+            --name PremediaApp app.py > pyinstaller_full.log 2>&1
         shell: cmd
         continue-on-error: true
 
       - name: Debug full PyInstaller logs
         run: |
+          type pyinstaller_full.log || echo "pyinstaller_full.log not found"
           type warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
           type build\PremediaApp\PremediaApp.spec || echo "PremediaApp.spec not found"
         shell: cmd
