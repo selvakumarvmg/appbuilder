@@ -123,6 +123,7 @@ jobs:
             --hidden-import=PIL.Image ^
             --hidden-import=icons_rc ^
             --hidden-import=login ^
+            --collect-all PySide6 ^
             --log-level=DEBUG ^
             --name PremediaApp app.py > pyinstaller_full.log 2>&1
         shell: cmd
