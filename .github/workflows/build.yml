@@ -1,8 +1,10 @@
-name: Build Windows Installer
+name: Build PremediaApp Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build-windows:
@@ -12,131 +14,110 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Cache Python dependencies
-      uses: actions/cache@v4
-      with:
-        path: C:\Users\runneradmin\AppData\Local\pip\Cache
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.9.13'
 
     - name: Install dependencies
-      shell: powershell
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller PySide6 pillow tzdata
+        pip install pyinstaller -r requirements.txt
+        pip list > installed_packages.txt
+      shell: cmd
 
-    - name: Show source directory structure
-      shell: powershell
-      run: |
-        Write-Output "========= Source Directory Structure ========="
-        Get-ChildItem -Recurse | Format-List
+    - name: Show installed packages
+      run: type installed_packages.txt
+      shell: cmd
+      if: always()
 
     - name: Verify required files exist
-      shell: powershell
       run: |
-        $RequiredFiles = @(
-          "app.py",
-          "icons\premedia.ico",
-          "icons\photoshop.png",
-          "icons\folder.png",
-          "terms.txt",
-          "license.txt"
+        dir app.py
+        dir icons\premedia.ico
+        dir icons\photoshop.png
+        dir icons\folder.png
+        dir terms.txt
+        dir license.txt
+        dir login.ui
+        dir premediaapp.ui
+        dir icons.qrc
+        dir icons_rc.py
+        dir installer\installer.iss
+        dir login.py
+      shell: cmd
+      continue-on-error: true
+
+    - name: Build GUI Executable
+      run: |
+        echo ===== Building with PyInstaller =====
+        pyinstaller --noconfirm --onefile --windowed ^
+          --name PremediaApp ^
+          --icon=icons\premedia.ico ^
+          --add-data "icons\premedia.ico;icons" ^
+          --add-data "icons\photoshop.png;icons" ^
+          --add-data "icons\folder.png;icons" ^
+          --add-data "terms.txt;." ^
+          --add-data "license.txt;." ^
+          --add-data "login.ui;." ^
+          --add-data "premediaapp.ui;." ^
+          --add-data "icons.qrc;." ^
+          --add-data "icons_rc.py;." ^
+          --add-data "login.py;." ^
+          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
+          --hidden-import=paramiko ^
+          --hidden-import=tzdata ^
+          --hidden-import=PySide6.QtWidgets ^
+          --hidden-import=PySide6.QtCore ^
+          --hidden-import=PySide6.QtGui ^
+          --hidden-import=PySide6.uic ^
+          --hidden-import=PIL.Image ^
+          --hidden-import=login ^
+          --hidden-import=icons_rc ^
+          --collect-submodules PySide6 ^
+          --log-level=DEBUG ^
+          app.py > pyinstaller.log 2>&1
+      shell: cmd
+      continue-on-error: true
+
+    - name: Show PyInstaller output
+      run: type pyinstaller.log || echo "PyInstaller log not found"
+      shell: cmd
+      if: always()
+
+    - name: Check dist folder for EXE
+      run: |
+        echo Checking for dist\PremediaApp.exe
+        dir dist
+        if not exist dist\PremediaApp.exe (
+          echo ERROR: Executable not found in dist!
+          exit 1
         )
-        foreach ($file in $RequiredFiles) {
-          if (-not (Test-Path $file)) {
-            Write-Error "❌ Missing required file: $file"
-            exit 1
-          } else {
-            Write-Output "✅ Found: $file"
-          }
-        }
-
-    - name: Show contents of app.spec
-      shell: powershell
-      run: |
-        Write-Output "========= Contents of app.spec ========="
-        Get-Content app.spec
-
-    - name: Build EXE with PyInstaller (with full log)
-      shell: powershell
-      run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        Write-Output "========= Starting PyInstaller ========="
-        $logPath = "pyinstaller.log"
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = "pyinstaller"
-        $psi.Arguments = "app.spec --clean --noconfirm --log-level DEBUG"
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $psi
-        $process.Start() | Out-Null
-        $stdout = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
-        $process.WaitForExit()
-        $stdout | Set-Content $logPath
-        $stderr | Add-Content $logPath
-        Write-Output "========= Contents of pyinstaller.log ========="
-        Get-Content $logPath
-        if ($process.ExitCode -ne 0) {
-          Write-Error "❌ PyInstaller failed with exit code $($process.ExitCode)"
-          exit $process.ExitCode
-        } else {
-          Write-Output "✅ PyInstaller build succeeded"
-        }
+      shell: cmd
 
     - name: Upload PyInstaller log
-      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: pyinstaller-log
         path: pyinstaller.log
-
-    - name: Check dist/ directory contents
-      shell: powershell
-      run: |
-        Write-Output "========= Contents of dist directory ========="
-        Get-ChildItem dist -Recurse | Format-Table Name, Length, LastWriteTime -AutoSize
-        $exePath = "dist\PremediaApp.exe"
-        if (-not (Test-Path $exePath)) {
-          Write-Error "❌ dist/PremediaApp.exe not found!"
-          exit 1
-        } else {
-          Write-Output "✅ EXE file found: $exePath"
-        }
+      if: always()
 
     - name: Set up Inno Setup
       uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
 
-    - name: Build Installer with Inno Setup
-      shell: powershell
+    - name: Package using Inno Setup
       run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        Write-Output "========= Running Inno Setup Compiler ========="
-        iscc installer/installer.iss
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "❌ Inno Setup compilation failed"
-          exit $LASTEXITCODE
-        } else {
-          Write-Output "✅ Inno Setup succeeded"
-        }
-
-    - name: Show Output folder contents
-      shell: powershell
-      run: |
-        Write-Output "========= Contents of Output directory ========="
-        Get-ChildItem Output
+        echo Packaging installer with Inno Setup
+        iscc installer\installer.iss
+        if not exist Output\PremediaApp-Setup.exe (
+          echo ERROR: Installer not created!
+          exit 1
+        )
+      shell: cmd
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: PremediaApp-Installer
-        path: Output/PremediaApp-Setup.exe
+        name: PremediaApp-Windows-Installer
+        path: Output\PremediaApp-Setup.exe
+        retention-days: 5
