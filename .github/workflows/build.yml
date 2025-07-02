@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Python
@@ -19,19 +19,20 @@ jobs:
       with:
         python-version: '3.9.13'
 
-    - name: Install Dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller -r requirements.txt
+        pip install -r requirements.txt
+        pip install pyinstaller
         pip list > installed_packages.txt
       shell: cmd
 
-    - name: Show Installed Packages
+    - name: Show installed packages
       run: type installed_packages.txt
       shell: cmd
       if: always()
 
-    - name: Verify Required Files
+    - name: Verify required files exist
       run: |
         dir app.py
         dir icons\premedia.ico
@@ -48,9 +49,9 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Build EXE with PyInstaller
+    - name: Build GUI Executable
       run: |
-        echo ===== Building EXE =====
+        echo ===== Building with PyInstaller =====
         pyinstaller --noconfirm --onefile --windowed ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
@@ -80,12 +81,19 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Show PyInstaller Log
-      run: type pyinstaller.log || echo "Log not found"
+    - name: Show PyInstaller log
+      run: type pyinstaller.log || echo "Log missing"
       shell: cmd
       if: always()
 
-    - name: Check if EXE Exists
+    - name: Upload PyInstaller log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-log
+        path: pyinstaller.log
+      if: always()
+
+    - name: Check if EXE exists
       run: |
         echo Checking dist\PremediaApp.exe
         dir dist
@@ -95,27 +103,23 @@ jobs:
         )
       shell: cmd
 
-    - name: Upload PyInstaller Log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log
-        path: pyinstaller.log
-      if: always()
-
-    - name: Install Inno Setup if needed
+    - name: Install Inno Setup
       run: |
-        choco install innosetup --no-progress --yes || echo "Inno Setup already installed, continuing..."
+        try {
+          choco install innosetup --no-progress --yes -Force
+        } catch {
+          Write-Host "Inno Setup may already be installed"
+        }
       shell: powershell
       continue-on-error: true
 
-    - name: Verify Inno Setup
+    - name: Verify Inno Setup installed
       run: where iscc || echo "ISCC not found!"
       shell: cmd
-      continue-on-error: true
 
-    - name: Package with Inno Setup
+    - name: Build Installer with Inno Setup
       run: |
-        echo Running Inno Setup
+        echo Running Inno Setup compiler...
         iscc installer\installer.iss
         if not exist Output\PremediaApp-Setup.exe (
           echo ERROR: Installer not created!
@@ -123,9 +127,9 @@ jobs:
         )
       shell: cmd
 
-    - name: Upload Windows Installer
+    - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
         path: Output\PremediaApp-Setup.exe
-        retention-days: 5
+        retention-days: 7
