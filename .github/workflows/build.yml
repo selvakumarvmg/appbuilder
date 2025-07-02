@@ -60,13 +60,10 @@ jobs:
           dir dist
           dir dist\PremediaApp.exe || echo "PremediaApp.exe not found"
 
-      - name: Verify Inno Setup
-        run: |
-          iscc /? || echo "Inno Setup not found"
-
       - name: Package Windows installer
-        run: |
-          iscc installer/installer.iss || echo "Inno Setup failed, check logs"
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: installer/installer.iss
 
       - name: Debug Output folder
         run: |
