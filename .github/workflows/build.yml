@@ -30,18 +30,23 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller PySide6 pillow tzdata
       shell: powershell
-      continue-on-error: false
+
+    - name: Debug: Show source structure
+      run: |
+        Write-Output "Listing source files:"
+        Get-ChildItem -Recurse
+      shell: powershell
 
     - name: Verify UPX availability
       run: |
         if (Get-Command upx -ErrorAction SilentlyContinue) {
           Write-Output "UPX is available."
         } else {
-          Write-Warning "UPX not found. PyInstaller may fail if upx=True in app.spec."
+          Write-Warning "UPX not found. Set upx=False in app.spec if needed."
         }
       shell: powershell
 
-    - name: Verify app.spec contents
+    - name: Show app.spec contents
       run: |
         Write-Output "Contents of app.spec:"
         Get-Content app.spec
@@ -51,7 +56,9 @@ jobs:
       run: |
         Set-Location $env:GITHUB_WORKSPACE
         pyinstaller app.spec --clean --noconfirm --log-level DEBUG *> pyinstaller.log
+        Write-Output "===== PyInstaller log start ====="
         Get-Content pyinstaller.log
+        Write-Output "===== PyInstaller log end ====="
         if ($LASTEXITCODE -ne 0) {
           Write-Error "PyInstaller build failed"
           exit $LASTEXITCODE
@@ -65,34 +72,15 @@ jobs:
         name: pyinstaller-log
         path: pyinstaller.log
 
-    - name: Show dist directory
+    - name: Verify dist directory and EXE
       run: |
         Set-Location $env:GITHUB_WORKSPACE
-        Write-Output "Listing contents of dist directory:"
+        Write-Output "Checking dist directory:"
         Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
-        Write-Output "Checking for PremediaApp.exe:"
         $exePath = "dist\PremediaApp.exe"
-        $retryCount = 3
-        $found = $false
-        for ($i = 1; $i -le $retryCount; $i++) {
-          if (Test-Path $exePath -PathType Leaf) {
-            Write-Output "PremediaApp.exe found at $exePath"
-            $found = $true
-            break
-          } else {
-            Write-Output "Attempt $i of $retryCount: PremediaApp.exe not found at $exePath"
-            Start-Sleep -Seconds 2
-          }
-        }
-        if (-not $found) {
-          Write-Error "PremediaApp.exe not found in dist/ after $retryCount attempts"
+        if (-not (Test-Path $exePath)) {
+          Write-Error "PremediaApp.exe not found in dist/"
           exit 1
-        }
-        Write-Output "Checking for unexpected files in dist:"
-        $fileCount = (Get-ChildItem -Path dist -Recurse -File | Measure-Object).Count
-        if ($fileCount -gt 1) {
-          Write-Warning "Unexpected files found in dist directory. Expected only PremediaApp.exe for --onefile build."
-          Get-ChildItem -Path dist -Recurse -File | Format-Table -Property Name, Length -AutoSize
         }
       shell: powershell
 

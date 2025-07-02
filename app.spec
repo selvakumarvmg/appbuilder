@@ -1,9 +1,10 @@
 # app.spec
+import os
 block_cipher = None
 
 a = Analysis(
     ['app.py'],
-    pathex=[],
+    pathex=[os.getcwd()],
     binaries=[],
     datas=[
         ('icons/premedia.ico', 'icons'),
@@ -16,9 +17,9 @@ a = Analysis(
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtCore',
-        'PySide6.QtSvg',  # Added for potential SVG support
+        'PySide6.QtSvg',
         'PIL.Image',
-        'PIL.ImageQt',    # Added for PIL/PySide6 integration
+        'PIL.ImageQt',
         'tzdata',
     ],
     hookspath=[],
@@ -36,11 +37,11 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='PremediaApp',  # Updated to match expected output
+    name='PremediaApp',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Disable UPX
     console=False,
     icon='icons/premedia.ico',
 )
@@ -51,6 +52,6 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
-    name='PremediaApp',  # Updated to match expected output
+    upx=False,  # Disable UPX
+    name='PremediaApp',
 )
