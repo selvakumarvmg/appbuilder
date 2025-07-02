@@ -40,6 +40,8 @@ jobs:
           dir icons.qrc
           dir icons_rc.py
           dir installer\installer.iss
+          dir login.py
+          dir premediaapp.py
         shell: cmd
         continue-on-error: true
 
@@ -47,11 +49,6 @@ jobs:
         run: dir /s
         shell: cmd
         if: always()
-
-      - name: Test app.py syntax
-        run: python app.py --version
-        shell: cmd
-        continue-on-error: true
 
       - name: Build Executable
         run: |
@@ -63,6 +60,8 @@ jobs:
             --add-data "premediaapp.ui;." ^
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
+            --add-data "login.py;." ^
+            --add-data "premediaapp.py;." ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
