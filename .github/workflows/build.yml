@@ -56,7 +56,7 @@ jobs:
       shell: powershell
       run: |
         Set-Location $env:GITHUB_WORKSPACE
-        pyinstaller app.spec --clean --noconfirm --log-level DEBUG *> pyinstaller.log
+        pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
         Write-Output "===== PyInstaller log start ====="
         Get-Content pyinstaller.log
         Write-Output "===== PyInstaller log end ====="
@@ -64,7 +64,7 @@ jobs:
           Write-Error "PyInstaller build failed"
           exit $LASTEXITCODE
         }
-
+        
     - name: Upload PyInstaller log on failure
       if: failure()
       uses: actions/upload-artifact@v4
