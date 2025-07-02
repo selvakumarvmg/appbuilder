@@ -31,10 +31,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller PySide6 pillow tzdata
 
-    - name: Show source structure
+    - name: Show source directory structure
       shell: powershell
       run: |
-        Write-Output "========= Directory Structure ========="
+        Write-Output "========= Source Directory Structure ========="
         Get-ChildItem -Recurse | Format-List
 
     - name: Verify required files exist
@@ -50,7 +50,7 @@ jobs:
         )
         foreach ($file in $RequiredFiles) {
           if (-not (Test-Path $file)) {
-            Write-Error "Missing required file: $file"
+            Write-Error "❌ Missing required file: $file"
             exit 1
           } else {
             Write-Output "✅ Found: $file"
@@ -63,22 +63,38 @@ jobs:
         Write-Output "========= Contents of app.spec ========="
         Get-Content app.spec
 
-    - name: Build EXE with PyInstaller
+    - name: Build EXE with PyInstaller (with full log)
       shell: powershell
       run: |
         Set-Location $env:GITHUB_WORKSPACE
         Write-Output "========= Starting PyInstaller ========="
-        pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
-        Write-Output "========= PyInstaller build finished with exit code $LASTEXITCODE ========="
+        $logPath = "pyinstaller.log"
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "pyinstaller"
+        $psi.Arguments = "app.spec --clean --noconfirm --log-level DEBUG"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        $process.Start() | Out-Null
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        $stdout | Set-Content $logPath
+        $stderr | Add-Content $logPath
         Write-Output "========= Contents of pyinstaller.log ========="
-        Get-Content pyinstaller.log
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "❌ PyInstaller build failed"
-          exit $LASTEXITCODE
+        Get-Content $logPath
+        if ($process.ExitCode -ne 0) {
+          Write-Error "❌ PyInstaller failed with exit code $($process.ExitCode)"
+          exit $process.ExitCode
+        } else {
+          Write-Output "✅ PyInstaller build succeeded"
         }
 
-    - name: Upload pyinstaller.log if failed
-      if: failure()
+    - name: Upload PyInstaller log
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: pyinstaller-log
@@ -89,7 +105,6 @@ jobs:
       run: |
         Write-Output "========= Contents of dist directory ========="
         Get-ChildItem dist -Recurse | Format-Table Name, Length, LastWriteTime -AutoSize
-
         $exePath = "dist\PremediaApp.exe"
         if (-not (Test-Path $exePath)) {
           Write-Error "❌ dist/PremediaApp.exe not found!"
