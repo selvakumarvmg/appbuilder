@@ -9,7 +9,6 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -24,7 +23,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-          pip check
         shell: cmd
 
       - name: Build Executable
@@ -43,25 +41,31 @@ jobs:
             --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
+            --hidden-import=PySide6.QtWidgets ^
+            --hidden-import=PySide6.QtCore ^
+            --hidden-import=PySide6.QtGui ^
+            --hidden-import=PySide6.uic ^
+            --hidden-import=PIL ^
+            --hidden-import=PIL.Image ^
+            --hidden-import=login ^
+            --hidden-import=icons_rc ^
             --collect-all PySide6 ^
+            --log-level=DEBUG ^
             --name PremediaApp app.py
         shell: cmd
 
-      - name: Verify EXE was built
+      - name: Verify dist
         run: dir dist
         shell: cmd
 
-      - name: Move EXE to installer folder
-        run: move dist\PremediaApp.exe installer\
-        shell: cmd
-
-      - name: Package with Inno Setup
+      - name: Run Inno Setup Compiler
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
 
-      - name: Upload Windows Installer Artifact
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Windows
+          name: PremediaApp-Windows-Installer
           path: Output\PremediaApp-Setup.exe
+          retention-days: 7
