@@ -32,26 +32,9 @@ jobs:
       shell: cmd
       if: always()
 
-    - name: Verify required files exist
+    - name: Build EXE using PyInstaller
       run: |
-        dir app.py
-        dir icons\premedia.ico
-        dir icons\photoshop.png
-        dir icons\folder.png
-        dir terms.txt
-        dir license.txt
-        dir login.ui
-        dir premediaapp.ui
-        dir icons.qrc
-        dir icons_rc.py
-        dir installer\installer.iss
-        dir login.py
-      shell: cmd
-      continue-on-error: true
-
-    - name: Build Executable with PyInstaller
-      run: |
-        echo ===== Building with PyInstaller =====
+        echo Building with PyInstaller...
         pyinstaller --noconfirm --onefile --windowed ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
@@ -79,22 +62,6 @@ jobs:
           --log-level=DEBUG ^
           app.py > pyinstaller.log 2>&1
       shell: cmd
-      continue-on-error: true
-
-    - name: Show PyInstaller log
-      run: type pyinstaller.log || echo "PyInstaller log not found"
-      shell: cmd
-      if: always()
-
-    - name: Check dist folder for EXE
-      run: |
-        echo Checking for dist\PremediaApp.exe
-        dir dist
-        if not exist dist\PremediaApp.exe (
-          echo ERROR: Executable not found in dist!
-          exit 1
-        )
-      shell: cmd
 
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
@@ -103,29 +70,36 @@ jobs:
         path: pyinstaller.log
       if: always()
 
-    - name: Set up Inno Setup
-      uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-
-    - name: Debug .iss and output folders
+    - name: Check if EXE exists
       run: |
-        echo Listing root:
-        dir
-        echo Listing installer directory:
-        dir installer
-      shell: cmd
-      if: always()
-
-    - name: Package using Inno Setup
-      run: |
-        echo Packaging installer with Inno Setup
-        iscc installer\\installer.iss
-        if not exist Output\\PremediaApp-Setup.exe (
-          echo ERROR: Installer not created!
+        echo Checking dist\PremediaApp.exe
+        dir dist
+        if not exist dist\PremediaApp.exe (
+          echo ERROR: EXE not found!
           exit 1
         )
       shell: cmd
 
-    - name: Upload Windows Installer Artifact
+    - name: Install Inno Setup
+      run: |
+        choco install innosetup --no-progress --yes
+        refreshenv
+      shell: powershell
+
+    - name: Verify Inno Setup installed
+      run: where iscc
+      shell: cmd
+
+    - name: Package installer with Inno Setup
+      run: |
+        iscc installer\installer.iss
+        if not exist Output\PremediaApp-Setup.exe (
+          echo ERROR: Installer not generated!
+          exit 1
+        )
+      shell: cmd
+
+    - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
