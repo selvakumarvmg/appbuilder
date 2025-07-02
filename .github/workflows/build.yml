@@ -1,4 +1,3 @@
-# Updated build.yml for GitHub Actions (Onefile Build)
 name: Build PremediaApp Windows Installer
 
 on:
@@ -9,44 +8,54 @@ on:
 
 jobs:
   build-windows:
+    name: Build Windows Installer
     runs-on: windows-latest
+
     steps:
-      - name: Checkout Code
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 🐍 Set up Python 3.9.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.9.13'
 
-      - name: Install Dependencies
+      - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
         shell: cmd
 
-      - name: Build Executable (Onefile Mode)
+      - name: 🧪 Verify Critical Files Exist
         run: |
-          pyinstaller app.py --noconfirm --clean --onefile --windowed --icon=icons\premedia.ico
+          if not exist app.spec exit 1
+          if not exist terms.txt exit 1
+          if not exist license.txt exit 1
+          if not exist icons\premedia.ico exit 1
         shell: cmd
 
-      - name: Confirm EXE Output
+      - name: ⚙️ Build EXE with PyInstaller
+        run: |
+          pyinstaller app.spec --noconfirm --clean
+        shell: cmd
+
+      - name: 📂 Check dist Folder Contents
         run: dir dist
         shell: cmd
 
-      - name: Run Inno Setup to Create Installer
+      - name: 🧰 Run Inno Setup to Create Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
+        env:
+          pythonLocation: ${{ env.pythonLocation }}
+          PKG_CONFIG_PATH: ${{ env.pythonLocation }}\lib\pkgconfig
+          Python_ROOT_DIR: ${{ env.pythonLocation }}
 
-      - name: List Final Output
-        run: dir Output
-        shell: cmd
-
-      - name: Upload Windows Installer
+      - name: 📦 Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Installer
+          name: PremediaApp-Windows
           path: Output\PremediaApp-Setup.exe
           retention-days: 5

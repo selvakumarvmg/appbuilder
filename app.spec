@@ -1,4 +1,4 @@
-# app.spec (Onefile Mode)
+# app.spec - OneFile Build, Named PremediaApp.exe
 block_cipher = None
 
 a = Analysis(
@@ -44,12 +44,8 @@ exe = EXE(
     icon='icons/premedia.ico',
 )
 
-coll = COLLECT(
+app = MERGE(
     exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
     name='PremediaApp',
+    onefile=True,  
 )
