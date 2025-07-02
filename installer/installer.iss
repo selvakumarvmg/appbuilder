@@ -20,7 +20,6 @@ AppSupportURL=https://vmgdigital.com/support
 AppUpdatesURL=https://vmgdigital.com/downloads
 LicenseFile=..\terms.txt
 
-
 [Files]
 Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -29,8 +28,7 @@ Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
-; Include only required UI + resource files if really needed at runtime
-; Otherwise remove .ui and .py to reduce size and improve launch time
+; Only include these if you need them at runtime (UI/Dev)
 Source: "..\login.ui"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\premediaapp.ui"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons.qrc"; DestDir: "{app}"; Flags: ignoreversion

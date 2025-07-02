@@ -9,6 +9,7 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,37 +26,39 @@ jobs:
           pip install pyinstaller
         shell: cmd
 
-      - name: Debug installed packages
-        run: pip list
-        shell: cmd
-
       - name: Verify Required Files
         run: |
           dir app.spec
+          dir installer\installer.iss
           dir terms.txt
           dir license.txt
           dir icons\premedia.ico
         shell: cmd
 
-      - name: Build Executable with PyInstaller using .spec
+      - name: Build Executable with PyInstaller (.spec)
         run: |
           pyinstaller app.spec --clean --noconfirm
         shell: cmd
 
-      - name: Confirm .exe Output
+      - name: Confirm EXE File Exists
         run: dir dist
         shell: cmd
 
-      - name: Run Inno Setup to Create Installer
+      - name: Create Output Folder if Missing
+        run: |
+          if not exist Output mkdir Output
+        shell: cmd
+
+      - name: Run Inno Setup to Build Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer\installer.iss
 
-      - name: Debug Output Folder
+      - name: Show Installer Output Folder
         run: dir Output
         shell: cmd
 
-      - name: Upload Windows Installer Artifact
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Windows
