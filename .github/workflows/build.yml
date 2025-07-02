@@ -41,9 +41,16 @@ jobs:
         }
       shell: powershell
 
+    - name: Verify app.spec contents
+      run: |
+        Write-Output "Contents of app.spec:"
+        Get-Content app.spec
+      shell: powershell
+
     - name: Build EXE with PyInstaller
       run: |
-        pyinstaller app.spec --clean --noconfirm
+        Set-Location $env:GITHUB_WORKSPACE
+        pyinstaller app.spec --clean --noconfirm --onefile
         if ($LASTEXITCODE -ne 0) {
           Write-Error "PyInstaller build failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
@@ -52,13 +59,25 @@ jobs:
 
     - name: Show dist directory
       run: |
+        Set-Location $env:GITHUB_WORKSPACE
         Write-Output "Listing contents of dist directory:"
         Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
         Write-Output "Checking for PremediaApp.exe:"
-        if (Test-Path "dist\PremediaApp.exe") {
-          Write-Output "PremediaApp.exe found in dist/"
-        } else {
-          Write-Error "PremediaApp.exe not found in dist/"
+        $exePath = "dist\PremediaApp.exe"
+        $retryCount = 3
+        $found = $false
+        for ($i = 1; $i -le $retryCount; $i++) {
+          if (Test-Path $exePath -PathType Leaf) {
+            Write-Output "PremediaApp.exe found at $exePath"
+            $found = $true
+            break
+          } else {
+            Write-Output "Attempt $i of $retryCount: PremediaApp.exe not found at $exePath"
+            Start-Sleep -Seconds 2
+          }
+        }
+        if (-not $found) {
+          Write-Error "PremediaApp.exe not found in dist/ after $retryCount attempts"
           exit 1
         }
       shell: powershell
@@ -68,6 +87,7 @@ jobs:
 
     - name: Build Installer with Inno Setup
       run: |
+        Set-Location $env:GITHUB_WORKSPACE
         iscc installer/installer.iss
         if ($LASTEXITCODE -ne 0) {
           Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
