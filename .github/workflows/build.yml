@@ -50,11 +50,15 @@ jobs:
     - name: Build EXE with PyInstaller
       run: |
         Set-Location $env:GITHUB_WORKSPACE
-        pyinstaller app.spec --clean --noconfirm --onefile
+        pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
         if ($LASTEXITCODE -ne 0) {
+          Write-Output "PyInstaller log:"
+          Get-Content pyinstaller.log
           Write-Error "PyInstaller build failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
         }
+        Write-Output "PyInstaller log:"
+        Get-Content pyinstaller.log
       shell: powershell
 
     - name: Show dist directory
@@ -79,6 +83,12 @@ jobs:
         if (-not $found) {
           Write-Error "PremediaApp.exe not found in dist/ after $retryCount attempts"
           exit 1
+        }
+        Write-Output "Checking for unexpected files in dist:"
+        $fileCount = (Get-ChildItem -Path dist -Recurse -File | Measure-Object).Count
+        if ($fileCount -gt 1) {
+          Write-Warning "Unexpected files found in dist directory. Expected only PremediaApp.exe for --onefile build."
+          Get-ChildItem -Path dist -Recurse -File | Format-Table -Property Name, Length -AutoSize
         }
       shell: powershell
 
