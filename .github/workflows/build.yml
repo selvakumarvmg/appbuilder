@@ -60,35 +60,6 @@ jobs:
         shell: cmd
         continue-on-error: true
 
-      - name: Minimal PyInstaller test
-        run: |
-          pyinstaller --onefile --name PremediaApp app.py > pyinstaller_minimal.log 2>&1
-        shell: cmd
-        continue-on-error: true
-
-      - name: Preserve minimal build output
-        run: |
-          if exist dist\PremediaApp.exe copy dist\PremediaApp.exe dist\PremediaApp_minimal.exe
-        shell: cmd
-        if: always()
-        continue-on-error: true
-
-      - name: Debug dist folder after minimal build
-        run: dir dist
-        shell: cmd
-        if: always()
-
-      - name: Build Executable with GUI
-        run: |
-          pyinstaller --noconfirm --onefile --windowed --name PremediaApp app.py > pyinstaller_gui.log 2>&1
-        shell: cmd
-        continue-on-error: true
-
-      - name: Debug dist folder after GUI build
-        run: dir dist
-        shell: cmd
-        if: always()
-
       - name: Build Executable with console for debugging
         run: |
           pyinstaller --noconfirm --onefile --console --icon=icons\premedia.ico ^
@@ -161,8 +132,6 @@ jobs:
 
       - name: Debug PyInstaller logs
         run: |
-          type pyinstaller_minimal.log || echo "pyinstaller_minimal.log not found"
-          type pyinstaller_gui.log || echo "pyinstaller_gui.log not found"
           type pyinstaller_console.log || echo "pyinstaller_console.log not found"
           type pyinstaller_full.log || echo "pyinstaller_full.log not found"
           type build\PremediaApp\warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
@@ -170,18 +139,6 @@ jobs:
         shell: cmd
         if: always()
         continue-on-error: true
-
-      - name: Restore executable for Inno Setup
-        run: |
-          if exist dist\PremediaApp_minimal.exe copy dist\PremediaApp_minimal.exe dist\PremediaApp.exe
-        shell: cmd
-        if: always()
-        continue-on-error: true
-
-      - name: Debug dist folder before Inno Setup
-        run: dir dist
-        shell: cmd
-        if: always()
 
       - name: Create Output directory
         run: mkdir Output
