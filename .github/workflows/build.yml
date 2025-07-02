@@ -9,7 +9,6 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -24,12 +23,93 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+          pip check
+          pip list > installed_packages.txt
         shell: cmd
+        continue-on-error: true
 
-      - name: Build with PyInstaller (GUI, icon, data)
+      - name: Debug installed packages
+        run: type installed_packages.txt
+        shell: cmd
+        if: always()
+
+      - name: Verify required files
         run: |
-          pyinstaller --noconfirm --onefile --windowed ^
-            --icon=icons\premedia.ico ^
+          dir app.py
+          dir terms.txt
+          dir license.txt
+          dir icons\premedia.ico
+          dir icons\photoshop.png
+          dir icons\folder.png
+          dir login.ui
+          dir premediaapp.ui
+          dir icons.qrc
+          dir icons_rc.py
+          dir installer\installer.iss
+          dir login.py
+        shell: cmd
+        continue-on-error: true
+
+      - name: Debug icons directory
+        run: dir icons /s
+        shell: cmd
+        if: always()
+
+      - name: Check login.py syntax
+        run: python -m py_compile login.py
+        shell: cmd
+        continue-on-error: true
+
+      - name: Minimal PyInstaller test
+        run: |
+          pyinstaller --onefile --name PremediaApp app.py > pyinstaller_minimal.log 2>&1
+        shell: cmd
+        continue-on-error: true
+
+      - name: Preserve minimal build output
+        run: |
+          if exist dist\PremediaApp.exe copy dist\PremediaApp.exe dist\PremediaApp_minimal.exe
+        shell: cmd
+        if: always()
+        continue-on-error: true
+
+      - name: Debug dist folder after minimal build
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Build Executable with GUI
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name PremediaApp app.py > pyinstaller_gui.log 2>&1
+        shell: cmd
+        continue-on-error: true
+
+      - name: Debug dist folder after GUI build
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Build Executable with GUI and icon
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico --name PremediaApp app.py > pyinstaller_gui_icon.log 2>&1
+        shell: cmd
+        continue-on-error: true
+
+      - name: Preserve GUI and icon build output
+        run: |
+          if exist dist\PremediaApp.exe copy dist\PremediaApp.exe dist\PremediaApp_gui_icon.exe
+        shell: cmd
+        if: always()
+        continue-on-error: true
+
+      - name: Debug dist folder after GUI and icon build
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Build Executable with console for debugging
+        run: |
+          pyinstaller --noconfirm --onefile --console --icon=icons\premedia.ico ^
             --add-data "icons\premedia.ico;icons" ^
             --add-data "icons\photoshop.png;icons" ^
             --add-data "icons\folder.png;icons" ^
@@ -48,12 +128,75 @@ jobs:
             --hidden-import=PySide6.uic ^
             --hidden-import=PIL ^
             --hidden-import=PIL.Image ^
+            --hidden-import=login ^
+            --hidden-import=icons_rc ^
             --collect-all PySide6 ^
             --log-level=DEBUG ^
-            --name PremediaApp app.py
+            --name PremediaAppConsole app.py > pyinstaller_console.log 2>&1
         shell: cmd
+        continue-on-error: true
 
-      - name: Debug dist folder
+      - name: Debug dist folder after console build
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Build Executable with GUI, icon, and data
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --icon=icons\premedia.ico ^
+            --add-data "icons\premedia.ico;icons" ^
+            --add-data "icons\photoshop.png;icons" ^
+            --add-data "icons\folder.png;icons" ^
+            --add-data "terms.txt;." ^
+            --add-data "license.txt;." ^
+            --add-data "login.ui;." ^
+            --add-data "premediaapp.ui;." ^
+            --add-data "icons.qrc;." ^
+            --add-data "icons_rc.py;." ^
+            --add-data "login.py;." ^
+            --hidden-import=paramiko ^
+            --hidden-import=tzdata ^
+            --hidden-import=PySide6.QtWidgets ^
+            --hidden-import=PySide6.QtCore ^
+            --hidden-import=PySide6.QtGui ^
+            --hidden-import=PySide6.uic ^
+            --hidden-import=PIL ^
+            --hidden-import=PIL.Image ^
+            --hidden-import=login ^
+            --hidden-import=icons_rc ^
+            --collect-all PySide6 ^
+            --log-level=DEBUG ^
+            --name PremediaApp app.py > pyinstaller_full.log 2>&1
+        shell: cmd
+        continue-on-error: true
+
+      - name: Debug dist folder after full build
+        run: dir dist
+        shell: cmd
+        if: always()
+
+      - name: Debug PyInstaller logs
+        run: |
+          type pyinstaller_minimal.log || echo "pyinstaller_minimal.log not found"
+          type pyinstaller_gui.log || echo "pyinstaller_gui.log not found"
+          type pyinstaller_gui_icon.log || echo "pyinstaller_gui_icon.log not found"
+          type pyinstaller_console.log || echo "pyinstaller_console.log not found"
+          type pyinstaller_full.log || echo "pyinstaller_full.log not found"
+          type build\PremediaApp\warn-PremediaApp.txt || echo "warn-PremediaApp.txt not found"
+          type PremediaApp.spec || echo "PremediaApp.spec not found"
+        shell: cmd
+        if: always()
+        continue-on-error: true
+
+      - name: Restore executable for Inno Setup
+        run: |
+          if exist dist\PremediaApp_gui_icon.exe copy dist\PremediaApp_gui_icon.exe dist\PremediaApp.exe
+          if exist dist\PremediaApp_minimal.exe copy dist\PremediaApp_minimal.exe dist\PremediaApp.exe
+        shell: cmd
+        if: always()
+        continue-on-error: true
+
+      - name: Debug dist folder before Inno Setup
         run: dir dist
         shell: cmd
         if: always()
@@ -80,3 +223,4 @@ jobs:
           name: PremediaApp-Windows
           path: Output\PremediaApp-Setup.exe
           retention-days: 5
+        if: success()
