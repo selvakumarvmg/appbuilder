@@ -1,64 +1,52 @@
-name: Build PremediaApp Windows Installer
+name: Build Windows Installer
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-windows:
+    name: Build Windows App
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: cmd
 
     steps:
-      - name: ✅ Checkout Source
+      - name: ⬇️ Checkout code
         uses: actions/checkout@v4
 
-      - name: ✅ Set up Python 3.9
+      - name: 🐍 Set up Python 3.9
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9.13'
+          python-version: "3.9"
 
-      - name: ✅ Install Dependencies
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pyside6 pillow tzdata
 
-      - name: ✅ Create .spec file (if missing)
+      - name: ⚙️ Build EXE with PyInstaller
         run: |
-          if not exist app.spec (
-            pyi-makespec app.py --name=PremediaApp --onefile --noconfirm --windowed --icon=icons\premedia.ico
+          pyinstaller app.py --noconfirm --clean --onefile --name PremediaApp --icon=icons/premedia.ico
+
+      - name: 🧾 Confirm EXE Output
+        run: |
+          echo "Contents of dist directory:"
+          dir dist
+
+      - name: 🧪 Check if EXE was created
+        run: |
+          if not exist dist\PremediaApp.exe (
+            echo "❌ PremediaApp.exe not found!"
+            exit 1
           )
 
-      - name: ✅ Build with PyInstaller
-        run: |
-          pyinstaller app.spec --noconfirm --clean
-
-      - name: ✅ Rename Output Executable
-        run: |
-          if exist dist\app.exe ren dist\app.exe PremediaApp.exe
-
-      - name: ✅ Verify Output
-        run: |
-          dir dist
-          dir icons
-          dir installer
-
-      - name: ✅ Run Inno Setup Compiler
+      - name: 🏗️ Build Installer with Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
-          path: installer\installer.iss
+          path: installer/installer.iss
 
-      - name: ✅ Debug Output Folder
-        run: dir Output
-
-      - name: ✅ Upload Windows Installer
+      - name: 📤 Upload Final Installer
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-Windows
-          path: Output\PremediaApp-Setup.exe
-          retention-days: 7
+          name: PremediaApp-Setup
+          path: Output/PremediaApp-Setup.exe
