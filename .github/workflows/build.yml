@@ -41,7 +41,6 @@ jobs:
           dir icons_rc.py
           dir installer\installer.iss
           dir login.py
-          dir premediaapp.py
         shell: cmd
         continue-on-error: true
 
@@ -61,7 +60,6 @@ jobs:
             --add-data "icons.qrc;." ^
             --add-data "icons_rc.py;." ^
             --add-data "login.py;." ^
-            --add-data "premediaapp.py;." ^
             --hidden-import=paramiko ^
             --hidden-import=tzdata ^
             --hidden-import=PySide6.QtWidgets ^
@@ -72,7 +70,6 @@ jobs:
             --hidden-import=PIL.Image ^
             --hidden-import=icons_rc ^
             --hidden-import=login ^
-            --hidden-import=premediaapp ^
             --exclude-module=tkinter ^
             --exclude-module=numpy ^
             --exclude-module=matplotlib ^
