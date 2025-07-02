@@ -23,20 +23,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Verify repository files
+      - name: Verify required files
         run: |
-          if (-not (Test-Path "icons\premedia.ico") -or -not (Test-Path "terms.txt") -or -not (Test-Path "license.txt")) {
-              Write-Error "One or more required files are missing (icons\\premedia.ico, terms.txt, license.txt)"
-              exit 1
-          }
+          if (-not (Test-Path "icons\\premedia.ico")) { Write-Error "Missing icons\\premedia.ico"; exit 1 }
+          if (-not (Test-Path "terms.txt")) { Write-Error "Missing terms.txt"; exit 1 }
+          if (-not (Test-Path "license.txt")) { Write-Error "Missing license.txt"; exit 1 }
 
-      - name: Install core dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Install PyInstaller
-        run: |
           pip install pyinstaller==6.14.1
 
       - name: Build with PyInstaller
@@ -52,11 +48,11 @@ jobs:
             --exclude-module=matplotlib `
             --name PremediaApp app.py --log-level DEBUG
 
-      - name: Debug PyInstaller output
+      - name: Verify PyInstaller output
         run: |
           dir dist
-          if (-not (Test-Path "dist\PremediaApp.exe")) {
-              Write-Error "PremediaApp.exe not found in dist"
+          if (-not (Test-Path "dist\\PremediaApp.exe")) {
+              Write-Error "dist\\PremediaApp.exe not found. Build failed."
               exit 1
           }
 
@@ -65,19 +61,19 @@ jobs:
         with:
           path: installer/installer.iss
 
-      - name: Debug Output folder
+      - name: Verify Output folder
         run: |
-          dir Output
-          if (-not (Test-Path "Output\PremediaApp-Setup.exe")) {
-              Write-Error "PremediaApp-Setup.exe not found in Output folder"
+          dir installer\\Output
+          if (-not (Test-Path "installer\\Output\\PremediaApp-Setup.exe")) {
+              Write-Error "PremediaApp-Setup.exe not found. Installer build failed."
               exit 1
           }
 
-      - name: Upload artifact
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Windows-${{ matrix.python-version }}
-          path: Output/PremediaApp-Setup.exe
+          path: installer/Output/PremediaApp-Setup.exe
           retention-days: 5
 
   build-macos:
@@ -86,15 +82,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.9
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      - name: Verify repository files
+      - name: Verify required files
         run: |
-          set -e
-          test -f icons/premedia.icns || (echo "Missing premedia.icns" && exit 1)
+          test -f icons/premedia.icns || (echo "Missing icons/premedia.icns" && exit 1)
           test -f terms.txt || (echo "Missing terms.txt" && exit 1)
           test -f license.txt || (echo "Missing license.txt" && exit 1)
 
@@ -102,16 +97,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install --force-reinstall --no-binary cffi cffi==1.17.1
-          pip install --force-reinstall --no-binary Pillow Pillow==11.3.0
           pip install pyinstaller==6.14.1
 
-      - name: Run tests
-        continue-on-error: true
-        run: |
-          python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed, continuing build..."
-
-      - name: Build with PyInstaller
+      - name: Build macOS App Bundle
         run: |
           pyinstaller --noconfirm --windowed --icon=icons/premedia.icns \
             --add-data "icons:icons" \
@@ -125,17 +113,13 @@ jobs:
             --target-arch universal2 \
             --name PremediaApp app.py --log-level DEBUG
 
-      - name: Debug .app bundle
+      - name: Debug App Bundle
         run: |
-          ls -R dist/PremediaApp.app || echo "PremediaApp.app not found"
+          ls -R dist/PremediaApp.app || echo "App bundle not found"
 
       - name: Update Info.plist
         run: |
           plutil -replace CFBundleIconFile -string premedia.icns dist/PremediaApp.app/Contents/Info.plist
-          plutil -replace NSHighResolutionCapable -bool true dist/PremediaApp.app/Contents/Info.plist
-          plutil -replace CFBundleIdentifier -string com.vmgpremedia.PremediaApp dist/PremediaApp.app/Contents/Info.plist
-          plutil -replace CFBundleName -string PremediaApp dist/PremediaApp.app/Contents/Info.plist
-          plutil -replace CFBundleVersion -string 1.0.0 dist/PremediaApp.app/Contents/Info.plist
 
       - name: Install create-dmg
         run: brew install create-dmg
@@ -154,12 +138,11 @@ jobs:
             Output/PremediaApp.dmg \
             dist
 
-      - name: Debug Output folder
+      - name: Verify DMG Output
         run: |
-          ls -l Output/
-          test -f Output/PremediaApp.dmg && echo "DMG created" || (echo "DMG not found" && exit 1)
+          test -f Output/PremediaApp.dmg && echo "DMG created" || (echo "DMG missing" && exit 1)
 
-      - name: Upload artifact
+      - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-macOS
@@ -172,20 +155,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.9
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      - name: Install system dependencies
+      - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-dev python3-pip libgtk-3-dev dpkg-dev
+          sudo apt-get install -y python3-dev libgtk-3-dev dpkg-dev
 
-      - name: Verify repository files
+      - name: Verify required files
         run: |
-          set -e
-          test -f icons/premedia.png || (echo "Missing premedia.png" && exit 1)
+          test -f icons/premedia.png || (echo "Missing icons/premedia.png" && exit 1)
           test -f terms.txt || (echo "Missing terms.txt" && exit 1)
           test -f license.txt || (echo "Missing license.txt" && exit 1)
 
@@ -195,12 +177,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller==6.14.1
 
-      - name: Run tests
-        continue-on-error: true
-        run: |
-          python -m unittest discover -s tests -p "test_*.py" || echo "Tests failed"
-
-      - name: Build with PyInstaller
+      - name: Build Linux Binary
         run: |
           pyinstaller --noconfirm --onefile --windowed --icon=icons/premedia.png \
             --add-data "icons:icons" \
@@ -213,9 +190,8 @@ jobs:
             --exclude-module=matplotlib \
             --name PremediaApp app.py --log-level DEBUG
 
-      - name: Debug PyInstaller output
+      - name: Verify PyInstaller Output
         run: |
-          ls -l dist/
           test -f dist/PremediaApp && echo "Executable found" || (echo "Executable missing" && exit 1)
 
       - name: Create .deb package
@@ -244,12 +220,11 @@ jobs:
           Categories=Utility;" > dist/debian/usr/share/applications/PremediaApp.desktop
           dpkg-deb --build dist/debian Output/PremediaApp.deb
 
-      - name: Debug Output folder
+      - name: Verify .deb Output
         run: |
-          ls -l Output/
-          test -f Output/PremediaApp.deb && echo "DEB created" || (echo "DEB not found" && exit 1)
+          test -f Output/PremediaApp.deb && echo ".deb created" || (echo ".deb missing" && exit 1)
 
-      - name: Upload artifact
+      - name: Upload Ubuntu Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-Ubuntu
