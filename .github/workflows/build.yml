@@ -34,54 +34,68 @@ jobs:
     - name: Show source structure
       shell: powershell
       run: |
-        Write-Output "Listing source files:"
-        Get-ChildItem -Recurse
+        Write-Output "========= Directory Structure ========="
+        Get-ChildItem -Recurse | Format-List
 
-    - name: Verify UPX availability
+    - name: Verify required files exist
       shell: powershell
       run: |
-        if (Get-Command upx -ErrorAction SilentlyContinue) {
-          Write-Output "UPX is available."
-        } else {
-          Write-Warning "UPX not found. Set upx=False in app.spec if needed."
+        $RequiredFiles = @(
+          "app.py",
+          "icons\premedia.ico",
+          "icons\photoshop.png",
+          "icons\folder.png",
+          "terms.txt",
+          "license.txt"
+        )
+        foreach ($file in $RequiredFiles) {
+          if (-not (Test-Path $file)) {
+            Write-Error "Missing required file: $file"
+            exit 1
+          } else {
+            Write-Output "✅ Found: $file"
+          }
         }
 
-    - name: Show app.spec contents
+    - name: Show contents of app.spec
       shell: powershell
       run: |
-        Write-Output "Contents of app.spec:"
+        Write-Output "========= Contents of app.spec ========="
         Get-Content app.spec
 
     - name: Build EXE with PyInstaller
       shell: powershell
       run: |
         Set-Location $env:GITHUB_WORKSPACE
+        Write-Output "========= Starting PyInstaller ========="
         pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
-        Write-Output "===== PyInstaller log start ====="
+        Write-Output "========= PyInstaller build finished with exit code $LASTEXITCODE ========="
+        Write-Output "========= Contents of pyinstaller.log ========="
         Get-Content pyinstaller.log
-        Write-Output "===== PyInstaller log end ====="
         if ($LASTEXITCODE -ne 0) {
-          Write-Error "PyInstaller build failed"
+          Write-Error "❌ PyInstaller build failed"
           exit $LASTEXITCODE
         }
-        
-    - name: Upload PyInstaller log on failure
+
+    - name: Upload pyinstaller.log if failed
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: pyinstaller-log
         path: pyinstaller.log
 
-    - name: Verify dist directory and EXE
+    - name: Check dist/ directory contents
       shell: powershell
       run: |
-        Set-Location $env:GITHUB_WORKSPACE
-        Write-Output "Checking dist directory:"
-        Get-ChildItem -Path dist -Recurse -Force | Format-Table -Property Name, Length, LastWriteTime -AutoSize
+        Write-Output "========= Contents of dist directory ========="
+        Get-ChildItem dist -Recurse | Format-Table Name, Length, LastWriteTime -AutoSize
+
         $exePath = "dist\PremediaApp.exe"
         if (-not (Test-Path $exePath)) {
-          Write-Error "PremediaApp.exe not found in dist/"
+          Write-Error "❌ dist/PremediaApp.exe not found!"
           exit 1
+        } else {
+          Write-Output "✅ EXE file found: $exePath"
         }
 
     - name: Set up Inno Setup
@@ -91,11 +105,20 @@ jobs:
       shell: powershell
       run: |
         Set-Location $env:GITHUB_WORKSPACE
+        Write-Output "========= Running Inno Setup Compiler ========="
         iscc installer/installer.iss
         if ($LASTEXITCODE -ne 0) {
-          Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
+          Write-Error "❌ Inno Setup compilation failed"
           exit $LASTEXITCODE
+        } else {
+          Write-Output "✅ Inno Setup succeeded"
         }
+
+    - name: Show Output folder contents
+      shell: powershell
+      run: |
+        Write-Output "========= Contents of Output directory ========="
+        Get-ChildItem Output
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4

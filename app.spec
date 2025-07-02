@@ -1,5 +1,7 @@
 # app.spec
 import os
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
 
 a = Analysis(
@@ -14,10 +16,7 @@ a = Analysis(
         ('license.txt', '.'),
     ],
     hiddenimports=[
-        'PySide6.QtWidgets',
-        'PySide6.QtGui',
-        'PySide6.QtCore',
-        'PySide6.QtSvg',
+        *collect_submodules('PySide6'),
         'PIL.Image',
         'PIL.ImageQt',
         'tzdata',
@@ -41,7 +40,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Disable UPX
+    upx=False,  # Disabled due to UPX not being available
     console=False,
     icon='icons/premedia.ico',
 )
@@ -52,6 +51,6 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,  # Disable UPX
+    upx=False,
     name='PremediaApp',
 )
