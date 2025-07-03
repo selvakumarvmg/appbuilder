@@ -243,7 +243,7 @@ jobs:
         run: |
           arch=$(uname -m)
           echo "Detected architecture: $arch"
-          pyinstaller --noconfirm app.spec --target-architecture arm64 > pyinstaller.log 2>&1
+          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
           if [ $? -ne 0 ]; then
             cat pyinstaller.log
             exit 1
