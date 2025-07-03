@@ -1,9 +1,9 @@
 # app.spec
 import os
+import sys
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
-is_mac = os.name != "nt"
 
 a = Analysis(
     ['app.py'],
@@ -51,12 +51,12 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon='icons/premedia.ico' if not is_mac else 'icons/premedia.icns',
+    icon='icons/premedia.ico' if os.name == 'nt' else 'icons/premedia.icns',
 )
 
-# Create .app bundle for macOS
+# BUNDLE is only needed for macOS .app format
 app = None
-if is_mac:
+if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         name='PremediaApp.app',
@@ -73,9 +73,16 @@ if is_mac:
         }
     )
 
-# Important fix: pass correct object to COLLECT
+# Set the correct target for COLLECT depending on platform
+if os.name == 'nt':
+    target = exe
+elif sys.platform == 'darwin':
+    target = app
+else:
+    target = exe  # Linux uses the EXE directly
+
 coll = COLLECT(
-    *( [app] if is_mac else [exe] ),
+    target,
     a.binaries,
     a.zipfiles,
     a.datas,
