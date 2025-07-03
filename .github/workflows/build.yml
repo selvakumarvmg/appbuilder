@@ -129,7 +129,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Debug Git Status
         run: |
@@ -212,7 +212,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: 🐍 Set up Python
         uses: actions/setup-python@v4
@@ -268,7 +268,7 @@ jobs:
                    "PremediaApp.dmg"
 
       - name: 📤 Upload DMG Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-macos-dmg
           path: PremediaApp.dmg
@@ -278,7 +278,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Debug Git Status
         run: |
