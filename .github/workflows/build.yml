@@ -233,7 +233,7 @@ jobs:
 
       - name: 📂 Check installer and installer-assets directories
         run: |
-          echo "=== 📂installer directory ==="
+          echo "=== 📂 installer directory ==="
           ls -lah installer
           echo "=== 📂 installer-assets directory ==="
           ls -lah installer-assets || echo "⚠️ installer-assets directory not found"
@@ -241,6 +241,7 @@ jobs:
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
           echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
+          pyinstaller --version
           pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
           status=$?
 
@@ -252,7 +253,10 @@ jobs:
 
           if [ -d "dist/PremediaApp.app" ]; then
             echo "✅ PremediaApp.app generated successfully."
+            echo "=== 📂 PremediaApp.app contents ==="
             ls -lah dist/PremediaApp.app
+            echo "=== 📏 PremediaApp.app size ==="
+            du -sh dist/PremediaApp.app
           else
             echo "❌ PremediaApp.app not found!"
             exit 1
@@ -269,10 +273,10 @@ jobs:
         run: |
           if [ -d "dist/PremediaApp.app" ]; then
             echo "=== 🛡️ Checking quarantine attributes before removal ==="
-            ls -l@ dist/PremediaApp.app
+            ls -l@ dist/PremediaApp.app/Contents/MacOS/*
             xattr -rd com.apple.quarantine dist/PremediaApp.app
             echo "=== 🛡️ Checking quarantine attributes after removal ==="
-            ls -l@ dist/PremediaApp.app
+            ls -l@ dist/PremediaApp.app/Contents/MacOS/*
             echo "✅ Removed quarantine attributes."
           else
             echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
@@ -288,8 +292,10 @@ jobs:
           fi
           echo "=== 📂 dmg-build directory ==="
           ls -lah dmg-build
+          echo "=== 📏 PremediaApp.app size ==="
+          du -sh dmg-build/PremediaApp.app
           echo "=== 🛡️ Checking quarantine attributes before DMG creation ==="
-          ls -l@ dmg-build/PremediaApp.app
+          ls -l@ dmg-build/PremediaApp.app/Contents/MacOS/*
           xattr -rd com.apple.quarantine dmg-build/PremediaApp.app || true
           echo "=== 🖼️ Creating .dmg with hdiutil ==="
           hdiutil create -volname "PremediaApp" \
@@ -307,9 +313,11 @@ jobs:
             exit 1
           fi
           echo "✅ DMG file created successfully"
+          echo "=== 📏 DMG file size ==="
+          ls -lh dmg-build/PremediaApp.dmg
           echo "=== 🛡️ Mounting DMG to check app ==="
           hdiutil attach dmg-build/PremediaApp.dmg
-          ls -l@ /Volumes/PremediaApp/PremediaApp.app
+          ls -l@ /Volumes/PremediaApp/PremediaApp.app/Contents/MacOS/*
           hdiutil detach /Volumes/PremediaApp || true
 
       - name: 📤 Upload hdiutil Log
