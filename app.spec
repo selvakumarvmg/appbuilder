@@ -1,64 +1,62 @@
-# app.spec - Updated for PremediaApp cross-platform build
-
 # -*- mode: python ; coding: utf-8 -*-
+
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+import os
 
-block_cipher = None
-
-app_name = "PremediaApp"
+# Define the main script and project root
 script_path = "app.py"
+project_root = Path(__file__).parent.resolve()
 
-# Cross-platform icon selection
-if sys.platform.startswith("win"):
-    icon_file = "icons/premedia.ico"
-elif sys.platform.startswith("darwin"):
-    icon_file = "icons/premedia.icns"
-else:
-    icon_file = "icons/premedia.png"
+# Collect all asset and icon files recursively
+asset_files = [
+    (str(f), str(Path("assets") / f.relative_to("assets")))
+    for f in Path("assets").rglob("*")
+    if f.is_file()
+]
 
-# Hidden imports for PySide6 plugins (required for GUI to render correctly)
-hiddenimports = collect_submodules("PySide6")
+icon_files = [
+    (str(f), str(Path("icons") / f.relative_to("icons")))
+    for f in Path("icons").rglob("*")
+    if f.is_file()
+]
+
+# Static data files
+data_files = [
+    ("TERMS.txt", "."),
+    ("LICENSE.txt", ".")
+]
 
 a = Analysis(
     [script_path],
-    pathex=[str(Path(".").resolve())],
+    pathex=[str(project_root)],
     binaries=[],
-    datas=[
-        ("assets/*", "assets"),
-        ("icons/*", "icons"),
-        ("TERMS.txt", "."),
-        ("LICENSE.txt", ".")
-    ],
-    hiddenimports=hiddenimports,
+    datas=asset_files + icon_files + data_files,
+    hiddenimports=[],
     hookspath=[],
+    hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
-    cipher=block_cipher,
+    cipher=None,
     noarchive=False,
 )
 
-pyz = PYZ(
-    a.pure,
-    a.zipped_data,
-    cipher=block_cipher
-)
+pyz = PYZ(a.pure, a.zipped_data, cipher=a.cipher)
 
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name=app_name,
+    name="PremediaApp",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    icon=icon_file
+    icon="icons/premedia.ico" if sys.platform == "win32" else None,
 )
 
 coll = COLLECT(
@@ -69,5 +67,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name=app_name
+    name="PremediaApp",
 )
