@@ -257,6 +257,10 @@ jobs:
             find dist/PremediaApp.app -type f -ls
             echo "=== 📏 PremediaApp.app size ==="
             du -sh dist/PremediaApp.app
+            echo "=== 📋 Checking Info.plist ==="
+            cat dist/PremediaApp.app/Contents/Info.plist || echo "❌ Info.plist not found"
+            echo "=== 🖥️ Checking executable ==="
+            ls -lh dist/PremediaApp.app/Contents/MacOS/*
           else
             echo "❌ PremediaApp.app not found!"
             exit 1
