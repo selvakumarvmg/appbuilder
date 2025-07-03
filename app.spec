@@ -1,12 +1,10 @@
-# -*- mode: python ; coding: utf-8 -*-
-
 import sys
 from pathlib import Path
 import os
 
 # Define the main script and project root
 script_path = "app.py"
-project_root = Path(__file__).parent.resolve()
+project_root = Path(os.getcwd()).resolve()
 
 # Collect all asset and icon files recursively
 asset_files = [
