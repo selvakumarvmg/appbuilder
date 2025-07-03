@@ -110,6 +110,14 @@ jobs:
         path: run.log
       if: always()
 
+    - name: Upload Application Log
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-log
+        path: dist\PremediaApp\app.log
+      if: always()
+      continue-on-error: true
+
     - name: Upload PremediaApp Build Directory
       uses: actions/upload-artifact@v4
       with:
