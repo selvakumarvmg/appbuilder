@@ -66,21 +66,10 @@ exe = EXE(
     icon=icon_path,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="PremediaApp",
-)
-
-# Only on macOS, build the .app bundle
+#  Only wrap EXE in BUNDLE on macOS
 if sys.platform == "darwin":
     app = BUNDLE(
-        coll,
+        exe,
         name="PremediaApp.app",
         icon=icon_path,
         bundle_identifier="com.vmgdigital.premediaapp",
@@ -94,3 +83,17 @@ if sys.platform == "darwin":
             "NSHighResolutionCapable": True,
         },
     )
+    final_target = app
+else:
+    final_target = exe
+
+coll = COLLECT(
+    final_target,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="PremediaApp",
+)
