@@ -241,14 +241,16 @@ jobs:
 
       - name: Build App with PyInstaller
         run: |
-          arch=$(uname -m)
-          echo "Detected architecture: $arch"
+          echo "=== Building app with PyInstaller ==="
           pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-          if [ $? -ne 0 ]; then
-            cat pyinstaller.log
-            exit 1
+          status=$?
+          cat pyinstaller.log || true
+          echo "=== Listing dist directory ==="
+          ls -R dist || true
+          if [ $status -ne 0 ]; then
+            echo "PyInstaller build failed!"
+            exit $status
           fi
-          cat pyinstaller.log
 
       - name: Upload PyInstaller log
         uses: actions/upload-artifact@v4
