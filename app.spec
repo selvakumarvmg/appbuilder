@@ -1,6 +1,9 @@
+# -*- mode: python ; coding: utf-8 -*-
+
 import sys
 import os
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
@@ -24,12 +27,15 @@ for file in ["TERMS.txt", "LICENSE.txt"]:
     if Path(file).exists():
         data_files.append((file, "."))
 
+# Optional: Add hidden imports if needed
+hidden_imports = collect_submodules("PySide6")
+
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
     binaries=[],
     datas=asset_files + icon_files + data_files,
-    hiddenimports=[],
+    hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -39,7 +45,7 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data) 
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 exe = EXE(
     pyz,
@@ -65,3 +71,20 @@ coll = COLLECT(
     upx_exclude=[],
     name="PremediaApp",
 )
+
+# macOS: wrap in .app bundle
+if sys.platform == "darwin":
+    from PyInstaller.utils.macOS import BUNDLE
+
+    app = BUNDLE(
+        exe,
+        name="PremediaApp.app",
+        icon="icons/premedia.icns",
+        bundle_identifier="com.vmgdigital.premediaapp",
+        info_plist={
+            "CFBundleName": "PremediaApp",
+            "CFBundleDisplayName": "PremediaApp",
+            "CFBundleExecutable": "PremediaApp",
+            "CFBundleIconFile": "premedia.icns",
+        },
+    )
