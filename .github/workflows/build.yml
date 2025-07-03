@@ -312,59 +312,35 @@ jobs:
             echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
           fi
 
-      - name: 🧾 Create DMG (Disk Image)
+      - name: 🧾 Create DMG (with custom layout using dmgbuild)
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
-          if [ ! -d "dmg-build/PremediaApp.app" ]; then
-            echo "❌ Failed to copy PremediaApp.app to dmg-build"
-            exit 1
-          fi
+
           echo "=== 📂 dmg-build directory ==="
           ls -lah dmg-build
-          echo "=== 📏 PremediaApp.app size ==="
-          du -sh dmg-build/PremediaApp.app
-          echo "=== 🛡️ Checking quarantine attributes before DMG creation ==="
-          find dmg-build/PremediaApp.app -type f -exec ls -l@ {} \;
-          xattr -rd com.apple.quarantine dmg-build/PremediaApp.app || true
-          echo "=== 🖼️ Creating .dmg with hdiutil ==="
-          hdiutil create -volname "PremediaApp" \
-                        -srcfolder dmg-build \
-                        -ov -format UDZO \
-                        dmg-build/PremediaApp.dmg 2> hdiutil.log
-          status=$?
-          if [ $status -ne 0 ]; then
-            echo "❌ hdiutil failed, see hdiutil.log for details"
-            cat hdiutil.log
-            exit 1
-          fi
-          if [ ! -f "dmg-build/PremediaApp.dmg" ]; then
-            echo "❌ DMG file not created"
-            exit 1
-          fi
-          echo "✅ DMG file created successfully"
-          echo "=== 📏 DMG file size ==="
-          ls -lh dmg-build/PremediaApp.dmg
-          echo "=== 🛡️ Mounting DMG to check app ==="
-          hdiutil attach dmg-build/PremediaApp.dmg
-          find /Volumes/PremediaApp/PremediaApp.app -type f -exec ls -l@ {} \;
-          hdiutil detach /Volumes/PremediaApp || true
 
-      - name: 📤 Upload hdiutil Log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hdiutil-log
-          path: hdiutil.log
+          echo "=== 🖼️ Creating styled DMG ==="
+          dmgbuild -s installer/dmg-settings.py \
+                  -D app="PremediaApp" \
+                  "PremediaApp" \
+                  "dmg-build/PremediaApp.dmg"
 
-      - name: 📂 Check DMG file
-        run: ls -lah dmg-build/PremediaApp.dmg
+            - name: 📤 Upload hdiutil Log
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                name: hdiutil-log
+                path: hdiutil.log
 
-      - name: 📤 Upload DMG Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PremediaApp-macos-dmg
-          path: dmg-build/PremediaApp.dmg
+            - name: 📂 Check DMG file
+              run: ls -lah dmg-build/PremediaApp.dmg
+
+            - name: 📤 Upload DMG Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                name: PremediaApp-macos-dmg
+                path: dmg-build/PremediaApp.dmg
 
   build-ubuntu:
     runs-on: ubuntu-latest
