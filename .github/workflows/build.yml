@@ -302,12 +302,16 @@ jobs:
                       cat hdiutil.log
                       exit 1
                    }
-                   
+
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-macos-dmg
+          name: PremediaApp-macos-dmg-${{ github.run_number }}
           path: dmg-build/PremediaApp.dmg
+          if-no-files-found: warn
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false
 
       - name: 📤 Upload hdiutil Log
         if: always()
