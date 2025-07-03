@@ -270,14 +270,14 @@ jobs:
             echo "=== 🏗️ Checking architecture ==="
             file dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable to check"
             echo "=== 📚 Checking PySide6 libraries ==="
-            ls -lh dist/PremediaApp.app/Contents/Frameworks/* || echo "❌ No Frameworks found"
+            find dist/PremediaApp.app/Contents/Frameworks -type f -ls || echo "❌ No Frameworks found"
           else
             echo "❌ PremediaApp.app not found!"
             exit 1
           fi
 
       - name: 📤 Upload PyInstaller Log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pyinstaller-log
