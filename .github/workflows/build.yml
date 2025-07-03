@@ -233,19 +233,29 @@ jobs:
 
       - name: Build App with PyInstaller
         run: |
-          echo "=== Building app with PyInstaller ==="
+          echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
           pyinstaller app.spec --clean --noconfirm > pyinstaller.log 2>&1
           status=$?
-          echo "=== PyInstaller Log ==="
+
+          echo "=== 📄 PyInstaller Log ==="
           cat pyinstaller.log || true
-          echo "=== dist folder ==="
+
+          echo "=== 📁 dist directory listing ==="
           ls -lah dist || true
-          echo "=== app bundle ==="
-          ls -lah dist/PremediaApp.app || echo "App not found!"
+
+          echo "=== 📦 Checking for .app bundle ==="
+          if [ -d "dist/PremediaApp.app" ]; then
+            echo "✅ PremediaApp.app generated successfully."
+            ls -lah dist/PremediaApp.app
+          else
+            echo "❌ PremediaApp.app not found!"
+          fi
+
           if [ $status -ne 0 ]; then
-            echo "❌ PyInstaller build failed!"
+            echo "❌ PyInstaller build failed! Exiting..."
             exit $status
           fi
+
 
       - name: Upload PyInstaller Log
         uses: actions/upload-artifact@v4
