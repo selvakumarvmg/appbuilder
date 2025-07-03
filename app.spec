@@ -1,12 +1,11 @@
 import sys
-from pathlib import Path
 import os
+from pathlib import Path
 
-# Define the main script and project root
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
 
-# Collect all asset and icon files recursively
+# Collect assets and icons
 asset_files = [
     (str(f), str(Path("assets") / f.relative_to("assets")))
     for f in Path("assets").rglob("*")
@@ -20,10 +19,10 @@ icon_files = [
 ]
 
 # Static data files
-data_files = [
-    ("TERMS.txt", "."),
-    ("LICENSE.txt", ".")
-]
+data_files = []
+for file in ["TERMS.txt", "LICENSE.txt"]:
+    if Path(file).exists():
+        data_files.append((file, "."))
 
 a = Analysis(
     [script_path],
@@ -37,11 +36,10 @@ a = Analysis(
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
-    cipher=None,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=a.cipher)
+pyz = PYZ(a.pure, a.zipped_data) 
 
 exe = EXE(
     pyz,
