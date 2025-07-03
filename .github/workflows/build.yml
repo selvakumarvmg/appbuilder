@@ -49,10 +49,10 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Build GUI Executable (console for debugging)
+    - name: Build GUI Executable (with console for debugging)
       run: |
         echo ===== Building with PyInstaller =====
-        pyinstaller --noconfirm --onedir ^
+        pyinstaller --noconfirm --onedir --console ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
@@ -94,31 +94,25 @@ jobs:
         path: pyinstaller.log
       if: always()
 
-    - name: Run Executable for Testing
+    - name: Test Executable Run (log any crash)
       run: |
-        echo Running PremediaApp.exe for testing...
-        timeout /t 60 /nobreak dist\PremediaApp\PremediaApp.exe > run.log 2>&1 || echo "Executable crashed or timed out!"
-        type run.log || echo "No output from executable"
+        echo Running PremediaApp.exe for 10 seconds...
+        start "" dist\PremediaApp\PremediaApp.exe
+        timeout /t 10 /nobreak
+        taskkill /im PremediaApp.exe /f >nul 2>&1 || echo "Already exited"
+        echo Run test complete
       shell: cmd
+      continue-on-error: true
+
+    - name: Upload error.log if exists
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-error-log
+        path: dist\PremediaApp\error.log
       if: always()
       continue-on-error: true
 
-    - name: Upload Run Log
-      uses: actions/upload-artifact@v4
-      with:
-        name: run-log
-        path: run.log
-      if: always()
-
-    - name: Upload Application Log
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-log
-        path: dist\PremediaApp\app.log
-      if: always()
-      continue-on-error: true
-
-    - name: Upload PremediaApp Build Directory
+    - name: Upload Build Folder
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Build
@@ -140,7 +134,7 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Verify Inno Setup installed
+    - name: Verify Inno Setup installation
       run: where iscc || echo "ISCC not found!"
       shell: cmd
 
