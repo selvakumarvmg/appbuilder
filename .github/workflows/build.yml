@@ -32,23 +32,6 @@ jobs:
       shell: cmd
       if: always()
 
-    - name: Verify required files exist
-      run: |
-        dir app.py
-        dir icons\premedia.ico
-        dir icons\photoshop.png
-        dir icons\folder.png
-        dir terms.txt
-        dir license.txt
-        dir login.ui
-        dir premediaapp.ui
-        dir icons.qrc
-        dir icons_rc.py
-        dir installer\installer.iss
-        dir login.py
-      shell: cmd
-      continue-on-error: true
-
     - name: Build GUI Executable (--onedir)
       run: |
         echo ===== Building with PyInstaller =====
@@ -80,7 +63,6 @@ jobs:
           --collect-submodules PySide6 ^
           app.py > pyinstaller.log 2>&1
       shell: cmd
-      continue-on-error: true
 
     - name: Show PyInstaller log
       run: type pyinstaller.log || echo "Log missing"
@@ -94,25 +76,23 @@ jobs:
         path: pyinstaller.log
       if: always()
 
-    - name: Upload App Build Directory (for troubleshooting)
+    - name: Upload Application Build Directory
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Build
         path: dist\PremediaApp
       if: always()
 
-    - name: Upload Application Logs (if available)
+    - name: Upload App Crash Log if available
       uses: actions/upload-artifact@v4
       with:
         name: app-error-log
         path: dist\PremediaApp\error.log
         if-no-files-found: warn
-        continue-on-error: true
 
     - name: Check if EXE exists
       run: |
         echo Checking dist\PremediaApp\PremediaApp.exe
-        dir dist\PremediaApp
         if not exist dist\PremediaApp\PremediaApp.exe (
           echo ERROR: Executable not found!
           exit 1
@@ -122,7 +102,6 @@ jobs:
     - name: Install Inno Setup
       run: choco install innosetup --no-progress --yes --force
       shell: cmd
-      continue-on-error: true
 
     - name: Verify Inno Setup installed
       run: where iscc || echo "ISCC not found!"
@@ -138,7 +117,7 @@ jobs:
         )
       shell: cmd
 
-    - name: Upload Installer Artifact
+    - name: Upload Windows Installer
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
