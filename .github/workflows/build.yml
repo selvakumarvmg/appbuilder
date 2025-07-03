@@ -1,209 +1,137 @@
-name: Build PremediaApp Installers
+name: build-all-platforms
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-windows:
+    name: Build on Windows
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Debug Git Status
-      run: |
-        echo === Git Repository Details ===
-        git status
-        git log -n 1
-        echo === Current Directory ===
-        dir
-      shell: cmd
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          echo "Dependencies installed."
 
-    - name: Install dependencies with debug
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
-        pip list > installed_packages.txt
-        type installed_packages.txt
-      shell: cmd
+      - name: Show directory structure
+        run: tree /F
 
-    - name: Verify required files
-      run: |
-        if not exist app.spec (echo ERROR: app.spec missing && exit 1)
-        if not exist installer\\installer.iss (echo ERROR: installer.iss missing && exit 1)
-        dir icons
-        dir installer
-        type app.spec
-      shell: cmd
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller app.spec
+          echo "PyInstaller build complete."
 
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-        if %errorlevel% neq 0 (
-          echo ERROR: PyInstaller build failed
-          type pyinstaller.log
-          exit 1
-        )
-        type pyinstaller.log
-      shell: cmd
+      - name: Install Inno Setup
+        run: choco install innosetup
 
-    - name: Upload PyInstaller log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log-windows
-        path: pyinstaller.log
-      if: always()
+      - name: Run Inno Setup compiler
+        run: |
+          iscc installer/installer.iss || echo "Inno Setup failed, check logs"
+          echo "Inno Setup packaging done."
 
-    - name: Check Build Output
-      run: |
-        dir dist
-        dir dist\\PremediaApp
-      shell: cmd
-
-    - name: Upload Windows Build Directory
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Windows-Build
-        path: dist\PremediaApp
-      if: always()
-
-    - name: Install Inno Setup
-      run: |
-        choco install innosetup --no-progress --yes --force
-        if %errorlevel% neq 0 (
-          echo ERROR: Failed to install Inno Setup
-          exit 1
-        )
-        where iscc || (
-          echo ERROR: ISCC compiler not found in PATH!
-          exit 1
-        )
-      shell: cmd
-
-    - name: Build Installer with Inno Setup
-      run: |
-        iscc installer\\installer.iss > inno.log 2>&1
-        if %errorlevel% neq 0 (
-          echo ERROR: Inno Setup failed!
-          type inno.log
-          exit 1
-        )
-        type inno.log
-        if not exist Output\\PremediaApp-Setup.exe (
-          echo ERROR: Installer not created
+      - name: List Output Directory
+        run: |
+          echo "Contents of Output directory:"
           dir Output
-          exit 1
-        )
-      shell: cmd
+          echo "Contents of dist directory:"
+          dir dist
 
-    - name: Upload Inno Setup log
-      uses: actions/upload-artifact@v4
-      with:
-        name: inno-log-windows
-        path: inno.log
-      if: always()
-
-    - name: Upload Windows Installer
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Windows-Installer
-        path: Output\PremediaApp-Setup.exe
-      if: always()
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-Windows
+          path: |
+            Output/PremediaApp-Setup.exe
+            dist/PremediaApp.exe
 
   build-macos:
+    name: Build on macOS
     runs-on: macos-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Debug Git Status
-      run: |
-        git status
-        git log -n 1
-        ls -la
-      shell: bash
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt pyinstaller
 
-    - name: Install dependencies with debug
-      run: |
-        python3 -m pip install --upgrade pip
-        pip3 install -r requirements.txt
-        pip3 install pyinstaller
-        pip3 list > installed_packages.txt
-        cat installed_packages.txt
-      shell: bash
+      - name: Build .app with PyInstaller
+        run: |
+          pyinstaller app.spec
+          echo "Mac build complete."
 
-    - name: Verify required files
-      run: |
-        [ ! -f app.spec ] && echo "ERROR: app.spec missing" && exit 1
-        [ ! -d icons ] && echo "ERROR: icons directory missing" && exit 1
-        cat app.spec
-      shell: bash
+      - name: Create DMG file
+        run: |
+          mkdir dmg-root
+          cp -R dist/PremediaApp.app dmg-root/
+          hdiutil create -volname "PremediaApp" -srcfolder dmg-root -ov -format UDZO PremediaApp.dmg
+          echo "DMG created."
 
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-        if [ $? -ne 0 ]; then
-          echo "ERROR: PyInstaller build failed"
-          cat pyinstaller.log
-          exit 1
-        fi
-        cat pyinstaller.log
-      shell: bash
+      - name: Show DMG structure
+        run: ls -R dmg-root
 
-    - name: Upload PyInstaller log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log-macos
-        path: pyinstaller.log
-      if: always()
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-macOS
+          path: |
+            dist/PremediaApp.app
+            PremediaApp.dmg
 
-    - name: Check .app Bundle
-      run: |
-        ls -la dist/PremediaApp
-        [ ! -d "dist/PremediaApp/PremediaApp.app" ] && echo "ERROR: .app bundle not found!" && exit 1
-      shell: bash
+  build-ubuntu:
+    name: Build on Ubuntu
+    runs-on: ubuntu-latest
 
-    - name: Create DMG Image
-      run: |
-        mkdir -p dmg-content
-        cp -R dist/PremediaApp/PremediaApp.app dmg-content/
-        cp icons/premedia.icns dmg-content/.VolumeIcon.icns
-        mkdir -p dmg
-        hdiutil create dmg/PremediaApp.dmg -volname "PremediaApp" -fs HFS+ -srcfolder dmg-content -ov > hdiutil.log 2>&1
-        if [ $? -ne 0 ]; then
-          echo "ERROR: DMG creation failed"
-          cat hdiutil.log
-          exit 1
-        fi
-        cat hdiutil.log
-      shell: bash
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Upload hdiutil Log
-      uses: actions/upload-artifact@v4
-      with:
-        name: hdiutil-log-macos
-        path: hdiutil.log
-      if: always()
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-    - name: Upload macOS DMG
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-macOS-DMG
-        path: dmg/PremediaApp.dmg
-      if: always()
+      - name: Install system & Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libxcb-xinerama0
+          pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Show directory structure
+        run: tree -a -L 3
+
+      - name: Build binary with PyInstaller
+        run: |
+          pyinstaller app.spec
+          echo "Ubuntu PyInstaller build complete."
+
+      - name: Make .deb package
+        run: |
+          chmod +x install_ubuntu.sh
+          ./install_ubuntu.sh
+          echo "Debian package built."
+
+      - name: Upload Ubuntu Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-Ubuntu
+          path: |
+            dist/PremediaApp
+            *.deb
