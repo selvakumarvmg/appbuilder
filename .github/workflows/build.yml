@@ -241,7 +241,9 @@ jobs:
 
       - name: Build App with PyInstaller
         run: |
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
+          arch=$(uname -m)
+          echo "Detected architecture: $arch"
+          pyinstaller --noconfirm app.spec --target-architecture arm64 > pyinstaller.log 2>&1
           if [ $? -ne 0 ]; then
             cat pyinstaller.log
             exit 1
@@ -321,10 +323,16 @@ jobs:
       - name: Create DEB Package
         run: |
           mkdir -p dist/debian/usr/bin
-          cp dist/PremediaApp dist/debian/usr/bin/
-          chmod +x dist/debian/usr/bin/PremediaApp
+          cp -r dist/PremediaApp dist/debian/usr/bin/
+          chmod +x dist/debian/usr/bin/PremediaApp/PremediaApp
           mkdir -p dist/debian/DEBIAN
-          echo "Package: premediaapp\nVersion: 1.0.0\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Your Name <your.email@example.com>\nDescription: PremediaApp" > dist/debian/DEBIAN/control
+          echo "Package: premediaapp
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Your Name <your.email@example.com>
+          Description: PremediaApp" > dist/debian/DEBIAN/control
           dpkg-deb --build dist/debian dist/PremediaApp.deb
 
       - name: Upload Ubuntu DEB
