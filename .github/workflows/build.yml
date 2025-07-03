@@ -262,19 +262,12 @@ jobs:
 
           if [ -d "dist/PremediaApp.app" ]; then
             echo "✅ PremediaApp.app generated successfully."
-            echo "=== 📂 PremediaApp.app contents ==="
             find dist/PremediaApp.app -type f -ls
-            echo "=== 📏 PremediaApp.app size ==="
             du -sh dist/PremediaApp.app
-            echo "=== 📋 Checking Info.plist ==="
             cat dist/PremediaApp.app/Contents/Info.plist || echo "❌ Info.plist not found"
-            echo "=== 🖥️ Checking executable ==="
-            ls -lh dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable found in Contents/MacOS"
-            echo "=== 📚 Checking resources ==="
-            ls -lh dist/PremediaApp.app/Contents/Resources/* || echo "❌ No resources found in Contents/Resources"
-            echo "=== 🏗️ Checking architecture ==="
+            ls -lh dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable found"
+            ls -lh dist/PremediaApp.app/Contents/Resources/* || echo "❌ No resources found"
             file dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable to check"
-            echo "=== 📚 Checking PySide6 libraries ==="
             find dist/PremediaApp.app/Contents/Frameworks -type f -ls || echo "❌ No Frameworks found"
           else
             echo "❌ PremediaApp.app not found!"
@@ -329,23 +322,24 @@ jobs:
           dmgbuild -s installer/dmg-settings.py \
                   -D app="PremediaApp" \
                   "PremediaApp" \
-                  "dmg-build/PremediaApp.dmg"
+                  "dmg-build/PremediaApp.dmg" \
+                  2> hdiutil.log
 
-            - name: 📤 Upload hdiutil Log
-              if: failure()
-              uses: actions/upload-artifact@v4
-              with:
-                name: hdiutil-log
-                path: hdiutil.log
+      - name: 📤 Upload hdiutil Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdiutil-log
+          path: hdiutil.log
 
-            - name: 📂 Check DMG file
-              run: ls -lah dmg-build/PremediaApp.dmg
+      - name: 📂 Check DMG file
+        run: ls -lah dmg-build/PremediaApp.dmg
 
-            - name: 📤 Upload DMG Artifact
-              uses: actions/upload-artifact@v4
-              with:
-                name: PremediaApp-macos-dmg
-                path: dmg-build/PremediaApp.dmg
+      - name: 📤 Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-macos-dmg
+          path: dmg-build/PremediaApp.dmg
 
   build-ubuntu:
     runs-on: ubuntu-latest
