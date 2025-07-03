@@ -1,23 +1,32 @@
-# dmg-settings.py
+# installer/dmg-settings.py
 
-# Required
-application = "PremediaApp.app"
-output_filename = "PremediaApp.dmg"
-volume_name = "PremediaApp Installer"
+# Required settings
+application = "PremediaApp"
+app_path = f"dmg-build/{application}.app"
 
-# Icon background image (must be 640x480 or similar ratio)
-background = "installer-assets/dmg-background.bmp"  # Put this image in the same folder or adjust the path
+# Optional background image
+background = "installer-assets/dmg-background.bmp"
 
+# Volume name
+volume_name = "PremediaApp"
+
+# Icon location settings
+icon_size = 128
 icon_locations = {
-    "PremediaApp.app": (140, 120),
-    "Applications": (500, 120)
+    f"{application}.app": (140, 120),
+    "Applications": (380, 120),
 }
 
-# Optional settings
-show_status_bar = False
-show_tab_view = False
-show_toolbar = False
-sidebar_width = 180
+# Window size and placement
+window_rect = ((100, 100), (520, 280))  # (x, y), (width, height)
 
-# Set this to `True` for transparent background support on macOS 10.13+
-use_hdiutil = True
+# Code signing (disabled here)
+codesign_identity = None
+
+# Don't create symlinks
+symlinks = {
+    "Applications": "/Applications"
+}
+
+# Hide hidden files (like .DS_Store)
+hide_extensions = True

@@ -260,7 +260,6 @@ jobs:
 
           echo "=== 🖼️ Creating .dmg with background ==="
           dmgbuild -s installer/dmg-settings.py \
-                   -D app=PremediaApp \
                    "PremediaApp" \
                    "dmg-build/PremediaApp.dmg"
 
