@@ -233,8 +233,9 @@ jobs:
 
       - name: 🧪 Verify dmgbuild installed
         run: |
-          which dmgbuild
-          dmgbuild --version
+          echo "✅ dmgbuild path: $(which dmgbuild)"
+          echo "✅ dmgbuild version:"
+          dmgbuild --version || true
 
       - name: 📂 Check project directories
         run: |
@@ -252,24 +253,9 @@ jobs:
           echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
           pyinstaller --version
           pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
-          status=$?
-
-          echo "=== 📄 PyInstaller Log ==="
           cat pyinstaller.log
-
-          echo "=== 📁 dist directory listing ==="
           ls -lah dist
-
-          if [ -d "dist/PremediaApp.app" ]; then
-            echo "✅ PremediaApp.app generated successfully."
-            find dist/PremediaApp.app -type f -ls
-            du -sh dist/PremediaApp.app
-            cat dist/PremediaApp.app/Contents/Info.plist || echo "❌ Info.plist not found"
-            ls -lh dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable found"
-            ls -lh dist/PremediaApp.app/Contents/Resources/* || echo "❌ No resources found"
-            file dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable to check"
-            find dist/PremediaApp.app/Contents/Frameworks -type f -ls || echo "❌ No Frameworks found"
-          else
+          if [ ! -d "dist/PremediaApp.app" ]; then
             echo "❌ PremediaApp.app not found!"
             exit 1
           fi
@@ -283,34 +269,23 @@ jobs:
 
       - name: 🔏 Remove Invalid Signature
         run: |
-          if [ -d "dist/PremediaApp.app/Contents/_CodeSignature" ]; then
-            rm -rf dist/PremediaApp.app/Contents/_CodeSignature
-            echo "✅ Removed invalid _CodeSignature directory"
-          fi
+          rm -rf dist/PremediaApp.app/Contents/_CodeSignature || true
+          echo "✅ Removed _CodeSignature if present"
 
       - name: 🔏 Sign PremediaApp
         if: env.CODESIGN_IDENTITY != ''
         run: |
           codesign --force --deep --sign "${CODESIGN_IDENTITY}" dist/PremediaApp.app
-          echo "=== 🛡️ Verifying code signature ==="
           codesign -vvv --deep dist/PremediaApp.app
         env:
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
 
-      - name: ❌ Fix Blocked App Icon (Quarantine)
+      - name: ❌ Fix Quarantine Attributes
         run: |
-          if [ -d "dist/PremediaApp.app" ]; then
-            echo "=== 🛡️ Checking quarantine attributes before removal ==="
-            find dist/PremediaApp.app -type f -exec ls -l@ {} \;
-            xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-            echo "=== 🛡️ Checking quarantine attributes after removal ==="
-            find dist/PremediaApp.app -type f -exec ls -l@ {} \;
-            echo "✅ Removed quarantine attributes."
-          else
-            echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
-          fi
+          xattr -rd com.apple.quarantine dist/PremediaApp.app || true
+          echo "✅ Removed quarantine attributes."
 
-      - name: 🧾 Create DMG (with custom layout using dmgbuild)
+      - name: 🧾 Create DMG with dmgbuild
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
@@ -320,13 +295,16 @@ jobs:
 
           echo "=== 🖼️ Creating styled DMG ==="
           dmgbuild -s installer/dmg-settings.py \
-                  -D app="PremediaApp" \
-                  "PremediaApp" \
-                  "dmg-build/PremediaApp.dmg" \
-                  2> hdiutil.log
+                   -D app="PremediaApp" \
+                   "PremediaApp" \
+                   "dmg-build/PremediaApp.dmg" > hdiutil.log 2>&1 || {
+                      echo "❌ dmgbuild failed"
+                      cat hdiutil.log
+                      exit 1
+                   }
 
       - name: 📤 Upload hdiutil Log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hdiutil-log
