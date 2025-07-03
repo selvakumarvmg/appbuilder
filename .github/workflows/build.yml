@@ -97,17 +97,21 @@ jobs:
         with:
           path: installer/installer.iss
 
-      - name: Verify Installer Output
+      - name: Verify Inno Setup Output
         run: |
+          echo === Checking Inno Setup Output ===
           dir Output
-          if not exist Output\PremediaApp.exe (
-            echo ERROR: Installer not created!
+          if not exist Output\PremediaApp-Setup.exe (
+            echo ERROR: PremediaApp-Setup.exe not found!
+            dir Output
             exit 1
           )
         shell: cmd
+        if: always()
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Installer
-          path: Output/PremediaApp.exe
+          path: Output/PremediaApp-Setup.exe
+        if: always()
