@@ -1,85 +1,73 @@
-import os
+# app.spec - Updated for PremediaApp cross-platform build
+
+# -*- mode: python ; coding: utf-8 -*-
 import sys
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
+app_name = "PremediaApp"
+script_path = "app.py"
+
+# Cross-platform icon selection
+if sys.platform.startswith("win"):
+    icon_file = "icons/premedia.ico"
+elif sys.platform.startswith("darwin"):
+    icon_file = "icons/premedia.icns"
+else:
+    icon_file = "icons/premedia.png"
+
+# Hidden imports for PySide6 plugins (required for GUI to render correctly)
+hiddenimports = collect_submodules("PySide6")
+
 a = Analysis(
-    ['app.py'],
-    pathex=[os.getcwd()],
+    [script_path],
+    pathex=[str(Path(".").resolve())],
     binaries=[],
     datas=[
-        ('icons/premedia.ico', 'icons'),
-        ('icons/photoshop.png', 'icons'),
-        ('icons/folder.png', 'icons'),
-        ('icons/premedia.icns', 'icons'),
-        ('terms.txt', '.'),
-        ('license.txt', '.'),
-        ('login.ui', '.'),
-        ('premediaapp.ui', '.'),
-        ('icons.qrc', '.'),
-        ('icons_rc.py', '.'),
-        ('login.py', '.'),
+        ("assets/*", "assets"),
+        ("icons/*", "icons"),
+        ("TERMS.txt", "."),
+        ("LICENSE.txt", ".")
     ],
-    hiddenimports=[
-        *collect_submodules('PySide6'),
-        'PIL.Image',
-        'PIL.ImageQt',
-        'tzdata',
-        'login',
-        'icons_rc',
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
+    noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(
+    a.pure,
+    a.zipped_data,
+    cipher=block_cipher
+)
 
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name='PremediaApp',
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
+    upx=True,
     console=False,
-    icon='icons/premedia.ico' if os.name == 'nt' else 'icons/premedia.icns',
+    icon=icon_file
 )
 
-# Optional macOS bundle (for DMG packaging)
-if sys.platform == 'darwin':
-    app = BUNDLE(
-        exe,
-        name='PremediaApp.app',
-        icon='icons/premedia.icns',
-        bundle_identifier='com.vmg.premedia',
-        info_plist={
-            'NSHighResolutionCapable': True,
-            'CFBundleName': 'PremediaApp',
-            'CFBundleDisplayName': 'PremediaApp',
-            'CFBundleIdentifier': 'com.vmg.premedia',
-            'CFBundleVersion': '1.0.0',
-            'CFBundleShortVersionString': '1.0.0',
-            'CFBundleIconFile': 'premedia.icns',
-        }
-    )
-    build_target = app
-else:
-    build_target = exe
-
 coll = COLLECT(
-    build_target,
+    exe,
     a.binaries,
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,
-    name='PremediaApp',
+    upx=True,
+    upx_exclude=[],
+    name=app_name
 )
