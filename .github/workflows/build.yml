@@ -222,8 +222,8 @@ jobs:
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller dmgbuild
+          pip install -r requirements.txt || true
+          pip install dmgbuild pyinstaller
 
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
@@ -237,41 +237,38 @@ jobs:
           echo "=== 📁 dist directory listing ==="
           ls -lah dist || true
 
-          echo "=== 📦 Checking for .app bundle ==="
           if [ -d "dist/PremediaApp.app" ]; then
             echo "✅ PremediaApp.app generated successfully."
             ls -lah dist/PremediaApp.app
           else
             echo "❌ PremediaApp.app not found!"
-          fi
-
-          if [ $status -ne 0 ]; then
-            echo "❌ PyInstaller build failed! Exiting..."
-            exit $status
+            exit 1
           fi
 
       - name: ❌ Fix Blocked App Icon (Quarantine)
         run: |
-          xattr -rd com.apple.quarantine dist/PremediaApp.app
+          xattr -rd com.apple.quarantine dist/PremediaApp.app || true
           echo "✅ Removed quarantine attributes."
 
       - name: 🧾 Create DMG (Disk Image)
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
+          
+          echo "=== 📂 dmg-build directory ==="
+          ls -lah dmg-build
 
-          # Create custom background (optional)
-          echo "Creating dmg with background"
+          echo "=== 🖼️ Creating .dmg with background ==="
           dmgbuild -s installer/dmg-settings.py \
                    -D app=PremediaApp \
                    "PremediaApp" \
-                   "PremediaApp.dmg"
+                   "dmg-build/PremediaApp.dmg"
 
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PremediaApp-macos-dmg
-          path: PremediaApp.dmg
+          path: dmg-build/PremediaApp.dmg
 
 
   build-ubuntu:
