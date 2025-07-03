@@ -12,14 +12,22 @@ a = Analysis(
         ('icons/premedia.ico', 'icons'),
         ('icons/photoshop.png', 'icons'),
         ('icons/folder.png', 'icons'),
+        ('icons/premedia.icns', 'icons'),
         ('terms.txt', '.'),
         ('license.txt', '.'),
+        ('login.ui', '.'),
+        ('premediaapp.ui', '.'),
+        ('icons.qrc', '.'),
+        ('icons_rc.py', '.'),
+        ('login.py', '.'),
     ],
     hiddenimports=[
         *collect_submodules('PySide6'),
         'PIL.Image',
         'PIL.ImageQt',
         'tzdata',
+        'login',
+        'icons_rc',
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -40,13 +48,29 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Disabled due to UPX not being available
+    upx=False,
     console=False,
-    icon='icons/premedia.ico',
+    icon='icons/premedia.ico' if os.name == 'nt' else 'icons/premedia.icns',
 )
 
-coll = COLLECT(
+app = BUNDLE(  # Needed for macOS .app bundle
     exe,
+    name='PremediaApp.app',
+    icon='icons/premedia.icns',
+    bundle_identifier='com.vmg.premedia',
+    info_plist={
+        'NSHighResolutionCapable': True,
+        'CFBundleName': 'PremediaApp',
+        'CFBundleDisplayName': 'PremediaApp',
+        'CFBundleIdentifier': 'com.vmg.premedia',
+        'CFBundleVersion': '1.0.0',
+        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleIconFile': 'premedia.icns',
+    }
+) if os.name != 'nt' else None
+
+coll = COLLECT(
+    exe if os.name == 'nt' else app,
     a.binaries,
     a.zipfiles,
     a.datas,

@@ -123,3 +123,142 @@ jobs:
         name: PremediaApp-Windows-Installer
         path: Output\PremediaApp-Setup.exe
         retention-days: 7
+aname: Build PremediaApp Windows Installer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9.13'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        pip list > installed_packages.txt
+      shell: cmd
+
+    - name: Show installed packages
+      run: type installed_packages.txt
+      shell: cmd
+      if: always()
+
+    - name: Check required files
+      run: |
+        dir app.py
+        dir icons\premedia.ico
+        dir icons\premedia.icns
+        dir icons\photoshop.png
+        dir icons\folder.png
+        dir terms.txt
+        dir license.txt
+        dir login.ui
+        dir premediaapp.ui
+        dir icons.qrc
+        dir icons_rc.py
+        dir login.py
+        dir installer\installer.iss
+      shell: cmd
+      continue-on-error: true
+
+    - name: Build PyInstaller Executable (onedir)
+      run: |
+        echo ===== Building with PyInstaller =====
+        pyinstaller --noconfirm ^
+          app.spec > pyinstaller.log 2>&1
+      shell: cmd
+
+    - name: Show PyInstaller log
+      run: type pyinstaller.log || echo "Log missing"
+      shell: cmd
+      if: always()
+
+    - name: Upload PyInstaller log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-log
+        path: pyinstaller.log
+        if-no-files-found: warn
+
+    - name: Check EXE exists
+      run: |
+        echo Checking if EXE exists...
+        dir dist\PremediaApp
+        if not exist dist\PremediaApp\PremediaApp.exe (
+          echo ERROR: Executable not found!
+          exit 1
+        )
+      shell: cmd
+
+    - name: Run App for Smoke Test
+      run: |
+        echo Running PremediaApp.exe...
+        dist\PremediaApp\PremediaApp.exe --test > run.log 2>&1 || echo "App crashed"
+        echo ========== OUTPUT ==========
+        type run.log || echo "No log output"
+      shell: cmd
+      continue-on-error: true
+
+    - name: Upload run log
+      uses: actions/upload-artifact@v4
+      with:
+        name: run-log
+        path: run.log
+        if-no-files-found: warn
+
+    - name: Upload app log (if exists)
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-log
+        path: dist\PremediaApp\app.log
+        if-no-files-found: warn
+
+    - name: Upload error log (if exists)
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-error-log
+        path: dist\PremediaApp\error.log
+        if-no-files-found: warn
+
+    - name: Upload build directory
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-Build
+        path: dist\PremediaApp
+        if-no-files-found: warn
+
+    - name: Install Inno Setup
+      run: choco install innosetup --no-progress --yes --force
+      shell: cmd
+
+    - name: Build Inno Setup Installer
+      run: |
+        echo Running ISCC...
+        iscc installer\installer.iss
+        if not exist Output\PremediaApp-Setup.exe (
+          echo ERROR: Installer not created!
+          exit 1
+        )
+      shell: cmd
+
+    - name: Upload Windows Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-Windows-Installer
+        path: Output\PremediaApp-Setup.exe
+        retention-days: 7
+        if-no-files-found: error
