@@ -71,6 +71,8 @@ jobs:
           --hidden-import=PySide6.QtWidgets ^
           --hidden-import=PySide6.QtCore ^
           --hidden-import=PySide6.QtGui ^
+          --hidden-import=PySide6.QtNetwork ^
+          --hidden-import=PySide6.QtSvg ^
           --hidden-import=PySide6.uic ^
           --hidden-import=PIL.Image ^
           --hidden-import=login ^
@@ -90,6 +92,21 @@ jobs:
       with:
         name: pyinstaller-log
         path: pyinstaller.log
+      if: always()
+
+    - name: Run Executable for Testing
+      run: |
+        echo Running PremediaApp.exe for testing...
+        dist\PremediaApp\PremediaApp.exe || echo "Executable crashed!"
+      shell: cmd
+      if: always()
+      continue-on-error: true
+
+    - name: Upload PremediaApp Build Directory
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-Build
+        path: dist\PremediaApp
       if: always()
 
     - name: Check if EXE exists
