@@ -213,14 +213,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Debug Git Status
-        run: |
-          echo === Git Repository Details ===
-          git status
-          git log -n 1
-          echo === Current Directory ===
-          ls -la
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -229,7 +221,7 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt pyinstaller==6.14.1
+          pip install -r requirements.txt pyinstaller==6.14.1
 
       - name: Build App with PyInstaller
         run: |
@@ -240,22 +232,17 @@ jobs:
           echo "=== 📄 PyInstaller Log ==="
           cat pyinstaller.log || true
 
-          echo "=== 📁 dist directory listing ==="
+          echo "=== 📁 dist directory ==="
           ls -lah dist || true
 
-          echo "=== 📦 Checking for .app bundle ==="
+          echo "=== 📦 .app check ==="
           if [ -d "dist/PremediaApp.app" ]; then
-            echo "✅ PremediaApp.app generated successfully."
-            ls -lah dist/PremediaApp.app
+            echo "✅ PremediaApp.app successfully built"
           else
-            echo "❌ PremediaApp.app not found!"
+            echo "❌ PremediaApp.app not found! Build may have failed."
           fi
 
-          if [ $status -ne 0 ]; then
-            echo "❌ PyInstaller build failed! Exiting..."
-            exit $status
-          fi
-
+          exit $status
 
       - name: Upload PyInstaller Log
         uses: actions/upload-artifact@v4
@@ -264,11 +251,11 @@ jobs:
           path: pyinstaller.log
         if: always()
 
-      - name: Create DMG
+      - name: Create DMG from .app
         run: |
           mkdir -p dist/dmg
           if [ ! -d "dist/PremediaApp.app" ]; then
-            echo "❌ App bundle not found. Skipping DMG creation."
+            echo "❌ App bundle not found. Skipping DMG."
             exit 1
           fi
           hdiutil create dist/dmg/PremediaApp.dmg \

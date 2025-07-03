@@ -63,6 +63,7 @@ exe = EXE(
     icon=icon_file,
 )
 
+# Build macOS .app bundle
 app = BUNDLE(
     exe,
     name="PremediaApp.app",
@@ -79,7 +80,7 @@ app = BUNDLE(
     },
 )
 
-# Critical fix: use `exe` here, not `app`
+# 🔧 Key fix: pass `exe`, not `app`, to COLLECT()
 coll = COLLECT(
     exe,
     a.binaries,
