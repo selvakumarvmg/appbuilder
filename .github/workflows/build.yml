@@ -266,8 +266,13 @@ jobs:
           path: pyinstaller.log
 
       - name: ❌ Fix Blocked App Icon (Quarantine)
-        if: exists('dist/PremediaApp.app')
-        run: xattr -rd com.apple.quarantine dist/PremediaApp.app
+        run: |
+          if [ -d "dist/PremediaApp.app" ]; then
+            xattr -rd com.apple.quarantine dist/PremediaApp.app
+            echo "✅ Removed quarantine attributes."
+          else
+            echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
+          fi
 
       - name: 🧾 Create DMG (Disk Image)
         run: |
