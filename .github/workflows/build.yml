@@ -1,4 +1,4 @@
-name: Build PremediaApp Windows Installer
+name: Build PremediaApp Installers
 
 on:
   push:
@@ -14,124 +14,313 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # Debug: Print Git repository details
+    - name: Debug Git Status
+      run: |
+        echo === Git Repository Details ===
+        git status
+        git log -n 1
+        echo === Current Directory ===
+        dir
+      shell: cmd
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.9.13'
 
-    - name: Install dependencies
+    # Debug: Verify Python environment
+    - name: Verify Python Setup
       run: |
+        echo === Python Environment ===
+        python --version
+        python -m site
+        echo === PATH Environment Variable ===
+        echo %PATH%
+      shell: cmd
+
+    - name: Install dependencies with debug
+      run: |
+        echo === Installing Python Packages ===
         python -m pip install --upgrade pip
+        if %errorlevel% neq 0 (
+          echo ERROR: Failed to upgrade pip
+          exit 1
+        )
         pip install -r requirements.txt
+        if %errorlevel% neq 0 (
+          echo ERROR: Failed to install requirements.txt
+          exit 1
+        )
         pip install pyinstaller
+        if %errorlevel% neq 0 (
+          echo ERROR: Failed to install pyinstaller
+          exit 1
+        )
         pip list > installed_packages.txt
+        echo === Python Packages Installed ===
+        type installed_packages.txt
       shell: cmd
 
-    - name: Show installed packages
-      run: type installed_packages.txt
-      shell: cmd
-      if: always()
-
-    - name: Check required files
+    # Debug: Verify requirements.txt exists
+    - name: Verify requirements.txt
       run: |
-        dir app.py
-        dir icons\premedia.ico
-        dir icons\premedia.icns
-        dir icons\photoshop.png
-        dir icons\folder.png
-        dir terms.txt
-        dir license.txt
-        dir login.ui
-        dir premediaapp.ui
-        dir icons.qrc
-        dir icons_rc.py
-        dir login.py
-        dir installer\installer.iss
+        echo === Checking requirements.txt ===
+        if not exist requirements.txt (
+          echo ERROR: requirements.txt not found!
+          dir
+          exit 1
+        )
+        type requirements.txt
       shell: cmd
-      continue-on-error: true
 
-    - name: Build PyInstaller Executable (onedir)
+    - name: Verify key files exist
       run: |
-        echo ===== Building with PyInstaller =====
+        echo === Verifying Key Files ===
+        dir
+        dir icons || (echo ERROR: icons directory missing && exit 1)
+        dir installer || (echo ERROR: installer directory missing && exit 1)
+        dir *.py || (echo ERROR: No .py files found && exit 1)
+        dir *.txt || (echo ERROR: No .txt files found && exit 1)
+        if not exist app.spec (
+          echo ERROR: app.spec not found!
+          exit 1
+        )
+        type app.spec
+      shell: cmd
+
+    - name: Build with PyInstaller (Windows)
+      run: |
+        echo === Building with PyInstaller ===
         pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
+        if %errorlevel% neq 0 (
+          echo ERROR: PyInstaller build failed!
+          type pyinstaller.log
+          exit 1
+        )
+        echo === Build Done ===
       shell: cmd
 
     - name: Show PyInstaller log
-      run: type pyinstaller.log || echo "Log missing"
+      run: |
+        echo === PyInstaller Log ===
+        if exist pyinstaller.log (
+          type pyinstaller.log
+        ) else (
+          echo ERROR: pyinstaller.log missing
+        )
       shell: cmd
       if: always()
 
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
       with:
-        name: pyinstaller-log
+        name: pyinstaller-log-windows
         path: pyinstaller.log
+      if: always()
 
-    - name: Check if EXE exists
+    - name: Check Build Output
       run: |
-        echo Checking if EXE exists...
-        dir dist\PremediaApp
-        if not exist dist\PremediaApp\PremediaApp.exe (
-          echo ERROR: Executable not found!
-          exit 1
-        )
+        echo === Build Output ===
+        dir dist || (echo ERROR: dist directory missing && exit 1)
+        dir dist\PremediaApp || (echo ERROR: dist\PremediaApp directory missing && exit 1)
       shell: cmd
+      if: always()
 
-    - name: Run App for Smoke Test
-      run: |
-        echo Running PremediaApp.exe...
-        dist\PremediaApp\PremediaApp.exe --test > run.log 2>&1 || echo "App crashed"
-        echo ========== OUTPUT ==========
-        type run.log || echo "No log output"
-      shell: cmd
-      continue-on-error: true
-
-    - name: Upload run log
+    - name: Upload Windows Build Directory
       uses: actions/upload-artifact@v4
       with:
-        name: run-log
-        path: run.log
-        if-no-files-found: warn
-
-    - name: Upload app log (if exists)
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-log
-        path: dist\PremediaApp\app.log
-        if-no-files-found: warn
-
-    - name: Upload error log (if exists)
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-error-log
-        path: dist\PremediaApp\error.log
-        if-no-files-found: warn
-
-    - name: Upload build directory
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Build
+        name: PremediaApp-Windows-Build
         path: dist\PremediaApp
-        if-no-files-found: warn
+      if: always()
 
     - name: Install Inno Setup
-      run: choco install innosetup --no-progress --yes --force
+      run: |
+        echo === Installing Inno Setup ===
+        choco install innosetup --no-progress --yes --force
+        if %errorlevel% neq 0 (
+          echo ERROR: Failed to install Inno Setup
+          exit 1
+        )
+        echo === Inno Setup Version ===
+        iscc /? || (echo ERROR: Inno Setup not installed correctly && exit 1)
       shell: cmd
 
-    - name: Build Inno Setup Installer
+    - name: Build Installer with Inno Setup
       run: |
-        echo Running ISCC...
-        iscc installer\installer.iss
+        echo === Running Inno Setup ===
+        if not exist installer\installer.iss (
+          echo ERROR: installer.iss not found!
+          dir installer
+          exit 1
+        )
+        iscc installer\installer.iss > inno.log 2>&1
+        if %errorlevel% neq 0 (
+          echo ERROR: Inno Setup failed!
+          type inno.log
+          exit 1
+        )
+        echo === Inno Setup Done ===
+        if exist inno.log (
+          type inno.log
+        ) else (
+          echo ERROR: inno.log not found
+        )
         if not exist Output\PremediaApp-Setup.exe (
           echo ERROR: Installer not created!
+          dir Output
           exit 1
         )
       shell: cmd
 
-    - name: Upload Windows Installer
+    - name: Upload Inno Setup Log
+      uses: actions/upload-artifact@v4
+      with:
+        name: inno-log-windows
+        path: inno.log
+      if: always()
+
+    - name: Upload Inno Setup Installer
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
         path: Output\PremediaApp-Setup.exe
         retention-days: 7
-        if-no-files-found: error
+      if: always()
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Debug: Print Git repository details
+    - name: Debug Git Status
+      run: |
+        echo === Git Repository Details ===
+        git status
+        git log -n 1
+        echo === Current Directory ===
+        ls -la
+      shell: bash
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    # Debug: Verify Python environment
+    - name: Verify Python Setup
+      run: |
+        echo === Python Environment ===
+        python3 --version
+        python3 -m site
+        echo === PATH Environment Variable ===
+        echo $PATH
+      shell: bash
+
+    - name: Install dependencies with debug
+      run: |
+        echo === Installing Python Packages ===
+        python3 -m pip install --upgrade pip || { echo "ERROR: Failed to upgrade pip"; exit 1; }
+        pip install -r requirements.txt || { echo "ERROR: Failed to install requirements.txt"; exit 1; }
+        pip install pyinstaller || { echo "ERROR: Failed to install pyinstaller"; exit 1; }
+        pip list > installed_packages.txt
+        echo === Python Packages Installed ===
+        cat installed_packages.txt
+      shell: bash
+
+    # Debug: Verify requirements.txt exists
+    - name: Verify requirements.txt
+      run: |
+        echo === Checking requirements.txt ===
+        if [ ! -f requirements.txt ]; then
+          echo "ERROR: requirements.txt not found!"
+          ls -la
+          exit 1
+        fi
+        cat requirements.txt
+      shell: bash
+
+    - name: Verify key files
+      run: |
+        echo === Checking Files ===
+        ls -la
+        if [ ! -d icons ]; then
+          echo "ERROR: icons directory missing!"
+          exit 1
+        fi
+        ls -la icons
+        if [ ! -f app.spec ]; then
+          echo "ERROR: app.spec not found!"
+          ls -la
+          exit 1
+        fi
+        cat app.spec
+      shell: bash
+
+    - name: Build with PyInstaller (macOS)
+      run: |
+        echo === Building with PyInstaller ===
+        pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
+        if [ $? -ne 0 ]; thenERN: PyInstaller build failed!"
+          cat pyinstaller.log
+          exit 1
+        fi
+        echo === Build Complete ===
+        cat pyinstaller.log
+      shell: bash
+
+    - name: Upload PyInstaller log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-log-macos
+        path: pyinstaller.log
+      if: always()
+
+    - name: Check .app Bundle
+      run: |
+        echo === Checking .app Bundle ===
+        ls -la dist/PremediaApp/
+        if [ ! -d "dist/PremediaApp/PremediaApp.app" ]; then
+          echo "ERROR: .app bundle not found!"
+          ls -la dist/PremediaApp/
+          exit 1
+        fi
+      shell: bash
+
+    - name: Create DMG Image
+      run: |
+        echo === Creating DMG Image ===
+        mkdir -p dmg-content || { echo "ERROR: Failed to create dmg-content directory"; exit 1; }
+        cp -R dist/PremediaApp/PremediaApp.app dmg-content/ || { echo "ERROR: Failed to copy .app bundle"; exit 1; }
+        if [ ! -f icons/premedia.icns ]; then
+          echo "ERROR: premedia.icns not found!"
+          ls -la icons/
+          exit 1
+        fi
+        cp icons/premedia.icns dmg-content/.VolumeIcon.icns || { echo "ERROR: Failedmegia.icns"; exit 1; }
+        hdiutil create dmg/PremediaApp.dmg -volname "PremediaApp" -fs HFS+ -srcfolder dmg-content -ov > hdiutil.log 2>&1
+        if [ $? -ne 0 ]; then
+          echo "ERROR: DMG creation failed!"
+          cat hdiutil.log
+          exit 1
+        fi
+        echo === DMG Creation Complete ===
+        cat hdiutil.log
+      shell: bash
+
+    - name: Upload hdiutil Log
+      uses: actions/upload-artifact@v4
+      with:
+        name: hdiutil-log-macos
+        path: hdiutil.log
+      if: always()
+
+    - name: Upload macOS DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-macOS-DMG
+        path: dmg/PremediaApp.dmg
+      if: always()
