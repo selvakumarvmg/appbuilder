@@ -302,6 +302,12 @@ jobs:
                       cat hdiutil.log
                       exit 1
                    }
+                   
+      - name: 📤 Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PremediaApp-macos-dmg
+          path: dmg-build/PremediaApp.dmg
 
       - name: 📤 Upload hdiutil Log
         if: always()
