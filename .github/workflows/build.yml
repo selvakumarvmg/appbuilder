@@ -229,7 +229,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller PySide6
 
       - name: 📂 Check installer and installer-assets directories
         run: |
@@ -237,6 +237,8 @@ jobs:
           ls -lah installer
           echo "=== 📂 installer-assets directory ==="
           ls -lah installer-assets || echo "⚠️ installer-assets directory not found"
+          echo "=== 📂 icons directory ==="
+          ls -lah icons || echo "⚠️ icons directory not found"
 
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
@@ -260,7 +262,11 @@ jobs:
             echo "=== 📋 Checking Info.plist ==="
             cat dist/PremediaApp.app/Contents/Info.plist || echo "❌ Info.plist not found"
             echo "=== 🖥️ Checking executable ==="
-            ls -lh dist/PremediaApp.app/Contents/MacOS/*
+            ls -lh dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable found in Contents/MacOS"
+            echo "=== 📚 Checking resources ==="
+            ls -lh dist/PremediaApp.app/Contents/Resources/* || echo "❌ No resources found in Contents/Resources"
+            echo "=== 🏗️ Checking architecture ==="
+            file dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable to check"
           else
             echo "❌ PremediaApp.app not found!"
             exit 1

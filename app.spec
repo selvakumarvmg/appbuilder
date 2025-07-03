@@ -60,6 +60,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    target_arch="arm64",  # Ensure arm64 for Apple Silicon
     icon=icon_file,
 )
 
@@ -77,6 +78,7 @@ app = BUNDLE(
         "CFBundleVersion": "1.0.0",
         "CFBundleShortVersionString": "1.0.0",
         "NSHighResolutionCapable": True,
+        "LSMinimumSystemVersion": "11.0",  # Support macOS 11+
     },
 )
 
