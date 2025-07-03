@@ -254,7 +254,7 @@ jobs:
           if [ -d "dist/PremediaApp.app" ]; then
             echo "✅ PremediaApp.app generated successfully."
             echo "=== 📂 PremediaApp.app contents ==="
-            ls -lah dist/PremediaApp.app
+            find dist/PremediaApp.app -type f -ls
             echo "=== 📏 PremediaApp.app size ==="
             du -sh dist/PremediaApp.app
           else
@@ -273,14 +273,23 @@ jobs:
         run: |
           if [ -d "dist/PremediaApp.app" ]; then
             echo "=== 🛡️ Checking quarantine attributes before removal ==="
-            ls -l@ dist/PremediaApp.app/Contents/MacOS/*
-            xattr -rd com.apple.quarantine dist/PremediaApp.app
+            find dist/PremediaApp.app -type f -exec ls -l@ {} \;
+            xattr -rd com.apple.quarantine dist/PremediaApp.app || true
             echo "=== 🛡️ Checking quarantine attributes after removal ==="
-            ls -l@ dist/PremediaApp.app/Contents/MacOS/*
+            find dist/PremediaApp.app -type f -exec ls -l@ {} \;
             echo "✅ Removed quarantine attributes."
           else
             echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
           fi
+
+      - name: 🔏 Sign PremediaApp
+        if: env.CODESIGN_IDENTITY != ''
+        run: |
+          codesign --force --deep --sign "${CODESIGN_IDENTITY}" dist/PremediaApp.app
+          echo "=== 🛡️ Verifying code signature ==="
+          codesign -vvv --deep dist/PremediaApp.app
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
 
       - name: 🧾 Create DMG (Disk Image)
         run: |
@@ -295,7 +304,7 @@ jobs:
           echo "=== 📏 PremediaApp.app size ==="
           du -sh dmg-build/PremediaApp.app
           echo "=== 🛡️ Checking quarantine attributes before DMG creation ==="
-          ls -l@ dmg-build/PremediaApp.app/Contents/MacOS/*
+          find dmg-build/PremediaApp.app -type f -exec ls -l@ {} \;
           xattr -rd com.apple.quarantine dmg-build/PremediaApp.app || true
           echo "=== 🖼️ Creating .dmg with hdiutil ==="
           hdiutil create -volname "PremediaApp" \
@@ -317,7 +326,7 @@ jobs:
           ls -lh dmg-build/PremediaApp.dmg
           echo "=== 🛡️ Mounting DMG to check app ==="
           hdiutil attach dmg-build/PremediaApp.dmg
-          ls -l@ /Volumes/PremediaApp/PremediaApp.app/Contents/MacOS/*
+          find /Volumes/PremediaApp/PremediaApp.app -type f -exec ls -l@ {} \;
           hdiutil detach /Volumes/PremediaApp || true
 
       - name: 📤 Upload hdiutil Log
