@@ -231,14 +231,16 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller PySide6
 
-      - name: 📂 Check installer and installer-assets directories
+      - name: 📂 Check project directories
         run: |
-          echo "=== 📂 installer directory ==="
-          ls -lah installer
-          echo "=== 📂 installer-assets directory ==="
-          ls -lah installer-assets || echo "⚠️ installer-assets directory not found"
+          echo "=== 📂 Project root ==="
+          ls -lah .
+          echo "=== 📂 assets directory ==="
+          ls -lah assets || echo "⚠️ assets directory not found"
           echo "=== 📂 icons directory ==="
           ls -lah icons || echo "⚠️ icons directory not found"
+          echo "=== 📂 Static files ==="
+          ls -lah TERMS.txt LICENSE.txt || echo "⚠️ Static files not found"
 
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
@@ -267,6 +269,8 @@ jobs:
             ls -lh dist/PremediaApp.app/Contents/Resources/* || echo "❌ No resources found in Contents/Resources"
             echo "=== 🏗️ Checking architecture ==="
             file dist/PremediaApp.app/Contents/MacOS/* || echo "❌ No executable to check"
+            echo "=== 📚 Checking PySide6 libraries ==="
+            ls -lh dist/PremediaApp.app/Contents/Frameworks/* || echo "❌ No Frameworks found"
           else
             echo "❌ PremediaApp.app not found!"
             exit 1
@@ -338,17 +342,14 @@ jobs:
           hdiutil attach dmg-build/PremediaApp.dmg
           find /Volumes/PremediaApp/PremediaApp.app -type f -exec ls -l@ {} \;
           hdiutil detach /Volumes/PremediaApp || true
-
       - name: 📤 Upload hdiutil Log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: hdiutil-log
           path: hdiutil.log
-
       - name: 📂 Check DMG file
         run: ls -lah dmg-build/PremediaApp.dmg
-
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
