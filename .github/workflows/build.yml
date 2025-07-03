@@ -259,19 +259,12 @@ jobs:
           path: pyinstaller.log
         if: always()
 
-      - name: Build DMG
+      - name: Create DMG
         run: |
           mkdir -p dist/dmg
-          if [ -d dist/PremediaApp.app ]; then
-            cp -R dist/PremediaApp.app dist/dmg/
-          else
-            echo "dist/PremediaApp.app not found"
-            ls -la dist
-            exit 1
-          fi
-          hdiutil create dist/PremediaApp.dmg \
+          hdiutil create dist/dmg/PremediaApp.dmg \
             -volname "PremediaApp" \
-            -srcfolder dist/dmg \
+            -srcfolder dist/PremediaApp.app \
             -ov -format UDZO
 
       - name: Upload macOS DMG

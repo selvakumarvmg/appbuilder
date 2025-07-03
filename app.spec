@@ -27,10 +27,8 @@ for file in ["TERMS.txt", "LICENSE.txt"]:
     if Path(file).exists():
         data_files.append((file, "."))
 
-# Hidden imports for PySide6
 hidden_imports = collect_submodules("PySide6")
 
-# Start analysis
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
@@ -48,14 +46,12 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# Set correct icon per platform
 icon_path = (
     "icons/premedia.ico" if sys.platform == "win32"
     else "icons/premedia.icns" if sys.platform == "darwin"
     else None
 )
 
-# Generate executable
 exe = EXE(
     pyz,
     a.scripts,
@@ -70,7 +66,6 @@ exe = EXE(
     icon=icon_path,
 )
 
-# Collect everything
 coll = COLLECT(
     exe,
     a.binaries,
@@ -81,3 +76,21 @@ coll = COLLECT(
     upx_exclude=[],
     name="PremediaApp",
 )
+
+# Only on macOS, build the .app bundle
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="PremediaApp.app",
+        icon=icon_path,
+        bundle_identifier="com.vmgdigital.premediaapp",
+        info_plist={
+            "CFBundleName": "PremediaApp",
+            "CFBundleDisplayName": "PremediaApp",
+            "CFBundleGetInfoString": "PremediaApp macOS Application",
+            "CFBundleIdentifier": "com.vmgdigital.premediaapp",
+            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": "1.0.0",
+            "NSHighResolutionCapable": True,
+        },
+    )
