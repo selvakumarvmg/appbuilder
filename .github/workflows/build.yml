@@ -283,6 +283,22 @@ jobs:
           name: pyinstaller-log
           path: pyinstaller.log
 
+      - name: 🔏 Remove Invalid Signature
+        run: |
+          if [ -d "dist/PremediaApp.app/Contents/_CodeSignature" ]; then
+            rm -rf dist/PremediaApp.app/Contents/_CodeSignature
+            echo "✅ Removed invalid _CodeSignature directory"
+          fi
+
+      - name: 🔏 Sign PremediaApp
+        if: env.CODESIGN_IDENTITY != ''
+        run: |
+          codesign --force --deep --sign "${CODESIGN_IDENTITY}" dist/PremediaApp.app
+          echo "=== 🛡️ Verifying code signature ==="
+          codesign -vvv --deep dist/PremediaApp.app
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+
       - name: ❌ Fix Blocked App Icon (Quarantine)
         run: |
           if [ -d "dist/PremediaApp.app" ]; then
@@ -295,15 +311,6 @@ jobs:
           else
             echo "⚠️ dist/PremediaApp.app not found, skipping quarantine removal."
           fi
-
-      - name: 🔏 Sign PremediaApp
-        if: env.CODESIGN_IDENTITY != ''
-        run: |
-          codesign --force --deep --sign "${CODESIGN_IDENTITY}" dist/PremediaApp.app
-          echo "=== 🛡️ Verifying code signature ==="
-          codesign -vvv --deep dist/PremediaApp.app
-        env:
-          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
 
       - name: 🧾 Create DMG (Disk Image)
         run: |
@@ -342,14 +349,17 @@ jobs:
           hdiutil attach dmg-build/PremediaApp.dmg
           find /Volumes/PremediaApp/PremediaApp.app -type f -exec ls -l@ {} \;
           hdiutil detach /Volumes/PremediaApp || true
+
       - name: 📤 Upload hdiutil Log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: hdiutil-log
           path: hdiutil.log
+
       - name: 📂 Check DMG file
         run: ls -lah dmg-build/PremediaApp.dmg
+
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
