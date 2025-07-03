@@ -223,7 +223,7 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller==6.14.1
 
-      - name: Build App with PyInstaller
+      - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
           echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
           pyinstaller app.spec --clean --noconfirm > pyinstaller.log 2>&1
@@ -232,42 +232,44 @@ jobs:
           echo "=== 📄 PyInstaller Log ==="
           cat pyinstaller.log || true
 
-          echo "=== 📁 dist directory ==="
+          echo "=== 📁 dist directory listing ==="
           ls -lah dist || true
 
-          echo "=== 📦 .app check ==="
+          echo "=== 📦 Checking for .app bundle ==="
           if [ -d "dist/PremediaApp.app" ]; then
-            echo "✅ PremediaApp.app successfully built"
+            echo "✅ PremediaApp.app generated successfully."
+            ls -lah dist/PremediaApp.app
           else
-            echo "❌ PremediaApp.app not found! Build may have failed."
+            echo "❌ PremediaApp.app not found!"
           fi
 
-          exit $status
+          if [ $status -ne 0 ]; then
+            echo "❌ PyInstaller build failed! Exiting..."
+            exit $status
+          fi
 
-      - name: Upload PyInstaller Log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log-macos
-          path: pyinstaller.log
-        if: always()
-
-      - name: Create DMG from .app
+      - name: ❌ Fix Blocked App Icon (Quarantine)
         run: |
-          mkdir -p dist/dmg
-          if [ ! -d "dist/PremediaApp.app" ]; then
-            echo "❌ App bundle not found. Skipping DMG."
-            exit 1
-          fi
-          hdiutil create dist/dmg/PremediaApp.dmg \
-            -volname "PremediaApp" \
-            -srcfolder dist/PremediaApp.app \
-            -ov -format UDZO
+          xattr -rd com.apple.quarantine dist/PremediaApp.app
+          echo "✅ Removed quarantine attributes."
 
-      - name: Upload macOS DMG
-        uses: actions/upload-artifact@v4
+      - name: 🧾 Create DMG (Disk Image)
+        run: |
+          mkdir -p dmg-build
+          cp -R dist/PremediaApp.app dmg-build/
+
+          # Create custom background (optional)
+          echo "Creating dmg with background"
+          dmgbuild -s installer/dmg-settings.py \
+                   -D app=PremediaApp \
+                   "PremediaApp" \
+                   "PremediaApp.dmg"
+
+      - name: 📤 Upload DMG Artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: macOS-DMG
-          path: dist/dmg/PremediaApp.dmg
+          name: PremediaApp-macos-dmg
+          path: PremediaApp.dmg
           if-no-files-found: error
 
 
