@@ -259,10 +259,16 @@ jobs:
           path: pyinstaller.log
         if: always()
 
-      - name: Create DMG
+      - name: Build DMG
         run: |
           mkdir -p dist/dmg
-          cp -R dist/PremediaApp.app dist/dmg/
+          if [ -d dist/PremediaApp.app ]; then
+            cp -R dist/PremediaApp.app dist/dmg/
+          else
+            echo "dist/PremediaApp.app not found"
+            ls -la dist
+            exit 1
+          fi
           hdiutil create dist/PremediaApp.dmg \
             -volname "PremediaApp" \
             -srcfolder dist/dmg \
