@@ -229,30 +229,25 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt pyinstaller
-
-      - name: Verify Python Setup
-        run: |
-          python3 --version
-          python3 -m site
-          python3 -c "import PySide6; print('PySide6 version:', PySide6.__version__)"
-          python3 -c "import PIL; print('Pillow version:', PIL.__version__)"
-          python3 -c "import tzdata; print('tzdata imported successfully')"
+          pip3 install -r requirements.txt pyinstaller==6.4.1
 
       - name: Build App with PyInstaller
         run: |
           echo "=== Building app with PyInstaller ==="
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
+          pyinstaller app.spec --clean --noconfirm > pyinstaller.log 2>&1
           status=$?
+          echo "=== PyInstaller Log ==="
           cat pyinstaller.log || true
-          echo "=== Listing dist directory ==="
-          ls -R dist || true
+          echo "=== dist folder ==="
+          ls -lah dist || true
+          echo "=== app bundle ==="
+          ls -lah dist/PremediaApp.app || echo "App not found!"
           if [ $status -ne 0 ]; then
-            echo "PyInstaller build failed!"
+            echo "❌ PyInstaller build failed!"
             exit $status
           fi
 
-      - name: Upload PyInstaller log
+      - name: Upload PyInstaller Log
         uses: actions/upload-artifact@v4
         with:
           name: pyinstaller-log-macos
@@ -262,6 +257,10 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dist/dmg
+          if [ ! -d "dist/PremediaApp.app" ]; then
+            echo "❌ App bundle not found. Skipping DMG creation."
+            exit 1
+          fi
           hdiutil create dist/dmg/PremediaApp.dmg \
             -volname "PremediaApp" \
             -srcfolder dist/PremediaApp.app \
@@ -272,10 +271,8 @@ jobs:
         with:
           name: macOS-DMG
           path: dist/dmg/PremediaApp.dmg
-          if-no-files-found: warn
-          compression-level: 6
-          overwrite: false
-          include-hidden-files: false
+          if-no-files-found: error
+
 
   build-ubuntu:
     runs-on: ubuntu-latest
