@@ -49,10 +49,10 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Build GUI Executable
+    - name: Build GUI Executable (onedir for fast startup)
       run: |
         echo ===== Building with PyInstaller =====
-        pyinstaller --noconfirm --onefile --windowed ^
+        pyinstaller --noconfirm --windowed --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
@@ -76,7 +76,6 @@ jobs:
           --hidden-import=login ^
           --hidden-import=icons_rc ^
           --collect-submodules PySide6 ^
-          --log-level=DEBUG ^
           app.py > pyinstaller.log 2>&1
       shell: cmd
       continue-on-error: true
@@ -95,22 +94,17 @@ jobs:
 
     - name: Check if EXE exists
       run: |
-        echo Checking dist\PremediaApp.exe
-        dir dist
-        if not exist dist\PremediaApp.exe (
+        echo Checking dist\PremediaApp\PremediaApp.exe
+        dir dist\PremediaApp
+        if not exist dist\PremediaApp\PremediaApp.exe (
           echo ERROR: Executable not found!
           exit 1
         )
       shell: cmd
 
     - name: Install Inno Setup
-      run: |
-        try {
-          choco install innosetup --no-progress --yes -Force
-        } catch {
-          Write-Host "Inno Setup may already be installed"
-        }
-      shell: powershell
+      run: choco install innosetup --no-progress --yes --force
+      shell: cmd
       continue-on-error: true
 
     - name: Verify Inno Setup installed
