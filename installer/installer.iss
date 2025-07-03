@@ -34,7 +34,10 @@ Uninstallable=yes
 Name: autostart; Description: "Launch PremediaApp automatically on startup"; Flags: unchecked
 
 [Files]
-Source: "..\dist\PremediaApp.exe"; DestDir: "{app}"; DestName: "PremediaApp.exe"; Flags: ignoreversion
+; Entire app output folder
+Source: "..\dist\PremediaApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Other resources
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
