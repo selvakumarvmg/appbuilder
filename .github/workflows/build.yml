@@ -1,4 +1,4 @@
-name: Build PremediaApp Installer
+name: Build PremediaApp Windows Installer
 
 on:
   push:
@@ -8,41 +8,17 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Debug: Print Git repository and directory state
-      - name: Debug Git Status
-        run: |
-          echo === Git Repository Details ===
-          git status
-          git log -n 1
-          echo === Current Directory ===
-          dir
-        shell: cmd
-
-      - name: Setup Python
+      - name: Setup Python 3.9
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      # Debug: Verify Python environment
-      - name: Verify Python Setup
-        run: |
-          echo === Python Environment ===
-          python --version
-          python -m site
-          echo === PATH Environment Variable ===
-          echo %PATH%
-          echo === Checking Python Modules ===
-          python -c "import PySide6; print('PySide6 version:', PySide6.__version__)" || echo "ERROR: PySide6 not found"
-          python -c "import PIL; print('Pillow version:', PIL.__version__)" || echo "ERROR: PIL not found"
-          python -c "import tzdata; print('tzdata imported successfully')" || echo "ERROR: tzdata not found"
-          python -c "import login; print('login module imported successfully')" || echo "ERROR: login module not found"
-        shell: cmd
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           echo === Installing Python Packages ===
           if not exist requirements.txt (
@@ -52,60 +28,53 @@ jobs:
           )
           type requirements.txt
           python -m pip install --upgrade pip
-          if %errorlevel% neq 0 (
-            echo ERROR: Failed to upgrade pip
-            exit 1
-          )
           pip install -r requirements.txt pyinstaller
-          if %errorlevel% neq 0 (
-            echo ERROR: Failed to install dependencies
-            exit 1
-          )
           pip list > installed_packages.txt
-          echo === Python Packages Installed ===
+        shell: cmd
+
+      - name: Verify Installed Packages
+        run: |
+          echo === Installed Packages ===
           type installed_packages.txt
         shell: cmd
 
-      # Debug: Verify key files
-      - name: Verify key files
+      - name: Verify Key Files
         run: |
-          echo === Checking Files ===
-          dir
-          if not exist app.spec (
-            echo ERROR: app.spec not found!
-            exit 1
-          )
-          type app.spec
+          echo === Verifying Files ===
           if not exist app.py (
             echo ERROR: app.py not found!
             exit 1
           )
-          dir installer || (echo ERROR: installer directory missing && exit 1)
-          if not exist installer\installer.iss (
-            echo ERROR: installer.iss not found!
-            dir installer
+          if not exist app.spec (
+            echo ERROR: app.spec not found!
+            exit 1
+          )
+          if not exist login.py (
+            echo ERROR: login.py not found!
             exit 1
           )
         shell: cmd
 
-      - name: Build EXE with PyInstaller
+      - name: Compile Python Code (Check Syntax Errors)
         run: |
-          echo === Building with PyInstaller ===
+          echo === Checking Syntax ===
+          python -m py_compile app.py
+          python -m py_compile login.py
+        shell: cmd
+
+      - name: Run PyInstaller (onedir for fast startup)
+        run: |
+          echo === Running PyInstaller ===
           pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
           if %errorlevel% neq 0 (
-            echo ERROR: PyInstaller build failed!
+            echo ERROR: PyInstaller failed!
             type pyinstaller.log
-            echo === Checking app.py syntax ===
-            python -m py_compile app.py || (echo ERROR: app.py has syntax errors && exit 1)
-            echo === Checking disk space ===
-            dir
             exit 1
           )
-          echo === Build Complete ===
-          type pyinstaller.log
+          echo === PyInstaller Finished Successfully ===
         shell: cmd
 
-      - name: Upload PyInstaller log
+      - name: Upload PyInstaller Log
         uses: actions/upload-artifact@v4
         with:
           name: pyinstaller-log-windows
@@ -114,319 +83,31 @@ jobs:
 
       - name: Check Build Output
         run: |
-          echo === Build Output ===
-          dir dist || (echo ERROR: dist directory missing && exit 1)
-          dir dist\PremediaApp || (echo ERROR: dist\PremediaApp directory missing && exit 1)
+          echo === Checking dist/PremediaApp Output ===
+          dir dist
+          dir dist\PremediaApp
+          if not exist dist\PremediaApp\PremediaApp.exe (
+            echo ERROR: EXE not found in dist\PremediaApp!
+            exit 1
+          )
         shell: cmd
-        if: always()
 
       - name: Setup Inno Setup
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: installer/installer.iss
 
-      - name: Verify Inno Setup Output
+      - name: Verify Installer Output
         run: |
-          echo === Checking Inno Setup Output ===
-          dir Output || (echo ERROR: Output directory missing && exit 1)
+          dir Output
           if not exist Output\PremediaApp.exe (
             echo ERROR: Installer not created!
-            dir Output
             exit 1
           )
         shell: cmd
-        if: always()
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Installer
           path: Output/PremediaApp.exe
-        if: always()
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Debug Git Status
-        run: |
-          echo === Git Repository Details ===
-          git status
-          git log -n 1
-          echo === Current Directory ===
-          ls -la
-        shell: bash
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Verify Python Setup
-        run: |
-          echo === Python Environment ===
-          python3 --version
-          python3 -m site
-          echo === PATH Environment Variable ===
-          echo $PATH
-          echo === Checking Python Modules ===
-          python3 -c "import PySide6; print('PySide6 version:', PySide6.__version__)" || echo "ERROR: PySide6 not found"
-          python3 -c "import PIL; print('Pillow version:', PIL.__version__)" || echo "ERROR: PIL not found"
-          python3 -c "import tzdata; print('tzdata imported successfully')" || echo "ERROR: tzdata not found"
-          python3 -c "import login; print('login module imported successfully')" || echo "ERROR: login module not found"
-          python3 -c "import icons_rc; print('icons_rc module imported successfully')" || echo "ERROR: icons_rc not found"
-        shell: bash
-
-      - name: Install dependencies
-        run: |
-          echo === Installing Python Packages ===
-          if [ ! -f requirements.txt ]; then
-            echo "ERROR: requirements.txt not found!"
-            ls -la
-            exit 1
-          fi
-          cat requirements.txt
-          python3 -m pip install --upgrade pip || { echo "ERROR: Failed to upgrade pip"; exit 1; }
-          pip3 install -r requirements.txt pyinstaller || { echo "ERROR: Failed to install dependencies"; exit 1; }
-          pip3 list > installed_packages.txt
-          echo === Python Packages Installed ===
-          cat installed_packages.txt
-        shell: bash
-
-      - name: Verify key files
-        run: |
-          echo === Checking Files ===
-          ls -la
-          if [ ! -f app.spec ]; then
-            echo "ERROR: app.spec not found!"
-            ls -la
-            exit 1
-          fi
-          if [ ! -f app.py ]; then
-            echo "ERROR: app.py not found!"
-            ls -la
-            exit 1
-          fi
-          if [ ! -d installer-assets ]; then
-            echo "ERROR: installer-assets directory missing!"
-            ls -la
-            exit 1
-          fi
-          if [ ! -f installer-assets/dmg-background.bmp ]; then
-            echo "ERROR: dmg-background.bmp not found!"
-            ls -la installer-assets/
-            exit 1
-          fi
-          if [ ! -f icons/premedia.icns ]; then
-            echo "ERROR: premedia.icns not found!"
-            ls -la icons/
-            exit 1
-          fi
-          cat app.spec
-        shell: bash
-
-      - name: Build macOS App
-        run: |
-          echo === Building with PyInstaller ===
-          echo === Current Directory ===
-          pwd
-          ls -la
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-          if [ $? -ne 0 ]; then
-            echo "ERROR: PyInstaller build failed!"
-            cat pyinstaller.log
-            echo === Checking app.py syntax ===
-            python3 -m py_compile app.py || { echo "ERROR: app.py has syntax errors"; exit 1; }
-            echo === Checking disk space ===
-            df -h
-            echo === Checking permissions ===
-            ls -la app.py icons/premedia.icns
-            exit 1
-          fi
-          echo === Build Complete ===
-          cat pyinstaller.log
-          echo === Checking .app Bundle ===
-          if [ ! -d "dist/PremediaApp.app" ]; then
-            echo "ERROR: .app bundle not found!"
-            ls -la dist/
-            exit 1
-          fi
-          ls -la dist/PremediaApp.app/Contents/MacOS/
-          ls -la dist/PremediaApp.app/Contents/Resources/
-          echo === Creating DMG ===
-          mkdir -p dist/dmg || { echo "ERROR: Failed to create dist/dmg directory"; exit 1; }
-          cp -R dist/PremediaApp.app dist/dmg/ || { echo "ERROR: Failed to copy .app bundle"; exit 1; }
-          hdiutil create dist/PremediaApp.dmg \
-            -volname "PremediaApp" \
-            -srcfolder dist/dmg \
-            -ov -format UDZO \
-            -background installer-assets/dmg-background.bmp > hdiutil.log 2>&1
-          if [ $? -ne 0 ]; then
-            echo "ERROR: DMG creation failed!"
-            cat hdiutil.log
-            exit 1
-          fi
-          echo === DMG Creation Complete ===
-          cat hdiutil.log
-        shell: bash
-
-      - name: Upload PyInstaller log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log-macos
-          path: pyinstaller.log
-        if: always()
-
-      - name: Upload hdiutil log
-        uses: actions/upload-artifact@v4
-        with:
-          name: hdiutil-log-macos
-          path: hdiutil.log
-        if: always()
-
-      - name: Upload macOS DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: macOS-DMG
-          path: dist/PremediaApp.dmg
-        if: always()
-
-  build-ubuntu:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Debug Git Status
-        run: |
-          echo === Git Repository Details ===
-          git status
-          git log -n 1
-          echo === Current Directory ===
-          ls -la
-        shell: bash
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Verify Python Setup
-        run: |
-          echo === Python Environment ===
-          python3 --version
-          python3 -m site
-          echo === PATH Environment Variable ===
-          echo $PATH
-          echo === Checking Python Modules ===
-          python3 -c "import PySide6; print('PySide6 version:', PySide6.__version__)" || echo "ERROR: PySide6 not found"
-          python3 -c "import PIL; print('Pillow version:', PIL.__version__)" || echo "ERROR: PIL not found"
-          python3 -c "import tzdata; print('tzdata imported successfully')" || echo "ERROR: tzdata not found"
-          python3 -c "import login; print('login module imported successfully')" || echo "ERROR: login module not found"
-        shell: bash
-
-      - name: Install dependencies
-        run: |
-          echo === Installing System Dependencies ===
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev libx11-dev || { echo "ERROR: Failed to install system dependencies"; exit 1; }
-          echo === Installing Python Packages ===
-          if [ ! -f requirements.txt ]; then
-            echo "ERROR: requirements.txt not found!"
-            ls -la
-            exit 1
-          fi
-          cat requirements.txt
-          python3 -m pip install --upgrade pip || { echo "ERROR: Failed to upgrade pip"; exit 1; }
-          pip3 install -r requirements.txt pyinstaller || { echo "ERROR: Failed to install dependencies"; exit 1; }
-          pip3 list > installed_packages.txt
-          echo === Python Packages Installed ===
-          cat installed_packages.txt
-        shell: bash
-
-      - name: Verify key files
-        run: |
-          echo === Checking Files ===
-          ls -la
-          if [ ! -f app.spec ]; then
-            echo "ERROR: app.spec not found!"
-            ls -la
-            exit 1
-          fi
-          if [ ! -f app.py ]; then
-            echo "ERROR: app.py not found!"
-            ls -la
-            exit 1
-          fi
-          cat app.spec
-        shell: bash
-
-      - name: Build Linux Binary
-        run: |
-          echo === Building with PyInstaller ===
-          echo === Current Directory ===
-          pwd
-          ls -la
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-          if [ $? -ne 0 ]; then
-            echo "ERROR: PyInstaller build failed!"
-            cat pyinstaller.log
-            echo === Checking app.py syntax ===
-            python3 -m py_compile app.py || { echo "ERROR: app.py has syntax errors"; exit 1; }
-            echo === Checking disk space ===
-            df -h
-            echo === Checking permissions ===
-            ls -la app.py
-            exit 1
-          fi
-          echo === Build Complete ===
-          cat pyinstaller.log
-          echo === Checking Build Output ===
-          if [ ! -f dist/PremediaApp ]; then
-            echo "ERROR: Linux binary not found!"
-            ls -la dist/
-            exit 1
-          fi
-        shell: bash
-
-      - name: Upload PyInstaller log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log-ubuntu
-          path: pyinstaller.log
-        if: always()
-
-      - name: Build .deb package
-        run: |
-          echo === Building .deb Package ===
-          mkdir -p dist/debian/usr/bin || { echo "ERROR: Failed to create dist/debian/usr/bin"; exit 1; }
-          cp dist/PremediaApp dist/debian/usr/bin/PremediaApp || { echo "ERROR: Failed to copy PremediaApp binary"; exit 1; }
-          chmod +x dist/debian/usr/bin/PremediaApp
-          echo === Creating DEBIAN/control ===
-          mkdir -p dist/debian/DEBIAN
-          echo "Package: premediaapp\nVersion: 1.0.0\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Your Name <your.email@example.com>\nDescription: PremediaApp" > dist/debian/DEBIAN/control
-          dpkg-deb --build dist/debian dist/PremediaApp.deb > dpkg.log 2>&1
-          if [ $? -ne 0 ]; then
-            echo "ERROR: .deb package creation failed!"
-            cat dpkg.log
-            exit 1
-          fi
-          echo === .deb Package Created ===
-          ls -la dist/PremediaApp.deb
-        shell: bash
-
-      - name: Upload dpkg log
-        uses: actions/upload-artifact@v4
-        with:
-          name: dpkg-log-ubuntu
-          path: dpkg.log
-        if: always()
-
-      - name: Upload Ubuntu DEB
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ubuntu-DEB
-          path: dist/PremediaApp.deb
-        if: always()

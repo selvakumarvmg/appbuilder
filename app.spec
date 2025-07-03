@@ -54,7 +54,7 @@ exe = EXE(
     icon='icons/premedia.ico' if os.name == 'nt' else 'icons/premedia.icns',
 )
 
-# BUNDLE is only needed for macOS .app format
+# macOS bundle support
 app = None
 if sys.platform == 'darwin':
     app = BUNDLE(
@@ -73,13 +73,8 @@ if sys.platform == 'darwin':
         }
     )
 
-# Set the correct target for COLLECT depending on platform
-if os.name == 'nt':
-    target = exe
-elif sys.platform == 'darwin':
-    target = app
-else:
-    target = exe  # Linux uses the EXE directly
+# Choose target based on platform
+target = app if sys.platform == 'darwin' else exe
 
 coll = COLLECT(
     target,
