@@ -46,11 +46,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-icon_path = (
-    "icons/premedia.ico" if sys.platform == "win32"
-    else "icons/premedia.icns" if sys.platform == "darwin"
-    else None
-)
+# Use .icns for macOS
+icon_file = "icons/premedia.icns"
 
 exe = EXE(
     pyz,
@@ -63,32 +60,28 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon=icon_path,
+    icon=icon_file,
 )
 
-#  Only wrap EXE in BUNDLE on macOS
-if sys.platform == "darwin":
-    app = BUNDLE(
-        exe,
-        name="PremediaApp.app",
-        icon=icon_path,
-        bundle_identifier="com.vmgdigital.premediaapp",
-        info_plist={
-            "CFBundleName": "PremediaApp",
-            "CFBundleDisplayName": "PremediaApp",
-            "CFBundleGetInfoString": "PremediaApp macOS Application",
-            "CFBundleIdentifier": "com.vmgdigital.premediaapp",
-            "CFBundleVersion": "1.0.0",
-            "CFBundleShortVersionString": "1.0.0",
-            "NSHighResolutionCapable": True,
-        },
-    )
-    final_target = app
-else:
-    final_target = exe
+app = BUNDLE(
+    exe,
+    name="PremediaApp.app",
+    icon=icon_file,
+    bundle_identifier="com.vmgdigital.premediaapp",
+    info_plist={
+        "CFBundleName": "PremediaApp",
+        "CFBundleDisplayName": "PremediaApp",
+        "CFBundleExecutable": "PremediaApp",
+        "CFBundleIdentifier": "com.vmgdigital.premediaapp",
+        "CFBundleVersion": "1.0.0",
+        "CFBundleShortVersionString": "1.0.0",
+        "NSHighResolutionCapable": True,
+    },
+)
 
+# Critical fix: use `exe` here, not `app`
 coll = COLLECT(
-    final_target,
+    exe,
     a.binaries,
     a.zipfiles,
     a.datas,
