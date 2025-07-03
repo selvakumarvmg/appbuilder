@@ -1,4 +1,3 @@
-# app.spec
 import os
 import sys
 from PyInstaller.utils.hooks import collect_submodules
@@ -54,8 +53,7 @@ exe = EXE(
     icon='icons/premedia.ico' if os.name == 'nt' else 'icons/premedia.icns',
 )
 
-# macOS bundle support
-app = None
+# Optional macOS bundle (for DMG packaging)
 if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
@@ -72,12 +70,12 @@ if sys.platform == 'darwin':
             'CFBundleIconFile': 'premedia.icns',
         }
     )
-
-# Choose target based on platform
-target = app if sys.platform == 'darwin' else exe
+    build_target = app
+else:
+    build_target = exe
 
 coll = COLLECT(
-    target,
+    build_target,
     a.binaries,
     a.zipfiles,
     a.datas,
