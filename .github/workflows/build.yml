@@ -214,6 +214,12 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
+      - name: 🛠️ Install Xcode Command Line Tools
+        run: |
+          if ! xcode-select -p; then
+            sudo xcode-select --install
+          fi
+
       - name: 🐍 Set up Python
         uses: actions/setup-python@v4
         with:
@@ -222,20 +228,27 @@ jobs:
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install dmgbuild pyinstaller
+          pip install -r requirements.txt
+          pip install dmgbuild==1.3.2 pyinstaller
+
+      - name: 📂 Check installer and installer-assets directories
+        run: |
+          echo "=== 📂 installer directory ==="
+          ls -lah installer
+          echo "=== 📂 installer-assets directory ==="
+          ls -lah installer-assets || echo "⚠️ installer-assets directory not found"
 
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
           echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
-          pyinstaller app.spec --clean --noconfirm > pyinstaller.log 2>&1
+          pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
           status=$?
 
           echo "=== 📄 PyInstaller Log ==="
-          cat pyinstaller.log || true
+          cat pyinstaller.log
 
           echo "=== 📁 dist directory listing ==="
-          ls -lah dist || true
+          ls -lah dist
 
           if [ -d "dist/PremediaApp.app" ]; then
             echo "✅ PremediaApp.app generated successfully."
@@ -245,23 +258,39 @@ jobs:
             exit 1
           fi
 
+      - name: 📤 Upload PyInstaller Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-log
+          path: pyinstaller.log
+
       - name: ❌ Fix Blocked App Icon (Quarantine)
-        run: |
-          xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-          echo "✅ Removed quarantine attributes."
+        if: exists('dist/PremediaApp.app')
+        run: xattr -rd com.apple.quarantine dist/PremediaApp.app
 
       - name: 🧾 Create DMG (Disk Image)
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
-          
+          if [ ! -d "dmg-build/PremediaApp.app" ]; then
+            echo "❌ Failed to copy PremediaApp.app to dmg-build"
+            exit 1
+          fi
           echo "=== 📂 dmg-build directory ==="
           ls -lah dmg-build
-
           echo "=== 🖼️ Creating .dmg with background ==="
           dmgbuild -s installer/dmg-settings.py \
-                   "PremediaApp" \
-                   "dmg-build/PremediaApp.dmg"
+                  "PremediaApp" \
+                  "dmg-build/PremediaApp.dmg"
+          if [ ! -f "dmg-build/PremediaApp.dmg" ]; then
+            echo "❌ DMG file not created"
+            exit 1
+          fi
+          echo "✅ DMG file created successfully"
+
+      - name: 📂 Check DMG file
+        run: ls -lah dmg-build/PremediaApp.dmg
 
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4

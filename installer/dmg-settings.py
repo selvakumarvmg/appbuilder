@@ -27,6 +27,3 @@ codesign_identity = None
 symlinks = {
     "Applications": "/Applications"
 }
-
-# Hide hidden files (like .DS_Store)
-hide_extensions = True
