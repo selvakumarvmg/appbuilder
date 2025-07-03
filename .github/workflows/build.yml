@@ -49,10 +49,10 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Build GUI Executable (with console for debugging)
+    - name: Build GUI Executable (--onedir)
       run: |
         echo ===== Building with PyInstaller =====
-        pyinstaller --noconfirm --onedir --console ^
+        pyinstaller --noconfirm --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
@@ -94,30 +94,20 @@ jobs:
         path: pyinstaller.log
       if: always()
 
-    - name: Test Executable Run (log any crash)
-      run: |
-        echo Running PremediaApp.exe for 10 seconds...
-        start "" dist\PremediaApp\PremediaApp.exe
-        timeout /t 10 /nobreak
-        taskkill /im PremediaApp.exe /f >nul 2>&1 || echo "Already exited"
-        echo Run test complete
-      shell: cmd
-      continue-on-error: true
-
-    - name: Upload error.log if exists
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-error-log
-        path: dist\PremediaApp\error.log
-      if: always()
-      continue-on-error: true
-
-    - name: Upload Build Folder
+    - name: Upload App Build Directory (for troubleshooting)
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Build
         path: dist\PremediaApp
       if: always()
+
+    - name: Upload Application Logs (if available)
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-error-log
+        path: dist\PremediaApp\error.log
+        if-no-files-found: warn
+        continue-on-error: true
 
     - name: Check if EXE exists
       run: |
@@ -134,7 +124,7 @@ jobs:
       shell: cmd
       continue-on-error: true
 
-    - name: Verify Inno Setup installation
+    - name: Verify Inno Setup installed
       run: where iscc || echo "ISCC not found!"
       shell: cmd
 
