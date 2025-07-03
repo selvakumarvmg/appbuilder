@@ -229,7 +229,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller PySide6
+          pip install pyinstaller PySide6 dmgbuild
+
+      - name: 🧪 Verify dmgbuild installed
+        run: |
+          which dmgbuild
+          dmgbuild --version
 
       - name: 📂 Check project directories
         run: |
