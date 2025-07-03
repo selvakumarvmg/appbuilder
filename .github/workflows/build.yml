@@ -208,20 +208,22 @@ jobs:
           path: Output/PremediaApp-Setup.exe
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
+
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: "3.9"
 
-      - name: Install dependencies
+      - name: 📦 Install Dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller==6.14.1
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller dmgbuild
 
       - name: 🛠️ Build PremediaApp with PyInstaller
         run: |
@@ -270,7 +272,6 @@ jobs:
         with:
           name: PremediaApp-macos-dmg
           path: PremediaApp.dmg
-          if-no-files-found: error
 
 
   build-ubuntu:
