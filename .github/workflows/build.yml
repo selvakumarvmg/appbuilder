@@ -32,131 +32,6 @@ jobs:
       shell: cmd
       if: always()
 
-    - name: Build GUI Executable (--onedir)
-      run: |
-        echo ===== Building with PyInstaller =====
-        pyinstaller --noconfirm --onedir ^
-          --name PremediaApp ^
-          --icon=icons\premedia.ico ^
-          --add-data "icons\premedia.ico;icons" ^
-          --add-data "icons\photoshop.png;icons" ^
-          --add-data "icons\folder.png;icons" ^
-          --add-data "terms.txt;." ^
-          --add-data "license.txt;." ^
-          --add-data "login.ui;." ^
-          --add-data "premediaapp.ui;." ^
-          --add-data "icons.qrc;." ^
-          --add-data "icons_rc.py;." ^
-          --add-data "login.py;." ^
-          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
-          --hidden-import=paramiko ^
-          --hidden-import=tzdata ^
-          --hidden-import=PySide6.QtWidgets ^
-          --hidden-import=PySide6.QtCore ^
-          --hidden-import=PySide6.QtGui ^
-          --hidden-import=PySide6.QtNetwork ^
-          --hidden-import=PySide6.QtSvg ^
-          --hidden-import=PySide6.uic ^
-          --hidden-import=PIL.Image ^
-          --hidden-import=login ^
-          --hidden-import=icons_rc ^
-          --collect-submodules PySide6 ^
-          app.py > pyinstaller.log 2>&1
-      shell: cmd
-
-    - name: Show PyInstaller log
-      run: type pyinstaller.log || echo "Log missing"
-      shell: cmd
-      if: always()
-
-    - name: Upload PyInstaller log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log
-        path: pyinstaller.log
-      if: always()
-
-    - name: Upload Application Build Directory
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Build
-        path: dist\PremediaApp
-      if: always()
-
-    - name: Upload App Crash Log if available
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-error-log
-        path: dist\PremediaApp\error.log
-        if-no-files-found: warn
-
-    - name: Check if EXE exists
-      run: |
-        echo Checking dist\PremediaApp\PremediaApp.exe
-        if not exist dist\PremediaApp\PremediaApp.exe (
-          echo ERROR: Executable not found!
-          exit 1
-        )
-      shell: cmd
-
-    - name: Install Inno Setup
-      run: choco install innosetup --no-progress --yes --force
-      shell: cmd
-
-    - name: Verify Inno Setup installed
-      run: where iscc || echo "ISCC not found!"
-      shell: cmd
-
-    - name: Build Installer with Inno Setup
-      run: |
-        echo Running Inno Setup compiler...
-        iscc installer\installer.iss
-        if not exist Output\PremediaApp-Setup.exe (
-          echo ERROR: Installer not created!
-          exit 1
-        )
-      shell: cmd
-
-    - name: Upload Windows Installer
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-Windows-Installer
-        path: Output\PremediaApp-Setup.exe
-        retention-days: 7
-aname: Build PremediaApp Windows Installer
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9.13'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
-        pip list > installed_packages.txt
-      shell: cmd
-
-    - name: Show installed packages
-      run: type installed_packages.txt
-      shell: cmd
-      if: always()
-
     - name: Check required files
       run: |
         dir app.py
@@ -178,8 +53,7 @@ jobs:
     - name: Build PyInstaller Executable (onedir)
       run: |
         echo ===== Building with PyInstaller =====
-        pyinstaller --noconfirm ^
-          app.spec > pyinstaller.log 2>&1
+        pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
       shell: cmd
 
     - name: Show PyInstaller log
@@ -192,9 +66,8 @@ jobs:
       with:
         name: pyinstaller-log
         path: pyinstaller.log
-        if-no-files-found: warn
 
-    - name: Check EXE exists
+    - name: Check if EXE exists
       run: |
         echo Checking if EXE exists...
         dir dist\PremediaApp
