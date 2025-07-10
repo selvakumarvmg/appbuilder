@@ -14,11 +14,11 @@ jobs:
     - name: 🧾 Checkout code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python (ARM64)
+    - name: 🐍 Set up Python for Intel (x86_64)
       uses: actions/setup-python@v5
       with:
         python-version: "3.9"
-        architecture: arm64
+        architecture: x64
 
     - name: 📦 Install dependencies
       run: |
@@ -44,7 +44,7 @@ jobs:
     - name: 🚀 Build with PyInstaller
       run: |
         echo "🚀 Building with PyInstaller..."
-        pyinstaller app.spec
+        pyinstaller --target-arch x86_64 app.spec
         echo "📁 dist/ directory contents:"
         ls -lh dist
 
