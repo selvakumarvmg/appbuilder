@@ -1,20 +1,21 @@
 # installer/dmg-settings.py
 
 application = "PremediaApp"
-app_path = f"dmg-build/{application}.app"  # <== Must match what you copy earlier
-
-background = "installer-assets/dmg-background.bmp"  # <== Must exist and be BMP/PNG 72DPI
+app_path = "dmg-build/PremediaApp.app"
+background = "installer-assets/dmg-background.bmp"
 
 volume_name = "PremediaApp"
 icon_size = 128
-icon_locations = {
-    f"{application}.app": (140, 120),
-    "Applications": (380, 120),
-}
-window_rect = ((100, 100), (520, 280))
+window_rect = ((200, 200), (480, 360))
 
-codesign_identity = None
-
-symlinks = {
-    "Applications": "/Applications"
+dmg_settings = {
+    "volume_icon": None,
+    "background": background,
+    "icon_size": icon_size,
+    "window_rect": window_rect,
+    "applications_link": True,
+    "icon_locations": {
+        application: (140, 160),
+        "Applications": (340, 160)
+    },
 }
