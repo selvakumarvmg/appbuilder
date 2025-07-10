@@ -1,123 +1,4 @@
-# name: Build PremediaApp Windows Installer
-
-# on:
-#   push:
-#     branches: [main]
-#   workflow_dispatch:
-
-# jobs:
-#   build-windows:
-#     runs-on: windows-latest
-
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
-
-#       - name: Setup Python 3.9
-#         uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.9'
-
-#       - name: Install Dependencies
-#         run: |
-#           echo === Installing Python Packages ===
-#           if not exist requirements.txt (
-#             echo ERROR: requirements.txt not found!
-#             dir
-#             exit 1
-#           )
-#           type requirements.txt
-#           python -m pip install --upgrade pip
-#           pip install -r requirements.txt pyinstaller
-#           pip list > installed_packages.txt
-#         shell: cmd
-
-#       - name: Verify Installed Packages
-#         run: |
-#           echo === Installed Packages ===
-#           type installed_packages.txt
-#         shell: cmd
-
-#       - name: Verify Key Files
-#         run: |
-#           echo === Verifying Files ===
-#           if not exist app.py (
-#             echo ERROR: app.py not found!
-#             exit 1
-#           )
-#           if not exist app.spec (
-#             echo ERROR: app.spec not found!
-#             exit 1
-#           )
-#           if not exist login.py (
-#             echo ERROR: login.py not found!
-#             exit 1
-#           )
-#         shell: cmd
-
-#       - name: Compile Python Code (Check Syntax Errors)
-#         run: |
-#           echo === Checking Syntax ===
-#           python -m py_compile app.py
-#           python -m py_compile login.py
-#         shell: cmd
-
-#       - name: Run PyInstaller (onedir for fast startup)
-#         run: |
-#           echo === Running PyInstaller ===
-#           pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-#           if %errorlevel% neq 0 (
-#             echo ERROR: PyInstaller failed!
-#             type pyinstaller.log
-#             exit 1
-#           )
-#           echo === PyInstaller Finished Successfully ===
-#         shell: cmd
-
-#       - name: Upload PyInstaller Log
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: pyinstaller-log-windows
-#           path: pyinstaller.log
-#         if: always()
-
-#       - name: Check Build Output
-#         run: |
-#           echo === Checking dist/PremediaApp Output ===
-#           dir dist
-#           dir dist\PremediaApp
-#           if not exist dist\PremediaApp\PremediaApp.exe (
-#             echo ERROR: EXE not found in dist\PremediaApp!
-#             exit 1
-#           )
-#         shell: cmd
-
-#       - name: Setup Inno Setup
-#         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-#         with:
-#           path: installer/installer.iss
-
-#       - name: Verify Inno Setup Output
-#         run: |
-#           echo === Checking Inno Setup Output ===
-#           dir Output
-#           if not exist Output\PremediaApp-Setup.exe (
-#             echo ERROR: PremediaApp-Setup.exe not found!
-#             dir Output
-#             exit 1
-#           )
-#         shell: cmd
-#         if: always()
-
-#       - name: Upload Windows Installer
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: Windows-Installer
-#           path: Output/PremediaApp-Setup.exe
-#         if: always()
-
-
-name: Build PremediaApp Installer
+name: Build PremediaApp macOS DMG
 
 on:
   push:
@@ -125,88 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Debug Git Status
-        run: |
-          echo === Git Repository Details ===
-          git status
-          git log -n 1
-          echo === Current Directory ===
-          dir
-        shell: cmd
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: |
-          echo === Installing Python Packages ===
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
-        shell: cmd
-
-      - name: Verify Python Setup
-        run: |
-          echo === Python Environment ===
-          python --version
-          python -m site
-          python -c "import PySide6; print('PySide6 version:', PySide6.__version__)"
-          python -c "import PIL; print('Pillow version:', PIL.__version__)"
-          python -c "import tzdata; print('tzdata imported successfully')"
-        shell: cmd
-
-      - name: Verify key files
-        run: |
-          echo === Checking Files ===
-          dir
-          if not exist app.spec exit 1
-          if not exist app.py exit 1
-          dir installer || (echo installer directory missing && exit 1)
-        shell: cmd
-
-      - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-          if %errorlevel% neq 0 (
-            echo Build failed
-            type pyinstaller.log
-            exit 1
-          )
-          type pyinstaller.log
-        shell: cmd
-
-      - name: Upload PyInstaller log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log-windows
-          path: pyinstaller.log
-        if: always()
-
-      - name: Setup Inno Setup
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-        with:
-          path: installer/installer.iss
-
-      - name: Check Inno Setup Output
-        run: |
-          echo === Checking Inno Setup Output ===
-          dir Output
-          if not exist Output\PremediaApp-Setup.exe exit 1
-        shell: cmd
-
-      - name: Upload Windows Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Windows-Installer
-          path: Output/PremediaApp-Setup.exe
-
   build-macos:
     runs-on: macos-14
 
@@ -221,7 +20,7 @@ jobs:
           fi
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.9"
 
@@ -231,69 +30,42 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller PySide6 dmgbuild
 
-      - name: 🧪 Verify dmgbuild installed
+      - name: 🧪 Verify Installations
         run: |
-          echo "✅ dmgbuild path: $(which dmgbuild)"
-          echo "✅ dmgbuild version:"
-          dmgbuild --version || true
+          python -c "import PySide6; print('✅ PySide6:', PySide6.__version__)"
+          python -c "import PIL; print('✅ Pillow:', PIL.__version__)"
+          which dmgbuild && dmgbuild --version || echo "⚠️ dmgbuild not found"
 
-      - name: 📂 Check project directories
+      - name: 🛠️ Build App with PyInstaller
         run: |
-          echo "=== 📂 Project root ==="
-          ls -lah .
-          echo "=== 📂 assets directory ==="
-          ls -lah assets || echo "⚠️ assets directory not found"
-          echo "=== 📂 icons directory ==="
-          ls -lah icons || echo "⚠️ icons directory not found"
-          echo "=== 📂 Static files ==="
-          ls -lah TERMS.txt LICENSE.txt || echo "⚠️ Static files not found"
-
-      - name: 🛠️ Build PremediaApp with PyInstaller
-        run: |
-          echo "=== 🛠️ Building PremediaApp with PyInstaller ==="
-          pyinstaller --version
-          pyinstaller app.spec --clean --noconfirm --log-level DEBUG > pyinstaller.log 2>&1
+          pyinstaller --clean --noconfirm app.spec --log-level DEBUG > pyinstaller.log 2>&1
           cat pyinstaller.log
-          ls -lah dist
           if [ ! -d "dist/PremediaApp.app" ]; then
-            echo "❌ PremediaApp.app not found!"
+            echo "❌ App not built correctly!"
             exit 1
           fi
 
-      - name: 📤 Upload PyInstaller Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log
-          path: pyinstaller.log
-
-      - name: 🔏 Remove Invalid Signature
+      - name: 🧹 Remove Invalid Code Signature
         run: |
           rm -rf dist/PremediaApp.app/Contents/_CodeSignature || true
-          echo "✅ Removed _CodeSignature if present"
 
-      - name: 🔏 Sign PremediaApp
+      - name: ❌ Remove Quarantine Attribute
+        run: |
+          xattr -rd com.apple.quarantine dist/PremediaApp.app || true
+
+      - name: 🔏 Sign App (Optional - Requires Secrets)
         if: env.CODESIGN_IDENTITY != ''
         run: |
-          codesign --force --deep --sign "${CODESIGN_IDENTITY}" dist/PremediaApp.app
-          codesign -vvv --deep dist/PremediaApp.app
+          codesign --force --deep --sign "$CODESIGN_IDENTITY" dist/PremediaApp.app
+          codesign --verify --deep --strict --verbose=2 dist/PremediaApp.app
         env:
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
 
-      - name: ❌ Fix Quarantine Attributes
-        run: |
-          xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-          echo "✅ Removed quarantine attributes."
-
-      - name: 🧾 Create DMG with dmgbuild
+      - name: 💽 Create DMG
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
 
-          echo "=== 📂 dmg-build directory ==="
-          ls -lah dmg-build
-
-          echo "=== 🖼️ Creating styled DMG ==="
           dmgbuild -s installer/dmg-settings.py \
                    -D app="PremediaApp" \
                    "PremediaApp" \
@@ -306,94 +78,14 @@ jobs:
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-macos-dmg-${{ github.run_number }}
-          path: dmg-build/PremediaApp.dmg
-          if-no-files-found: warn
-          compression-level: 6
-          overwrite: false
-          include-hidden-files: false
-
-      - name: 📤 Upload hdiutil Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hdiutil-log
-          path: hdiutil.log
-
-      - name: 📂 Check DMG file
-        run: ls -lah dmg-build/PremediaApp.dmg
-
-      - name: 📤 Upload DMG Artifact
-        uses: actions/upload-artifact@v4
-        with:
           name: PremediaApp-macos-dmg
           path: dmg-build/PremediaApp.dmg
 
-  build-ubuntu:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Debug Git Status
-        run: |
-          git status
-          git log -n 1
-          ls -la
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev libx11-dev
-          python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt pyinstaller
-
-      - name: Verify Python Setup
-        run: |
-          python3 --version
-          python3 -m site
-          python3 -c "import PySide6; print('PySide6 version:', PySide6.__version__)"
-          python3 -c "import PIL; print('Pillow version:', PIL.__version__)"
-          python3 -c "import tzdata; print('tzdata imported successfully')"
-
-      - name: Build App with PyInstaller
-        run: |
-          pyinstaller --noconfirm app.spec > pyinstaller.log 2>&1
-          if [ $? -ne 0 ]; then
-            cat pyinstaller.log
-            exit 1
-          fi
-          cat pyinstaller.log
-
-      - name: Upload PyInstaller log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-log-ubuntu
-          path: pyinstaller.log
+      - name: 📤 Upload Build Logs
         if: always()
-
-      - name: Create DEB Package
-        run: |
-          mkdir -p dist/debian/usr/bin
-          cp -r dist/PremediaApp dist/debian/usr/bin/
-          chmod +x dist/debian/usr/bin/PremediaApp/PremediaApp
-          mkdir -p dist/debian/DEBIAN
-          echo "Package: premediaapp
-          Version: 1.0.0
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Your Name <your.email@example.com>
-          Description: PremediaApp" > dist/debian/DEBIAN/control
-          dpkg-deb --build dist/debian dist/PremediaApp.deb
-
-      - name: Upload Ubuntu DEB
         uses: actions/upload-artifact@v4
         with:
-          name: Ubuntu-DEB
-          path: dist/PremediaApp.deb
+          name: macos-logs
+          path: |
+            pyinstaller.log
+            hdiutil.log
