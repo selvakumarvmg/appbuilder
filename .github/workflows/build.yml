@@ -19,10 +19,11 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         python-version: "3.9"
-        miniforge-variant: Mambaforge
+        miniforge-variant: Miniforge3
         miniforge-version: latest
         architecture: x64
         auto-activate-base: true
+
 
     - name: 🔍 Confirm Python version & architecture
       run: |
