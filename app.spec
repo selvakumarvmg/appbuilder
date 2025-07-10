@@ -32,7 +32,12 @@ hidden_imports = collect_submodules("PySide6")
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
-    binaries=[],
+    binaries=[
+        (
+            "/Users/runner/hostedtoolcache/Python/3.9.23/x64/lib/libpython3.9.dylib",
+            "Frameworks"
+        ),
+    ],
     datas=asset_files + icon_files + data_files,
     hiddenimports=hidden_imports,
     hookspath=[],

@@ -9,24 +9,25 @@ on:
 jobs:
   build:
     name: 🛠️ Build macOS x86_64 App
-    runs-on: macos-13  # Intel-based macOS runner
+    runs-on: macos-13  # ✅ Intel-based macOS runner
 
     steps:
     - name: 🧾 Checkout code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python 3.9 x64
+    - name: 🐍 Set up Python 3.9 (x86_64)
       uses: actions/setup-python@v5
       with:
         python-version: "3.9"
         architecture: "x64"
 
-    - name: 📋 Show system info
+    - name: 🔍 Show system & Python info
       run: |
-        echo "🔍 Python:" && python --version
-        echo "🔍 Architecture:" && uname -m
-        echo "🔍 macOS Version:" && sw_vers
-        echo "🔍 Python binary:" && file $(which python)
+        echo "Python version: $(python3 --version)"
+        echo "Python path: $(which python3)"
+        uname -a
+        sysctl -n machdep.cpu.brand_string
+        sw_vers
 
     - name: 📦 Install dependencies
       run: |
@@ -35,65 +36,63 @@ jobs:
         pip install "pyinstaller>=6.14,<7" dmgbuild
         pip list
 
-    - name: 🖼️ Check DMG background image
-      run: file installer-assets/dmg-background.bmp || true
-
-    - name: 📁 List working directory
+    - name: 🔍 Confirm libpython3.9.dylib exists
       run: |
-        echo "📂 Working dir: $PWD"
-        ls -alh
+        DYLIB_PATH="/Users/runner/hostedtoolcache/Python/3.9.23/x64/lib/libpython3.9.dylib"
+        if [ ! -f "$DYLIB_PATH" ]; then
+          echo "❌ $DYLIB_PATH not found"
+          exit 1
+        else
+          echo "✅ Found: $DYLIB_PATH"
+        fi
 
-    - name: 📜 Show app.spec
+    - name: 🖼️ Verify DMG background image
       run: |
-        echo "------ BEGIN app.spec ------"
+        file installer-assets/dmg-background.bmp || true
+
+    - name: 📜 Print app.spec for review
+      run: |
+        echo "---- app.spec ----"
         cat app.spec
-        echo "------ END app.spec ------"
+        echo "------------------"
 
     - name: 🚀 Build with PyInstaller
       run: |
         echo "🚀 Building app with PyInstaller..."
         pyinstaller app.spec
-        echo "📁 dist/ directory:"
+        echo "📁 dist/ directory contents:"
         ls -lh dist
 
-    - name: 🧬 Check binary architecture
-      run: file dist/PremediaApp.app/Contents/MacOS/PremediaApp || echo "❌ Binary not found"
-
-    - name: 🧹 Remove quarantine & sign app
+    - name: 🔍 Check built binary architecture
       run: |
-        echo "🧹 Cleaning quarantine attributes..."
+        file dist/PremediaApp.app/Contents/MacOS/PremediaApp || echo "Binary missing"
+
+    - name: 🧹 Remove quarantine attribute and ad-hoc sign
+      run: |
         xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-        echo "🔏 Signing (ad-hoc)..."
         codesign --deep --force --verbose --sign - dist/PremediaApp.app
 
-    - name: 🧠 Inspect .app structure
-      run: |
-        echo "=== PremediaApp.app ==="
-        du -sh dist/PremediaApp.app
-        find dist/PremediaApp.app
-
-    - name: 📦 Prepare for DMG
+    - name: 📁 Copy .app into dmg-build directory
       run: |
         mkdir -p dmg-build
         cp -R dist/PremediaApp.app dmg-build/
+        echo "✅ Copied app:"
         du -sh dmg-build/PremediaApp.app
-        ls -lh dmg-build
 
     - name: 💿 Build DMG
       run: |
         dmgbuild -s installer/dmg-settings.py \
                  -D app_path="dmg-build/PremediaApp.app" \
                  "PremediaApp" PremediaApp.dmg
-        ls -lh PremediaApp.dmg
 
-    - name: 🔍 Verify DMG content
+    - name: 🧪 Verify DMG mount (optional)
       run: |
         hdiutil attach PremediaApp.dmg
         sleep 3
-        ls /Volumes/PremediaApp || echo "❌ Could not mount"
+        ls /Volumes/PremediaApp || echo "❌ Could not mount DMG"
         hdiutil detach /Volumes/PremediaApp || true
 
-    - name: 📏 Final artifact sizes
+    - name: 📦 Show final sizes
       run: |
         du -sh dist/PremediaApp.app || true
         du -sh PremediaApp.dmg || true
@@ -104,7 +103,7 @@ jobs:
         name: PremediaApp-macos-dmg
         path: PremediaApp.dmg
 
-    - name: ⬆️ Upload build logs and .app
+    - name: ⬆️ Upload .app & build logs
       uses: actions/upload-artifact@v4
       with:
         name: build-logs
