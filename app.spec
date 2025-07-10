@@ -82,14 +82,4 @@ app = BUNDLE(
     },
 )
 
-# 🔧 Key fix: pass `exe`, not `app`, to COLLECT()
-coll = COLLECT(
-    app,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="PremediaApp",
-)
+
