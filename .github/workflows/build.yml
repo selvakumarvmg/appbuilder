@@ -1,7 +1,11 @@
 name: build-macos
 
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -15,7 +19,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.9"
-        architecture: arm64
+        architecture: x64
 
     - name: 📦 Install dependencies
       run: |
