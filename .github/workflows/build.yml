@@ -24,74 +24,83 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: 📦 Install Dependencies
+      - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller PySide6 dmgbuild
 
-      - name: 🧪 Verify Installations
+      - name: 🧪 Verify Python & Tool Installations
         run: |
-          echo "✅ Python version: $(python --version)"
-          echo "✅ PyInstaller version: $(pyinstaller --version)"
-          python -c "import PySide6; print('✅ PySide6:', PySide6.__version__)"
-          python -c "import PIL; print('✅ Pillow:', PIL.__version__)"
-          echo "✅ dmgbuild found at: $(which dmgbuild)"
-          echo "✅ dmgbuild is available"
+          echo "🐍 Python version: $(python --version)"
+          echo "📦 PyInstaller version: $(pyinstaller --version)"
+          python -c "import PySide6; print('✅ PySide6 version:', PySide6.__version__)"
+          python -c "import PIL; print('✅ Pillow version:', PIL.__version__)"
+          echo "🧭 dmgbuild location: $(which dmgbuild)"
+          dmgbuild -h | head -n 10
 
       - name: 🛠️ Build App with PyInstaller
         run: |
+          echo "🛠️ Building app with PyInstaller..."
           pyinstaller --clean --noconfirm app.spec --log-level DEBUG > pyinstaller.log 2>&1
-          cat pyinstaller.log
+          cat pyinstaller.log || true
+
+          echo "📁 Contents of dist/:"
+          ls -lh dist/
+
           if [ ! -d "dist/PremediaApp.app" ]; then
-            echo "❌ App not built correctly!"
+            echo "❌ ERROR: PremediaApp.app was not built!"
             exit 1
           fi
 
-      - name: 🧹 Remove Invalid Code Signature
+      - name: 🧹 Clean App Bundle
         run: |
+          echo "🧹 Removing invalid code signature and quarantine flag..."
           rm -rf dist/PremediaApp.app/Contents/_CodeSignature || true
-
-      - name: ❌ Remove Quarantine Attribute
-        run: |
           xattr -rd com.apple.quarantine dist/PremediaApp.app || true
 
-      - name: 🔍 Validate DMG Assets
+      - name: 🔍 Validate DMG Inputs
         run: |
-          echo "📂 Checking if app bundle and background image exist..."
-          ls -lh dist/ || true
-          ls -lh installer-assets/ || true
+          echo "📁 Checking required files and folders..."
 
-          [ -f installer-assets/dmg-background.bmp ] || {
-            echo "❌ Background image not found at installer-assets/dmg-background.bmp"
+          echo "🖼️ Background image:"
+          [ -f installer-assets/dmg-background.bmp ] && file installer-assets/dmg-background.bmp || {
+            echo "❌ ERROR: Background image not found at installer-assets/dmg-background.bmp"
             exit 1
           }
 
+          echo "📂 App bundle:"
           [ -d dist/PremediaApp.app ] || {
-            echo "❌ dist/PremediaApp.app not found after build"
+            echo "❌ ERROR: dist/PremediaApp.app not found"
             exit 1
           }
 
-          [ -f installer/dmg-settings.py ] || {
-            echo "❌ installer/dmg-settings.py not found"
+          echo "📝 Settings file:"
+          [ -f installer/dmg-settings.py ] && cat installer/dmg-settings.py || {
+            echo "❌ ERROR: installer/dmg-settings.py missing"
             exit 1
           }
 
       - name: 💽 Create DMG
         run: |
+          echo "📦 Preparing DMG contents..."
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
 
-          echo "🧱 Running dmgbuild..."
+          echo "📁 Listing dmg-build directory:"
+          ls -lh dmg-build/
+
+          echo "💽 Running dmgbuild..."
           dmgbuild -s installer/dmg-settings.py \
                    "PremediaApp" \
                    "dmg-build/PremediaApp.dmg" > hdiutil.log 2>&1 || {
-                      echo "❌ dmgbuild failed"
-                      cat hdiutil.log
+                      echo "❌ ERROR: dmgbuild failed!"
+                      echo "📄 Last 30 lines of hdiutil.log:"
+                      tail -n 30 hdiutil.log
                       exit 1
                    }
 
-          echo "✅ DMG created:"
+          echo "✅ DMG created successfully:"
           ls -lh dmg-build/
 
       - name: 📤 Upload DMG Artifact
@@ -104,7 +113,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-logs
+          name: macos-build-logs
           path: |
             pyinstaller.log
             hdiutil.log
