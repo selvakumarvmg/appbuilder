@@ -38,11 +38,15 @@ jobs:
         echo "------ app.spec ------"
         cat app.spec
 
-    - name: 🚀 Build with PyInstaller
+    - name: 📦 Build app with PyInstaller
       run: |
-        echo "Building app with PyInstaller..."
-        pyinstaller app.spec --log-level=DEBUG
-        echo "✅ PyInstaller build finished."
+        echo "🚀 Building with PyInstaller..."
+        pyinstaller app.spec
+        echo "📁 Dist contents:"
+        ls -l dist
+        echo "📁 PremediaApp.app contents:"
+        ls -R dist/PremediaApp.app || true
+
 
     - name: 🧹 Clean quarantine + sign
       run: |
