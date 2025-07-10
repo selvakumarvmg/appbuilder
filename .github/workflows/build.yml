@@ -39,10 +39,12 @@ jobs:
           echo "🧭 dmgbuild: $(which dmgbuild)"
           dmgbuild -h | head -n 10
 
-      - name: 🛠️ Compile PyInstaller Spec File
+      - name: 🧾 Confirm PremediaApp.spec exists
         run: |
-          echo "🔎 Verifying spec file..."
-          python -m py_compile PremediaApp.spec
+          echo "📄 Listing files in root:"
+          ls -lh .
+          echo "📄 PremediaApp.spec:"
+          cat PremediaApp.spec
 
       - name: 🧼 Clean dist and build folders
         run: |
