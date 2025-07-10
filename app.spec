@@ -84,7 +84,7 @@ app = BUNDLE(
 
 # 🔧 Key fix: pass `exe`, not `app`, to COLLECT()
 coll = COLLECT(
-    exe,
+    app,
     a.binaries,
     a.zipfiles,
     a.datas,
