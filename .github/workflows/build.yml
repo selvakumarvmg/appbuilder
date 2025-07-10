@@ -32,6 +32,8 @@ jobs:
 
       - name: 🧪 Verify Installations
         run: |
+          echo "✅ Python version: $(python --version)"
+          echo "✅ PyInstaller version: $(pyinstaller --version)"
           python -c "import PySide6; print('✅ PySide6:', PySide6.__version__)"
           python -c "import PIL; print('✅ Pillow:', PIL.__version__)"
           which dmgbuild && dmgbuild --version || echo "⚠️ dmgbuild not found"
@@ -53,27 +55,43 @@ jobs:
         run: |
           xattr -rd com.apple.quarantine dist/PremediaApp.app || true
 
-      - name: 🔏 Sign App (Optional - Requires Secrets)
-        if: env.CODESIGN_IDENTITY != ''
+      - name: 🔍 Validate DMG Assets
         run: |
-          codesign --force --deep --sign "$CODESIGN_IDENTITY" dist/PremediaApp.app
-          codesign --verify --deep --strict --verbose=2 dist/PremediaApp.app
-        env:
-          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          echo "📂 Checking if app bundle and background image exist..."
+          ls -lh dist/ || true
+          ls -lh installer-assets/ || true
+
+          [ -f installer-assets/dmg-background.bmp ] || {
+            echo "❌ Background image not found at installer-assets/dmg-background.bmp"
+            exit 1
+          }
+
+          [ -d dist/PremediaApp.app ] || {
+            echo "❌ dist/PremediaApp.app not found after build"
+            exit 1
+          }
+
+          [ -f installer/dmg-settings.py ] || {
+            echo "❌ installer/dmg-settings.py not found"
+            exit 1
+          }
 
       - name: 💽 Create DMG
         run: |
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
 
+          echo "🧱 Running dmgbuild..."
           dmgbuild -s installer/dmg-settings.py \
-                   -D app="PremediaApp" \
                    "PremediaApp" \
                    "dmg-build/PremediaApp.dmg" > hdiutil.log 2>&1 || {
                       echo "❌ dmgbuild failed"
                       cat hdiutil.log
                       exit 1
                    }
+
+          echo "✅ DMG created:"
+          ls -lh dmg-build/
 
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
