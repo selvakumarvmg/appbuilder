@@ -64,14 +64,22 @@ jobs:
         cp -R dist/PremediaApp.app dmg-build/
         echo "✅ Copied app bundle:"
         du -sh dmg-build/PremediaApp.app
+        ls -lh dmg-build
 
     - name: 💿 Build DMG
       run: |
         echo "💿 Building DMG with contents from dmg-build/"
-        ls -lh dmg-build
         dmgbuild -s installer/dmg-settings.py "PremediaApp" PremediaApp.dmg
         echo "✅ DMG created:"
         ls -lh PremediaApp.dmg
+
+    - name: 🔍 Verify DMG content (optional)
+      run: |
+        echo "🔍 Mounting DMG to verify contents..."
+        hdiutil attach PremediaApp.dmg
+        sleep 5
+        ls /Volumes/PremediaApp || echo "❌ DMG not mounted or empty"
+        hdiutil detach /Volumes/PremediaApp || true
 
     - name: 📦 Show final sizes
       run: |
