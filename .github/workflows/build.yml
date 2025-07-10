@@ -5,99 +5,107 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest
+    name: 🛠️ Build macOS x86_64 App
+    runs-on: macos-13  # ✅ Intel-based macOS runner
 
     steps:
     - name: 🧾 Checkout code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python with Miniforge (x86_64)
-      uses: conda-incubator/setup-miniconda@v3
+    - name: 🐍 Set up Python 3.9 (x86_64)
+      uses: actions/setup-python@v5
       with:
         python-version: "3.9"
-        miniforge-variant: Miniforge3
-        miniforge-version: latest
-        architecture: x64
-        auto-activate-base: true
+        architecture: "x64"
 
-
-    - name: 🔍 Confirm Python version & architecture
+    - name: 🧪 Print system & CPU info
       run: |
-        python -c "import platform; print('✅ Python:', platform.python_version(), 'Arch:', platform.machine())"
+        echo "🔍 Python version:" && python --version
+        echo "🔍 Architecture:" && uname -m
+        echo "🔍 CPU Info:" && sysctl -n machdep.cpu.brand_string
+        echo "🔍 macOS Version:" && sw_vers
 
     - name: 📦 Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install "pyinstaller>=6.14,<7" dmgbuild
+        echo "📦 Installed Python packages:"
         pip list
 
-    - name: 🖼️ Check background image
+    - name: 🖼️ Verify background image
       run: |
+        echo "🖼️ Checking background image type:"
         file installer-assets/dmg-background.bmp || true
 
-    - name: 🔍 Show working directory
+    - name: 📂 Show working directory contents
       run: |
-        pwd
-        ls -lah
+        echo "📂 Working dir: $PWD"
+        ls -alh
 
-    - name: 🧪 Show app.spec contents
+    - name: 📜 Show app.spec file
       run: |
-        echo "------ app.spec ------"
+        echo "------ BEGIN app.spec ------"
         cat app.spec
+        echo "------ END app.spec ------"
 
     - name: 🚀 Build with PyInstaller
       run: |
-        echo "🚀 Building with PyInstaller..."
+        echo "🚀 Building app with PyInstaller..."
         pyinstaller app.spec
         echo "📁 dist/ directory contents:"
         ls -lh dist
-
-    - name: 🧹 Clean quarantine and sign
+    
+    - name: 🔬 Check binary architecture
       run: |
-        echo "🧹 Cleaning quarantine and signing app..."
-        xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-        codesign --deep --force --verbose --sign - dist/PremediaApp.app || true
+        file dist/PremediaApp.app/Contents/MacOS/PremediaApp || echo "Binary not found"
 
-    - name: 📁 Inspect app bundle structure
+    - name: 🧹 Clean quarantine & sign app
+      run: |
+        echo "🧹 Removing quarantine attribute..."
+        xattr -rd com.apple.quarantine dist/PremediaApp.app || true
+        echo "🔏 Signing app (ad-hoc)..."
+        codesign --deep --force --verbose --sign - dist/PremediaApp.app
+
+    - name: 🕵️ Inspect .app bundle
       run: |
         echo "=== PremediaApp.app structure ==="
         du -sh dist/PremediaApp.app
         find dist/PremediaApp.app
 
-    - name: 📦 Prepare app for DMG
+    - name: 📦 Copy .app to dmg-build folder
       run: |
-        echo "📦 Copying .app to dmg-build/"
         mkdir -p dmg-build
         cp -R dist/PremediaApp.app dmg-build/
-        echo "✅ Copied app bundle:"
+        echo "✅ Copied:"
         du -sh dmg-build/PremediaApp.app
         ls -lh dmg-build
 
     - name: 💿 Build DMG
       run: |
-        echo "💿 Building DMG with contents from dmg-build/"
-        dmgbuild -s installer/dmg-settings.py "PremediaApp" PremediaApp.dmg
+        echo "💿 Creating DMG using dmgbuild..."
+        dmgbuild -s installer/dmg-settings.py \
+                 -D app_path="dmg-build/PremediaApp.app" \
+                 "PremediaApp" PremediaApp.dmg
         echo "✅ DMG created:"
         ls -lh PremediaApp.dmg
 
-    - name: 🔍 Verify DMG content (optional)
+    - name: 🧪 Verify DMG mount (optional)
       run: |
-        echo "🔍 Mounting DMG to verify contents..."
+        echo "🔍 Mounting DMG to inspect contents..."
         hdiutil attach PremediaApp.dmg
-        sleep 5
-        ls /Volumes/PremediaApp || echo "❌ DMG not mounted or empty"
+        sleep 3
+        ls /Volumes/PremediaApp || echo "❌ Could not mount DMG"
         hdiutil detach /Volumes/PremediaApp || true
 
-    - name: 📦 Show final sizes
+    - name: 📏 Final artifact sizes
       run: |
-        echo "📦 Final artifact sizes:"
-        du -sh dist/PremediaApp.app
-        du -sh PremediaApp.dmg
+        echo "📦 Final sizes:"
+        du -sh dist/PremediaApp.app || true
+        du -sh PremediaApp.dmg || true
 
     - name: ⬆️ Upload DMG
       uses: actions/upload-artifact@v4
@@ -105,7 +113,7 @@ jobs:
         name: PremediaApp-macos-dmg
         path: PremediaApp.dmg
 
-    - name: ⬆️ Upload build logs & bundles
+    - name: ⬆️ Upload build logs & .app
       uses: actions/upload-artifact@v4
       with:
         name: build-logs
