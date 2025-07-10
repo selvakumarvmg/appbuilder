@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,80 +15,58 @@ jobs:
     - name: 🧾 Checkout code
       uses: actions/checkout@v4
 
-    - name: 🧰 Show macOS info
-      run: |
-        echo "System Info:"
-        system_profiler SPHardwareDataType || true
-        uname -a
-        sw_vers
-        sysctl -n machdep.cpu.brand_string
-
-    - name: 🐍 Set up Python for Intel (x86_64)
+    - name: 🐍 Set up Python with Miniforge (x86_64)
       uses: conda-incubator/setup-miniconda@v3
       with:
-        auto-update-conda: true
         python-version: "3.9"
         miniforge-variant: Mambaforge
         miniforge-version: latest
         architecture: x64
+        auto-activate-base: true
 
-    - name: 🧪 Verify Python arch
+    - name: 🔍 Confirm Python version & architecture
       run: |
-        which python
-        python --version
-        python -c "import platform; print('✅ Python arch:', platform.machine())"
+        python -c "import platform; print('✅ Python:', platform.python_version(), 'Arch:', platform.machine())"
 
     - name: 📦 Install dependencies
       run: |
-        echo "🔧 Installing Python dependencies..."
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install "pyinstaller>=6.14,<7" dmgbuild
-        echo "✅ Installed packages:"
         pip list
 
     - name: 🖼️ Check background image
       run: |
-        echo "🖼️ Checking background image:"
         file installer-assets/dmg-background.bmp || true
 
-    - name: 🔍 Show workspace
+    - name: 🔍 Show working directory
       run: |
-        echo "📂 Workspace:"
         pwd
         ls -lah
 
     - name: 🧪 Show app.spec contents
       run: |
         echo "------ app.spec ------"
-        cat app.spec || echo "❌ app.spec not found!"
+        cat app.spec
 
     - name: 🚀 Build with PyInstaller
       run: |
         echo "🚀 Building with PyInstaller..."
         pyinstaller app.spec
         echo "📁 dist/ directory contents:"
-        ls -lah dist
-        file dist/PremediaApp.app/Contents/MacOS/PremediaApp || echo "❌ Executable missing"
+        ls -lh dist
 
     - name: 🧹 Clean quarantine and sign
       run: |
         echo "🧹 Cleaning quarantine and signing app..."
-        xattr -rd com.apple.quarantine dist/PremediaApp.app || echo "⚠️ Quarantine attribute not found"
-        codesign --deep --force --verbose --sign - dist/PremediaApp.app || echo "⚠️ Not signed properly (self-signed)"
-
-    - name: 🧪 Validate app binary
-      run: |
-        echo "🔍 Binary Info:"
-        file dist/PremediaApp.app/Contents/MacOS/PremediaApp || true
-        lipo -info dist/PremediaApp.app/Contents/MacOS/PremediaApp || true
-        codesign --verify --deep --strict --verbose=2 dist/PremediaApp.app || echo "⚠️ Codesign verification failed"
+        xattr -rd com.apple.quarantine dist/PremediaApp.app || true
+        codesign --deep --force --verbose --sign - dist/PremediaApp.app || true
 
     - name: 📁 Inspect app bundle structure
       run: |
         echo "=== PremediaApp.app structure ==="
-        du -sh dist/PremediaApp.app || true
-        find dist/PremediaApp.app || true
+        du -sh dist/PremediaApp.app
+        find dist/PremediaApp.app
 
     - name: 📦 Prepare app for DMG
       run: |
@@ -95,8 +74,8 @@ jobs:
         mkdir -p dmg-build
         cp -R dist/PremediaApp.app dmg-build/
         echo "✅ Copied app bundle:"
-        du -sh dmg-build/PremediaApp.app || true
-        ls -lh dmg-build || true
+        du -sh dmg-build/PremediaApp.app
+        ls -lh dmg-build
 
     - name: 💿 Build DMG
       run: |
@@ -105,19 +84,19 @@ jobs:
         echo "✅ DMG created:"
         ls -lh PremediaApp.dmg
 
-    - name: 🔍 Verify DMG content
+    - name: 🔍 Verify DMG content (optional)
       run: |
         echo "🔍 Mounting DMG to verify contents..."
         hdiutil attach PremediaApp.dmg
         sleep 5
         ls /Volumes/PremediaApp || echo "❌ DMG not mounted or empty"
-        hdiutil detach /Volumes/PremediaApp || echo "⚠️ Could not unmount"
+        hdiutil detach /Volumes/PremediaApp || true
 
     - name: 📦 Show final sizes
       run: |
         echo "📦 Final artifact sizes:"
-        du -sh dist/PremediaApp.app || true
-        du -sh PremediaApp.dmg || true
+        du -sh dist/PremediaApp.app
+        du -sh PremediaApp.dmg
 
     - name: ⬆️ Upload DMG
       uses: actions/upload-artifact@v4
