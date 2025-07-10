@@ -84,4 +84,3 @@ jobs:
         path: |
           dist/PremediaApp.app
           build/
-
