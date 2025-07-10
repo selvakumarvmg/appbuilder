@@ -60,7 +60,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    target_arch="arm64",  # Ensure arm64 for Apple Silicon
+    target_arch="x86_64",  # Ensure arm64 for Apple Silicon
     icon=icon_file,
 )
 
