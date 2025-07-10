@@ -14,12 +14,11 @@ jobs:
     - name: 🧾 Checkout code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python (via Miniconda for x64)
-      uses: conda-incubator/setup-miniconda@v3
+    - name: 🐍 Set up Python (ARM64)
+      uses: actions/setup-python@v5
       with:
-        auto-update-conda: true
         python-version: "3.9"
-        architecture: x64
+        architecture: arm64
 
     - name: 📦 Install dependencies
       run: |
