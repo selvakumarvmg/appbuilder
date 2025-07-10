@@ -5,7 +5,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 block_cipher = None
 
 # Auto-collect all runtime files and plugins for PySide6
-pyside6_datas = collect_data_files('PySide6')
+pyside6_datas = collect_data_files('PySide6', excludes=[
+    'Qt*/Resources',
+    'Qt*/Versions/Current/Resources',
+])
 pyside6_hiddenimports = collect_submodules('PySide6')
 
 a = Analysis(
