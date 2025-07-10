@@ -1,22 +1,29 @@
 # PremediaApp.spec
 import sys
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
+
+# Auto-collect all runtime files and plugins for PySide6
+pyside6_datas = collect_data_files('PySide6')
+pyside6_hiddenimports = collect_submodules('PySide6')
 
 a = Analysis(
     ['app.py'],
     pathex=['.'],
     binaries=[],
     datas=[
-        ('pm.png', '.'),        # tray icon
+        ('pm.png', '.'),         # tray icon
         ('TERMS.txt', '.'),
         ('LICENSE.txt', '.'),
+        *pyside6_datas,          # ✅ collect all Qt plugins/data
     ],
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtNetwork',
+        *pyside6_hiddenimports   # ✅ ensure Qt loads its plugins
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -38,7 +45,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # Hide terminal window
+    console=False,
     icon='pm.ico' if sys.platform == 'win32' else None
 )
 
