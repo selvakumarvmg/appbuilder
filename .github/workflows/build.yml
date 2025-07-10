@@ -67,7 +67,8 @@ jobs:
 
     - name: 💿 Build DMG
       run: |
-        echo "💿 Building DMG..."
+        echo "💿 Building DMG with contents from dmg-build/"
+        ls -lh dmg-build
         dmgbuild -s installer/dmg-settings.py "PremediaApp" PremediaApp.dmg
         echo "✅ DMG created:"
         ls -lh PremediaApp.dmg
