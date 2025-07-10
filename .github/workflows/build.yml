@@ -44,6 +44,12 @@ jobs:
           echo "🔎 Verifying spec file..."
           python -m py_compile PremediaApp.spec
 
+      - name: 🧼 Clean dist and build folders
+        run: |
+          echo "🧼 Cleaning PyInstaller build cache..."
+          rm -rf dist build __pycache__ *.spec || true
+
+
       - name: 🚧 Build App with PyInstaller
         run: |
           echo "🚧 Starting PyInstaller build..."
