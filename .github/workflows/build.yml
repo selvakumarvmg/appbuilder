@@ -1,4 +1,4 @@
-name: Build PremediaApp macOS DMG
+name: Build macOS DMG for PremediaApp
 
 on:
   push:
@@ -10,114 +10,85 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🛠️ Install Xcode CLI tools
-        run: |
-          if ! xcode-select -p; then
-            sudo xcode-select --install
-          fi
-
-      - name: 🐍 Set up Python 3.9
+      - name: 🐍 Setup Python 3.9
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
 
-      - name: 📦 Install Python Dependencies
+      - name: 📦 Install Build Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller PySide6 dmgbuild
 
-      - name: 🧪 Verify Installed Packages
+      - name: 🧪 Verify Python and Tools
         run: |
-          echo "🐍 Python: $(python --version)"
-          echo "📦 PyInstaller: $(pyinstaller --version)"
+          echo "🐍 Python version: $(python --version)"
+          echo "📦 PyInstaller version: $(pyinstaller --version)"
+          echo "🧭 dmgbuild path: $(which dmgbuild)"
           python -c "import PySide6; print('✅ PySide6:', PySide6.__version__)"
           python -c "import PIL; print('✅ Pillow:', PIL.__version__)"
-          echo "🧭 dmgbuild: $(which dmgbuild)"
-          dmgbuild -h | head -n 10
 
-      - name: 🧾 Confirm PremediaApp.spec exists
+      - name: 📂 List Project Files
         run: |
-          echo "📄 Listing files in root:"
-          ls -lh .
-          echo "📄 PremediaApp.spec:"
-          cat PremediaApp.spec
+          echo "📁 Working directory: $(pwd)"
+          find . -type f | sort
 
-      - name: 🧼 Clean dist and build folders
+      - name: 🧹 Clean PyInstaller Cache
         run: |
-          echo "🧼 Cleaning PyInstaller build cache..."
-          rm -rf dist build __pycache__ *.spec || true
+          echo "🧼 Cleaning build directories..."
+          rm -rf build dist __pycache__
+          rm -rf ~/Library/Application\ Support/pyinstaller
+          ls -la
 
-
-      - name: 🚧 Build App with PyInstaller
+      - name: 🔎 Validate Spec File
         run: |
-          echo "🚧 Starting PyInstaller build..."
-          pyinstaller --clean --noconfirm PremediaApp.spec --log-level DEBUG > pyinstaller.log 2>&1 || {
-            echo "❌ PyInstaller build failed!"
+          echo "📄 Preview app.spec:"
+          cat app.spec
+          echo "🔎 Compiling spec..."
+          python -m py_compile app.spec || exit 1
+
+      - name: 🚧 Run PyInstaller Build (Debug Mode)
+        run: |
+          echo "🚀 Building with PyInstaller..."
+          pyinstaller --clean --noconfirm app.spec --log-level=DEBUG > pyinstaller.log 2>&1 || {
+            echo "❌ PyInstaller failed!"
             tail -n 50 pyinstaller.log
             exit 1
           }
+          echo "✅ PyInstaller build finished."
+          ls -lh dist
 
-      - name: 🔍 Inspect .app Bundle Contents
+      - name: 🧼 Fix Code Signature & Quarantine
         run: |
-          echo "📦 Size of PremediaApp.app:"
-          du -sh dist/PremediaApp.app || true
-
-          echo "📂 Files in PremediaApp.app:"
-          find dist/PremediaApp.app -type f | head -n 50
-
-          echo "📋 Contents of Info.plist:"
-          plutil -p dist/PremediaApp.app/Contents/Info.plist || echo "Info.plist not found"
-
-      - name: 🧹 Clean Code Signature & Quarantine Flags
-        run: |
-          echo "🧹 Cleaning code signature and quarantine attributes..."
+          echo "🧹 Cleaning quarantine flags..."
           rm -rf dist/PremediaApp.app/Contents/_CodeSignature || true
           xattr -rd com.apple.quarantine dist/PremediaApp.app || true
 
-      - name: 🔍 Validate DMG Inputs
+      - name: 📦 Prepare DMG Contents
         run: |
-          echo "🖼️ Validating background image:"
-          file installer-assets/dmg-background.bmp || {
-            echo "❌ Background image missing or invalid!"
-            exit 1
-          }
-
-          echo "📂 Validating .app exists:"
-          ls -lh dist/PremediaApp.app || {
-            echo "❌ .app bundle not found!"
-            exit 1
-          }
-
-          echo "📄 Showing dmg-settings.py:"
-          cat installer/dmg-settings.py
+          mkdir -p dmg-build
+          cp -R dist/PremediaApp.app dmg-build/
+          echo "📁 dmg-build:"
+          ls -lh dmg-build/
 
       - name: 💽 Build DMG with dmgbuild
         run: |
-          echo "📦 Preparing dmg-build folder..."
-          mkdir -p dmg-build
-          cp -R dist/PremediaApp.app dmg-build/
-
-          echo "📁 Contents of dmg-build:"
-          ls -lh dmg-build/
-
-          echo "💽 Running dmgbuild..."
+          echo "🖼️ Background image check:"
+          file installer-assets/dmg-background.bmp
+          echo "📦 Building DMG..."
           dmgbuild -s installer/dmg-settings.py \
                    "PremediaApp" \
                    "dmg-build/PremediaApp.dmg" > hdiutil.log 2>&1 || {
-                      echo "❌ dmgbuild failed!"
-                      tail -n 30 hdiutil.log
-                      exit 1
-                   }
-
-      - name: 📦 Inspect Final DMG
-        run: |
-          echo "📦 Final .dmg size and contents:"
+              echo "❌ dmgbuild failed!"
+              tail -n 50 hdiutil.log
+              exit 1
+          }
+          echo "✅ DMG build complete!"
           ls -lh dmg-build/
-          hdiutil imageinfo dmg-build/PremediaApp.dmg || echo "⚠️ Unable to inspect .dmg"
 
       - name: 📤 Upload DMG Artifact
         uses: actions/upload-artifact@v4
@@ -125,11 +96,11 @@ jobs:
           name: PremediaApp-macos-dmg
           path: dmg-build/PremediaApp.dmg
 
-      - name: 📤 Upload Build Logs
+      - name: 📄 Upload Logs for Debugging
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-extreme-debug-logs
+          name: build-logs
           path: |
             pyinstaller.log
             hdiutil.log
