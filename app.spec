@@ -2,49 +2,50 @@
 
 import sys
 import os
+import sysconfig
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
-import sysconfig
 
-# Paths and settings
+# Paths
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
-icon_file = "icons/premedia.icns"
 
-# Collect asset files
+# Dynamically locate Python shared library
+python_dylib_name = sysconfig.get_config_var("INSTSONAME")  # "libpython3.9.dylib"
+python_dylib_path = Path(sys.executable).parent.parent / "lib" / python_dylib_name
+
+# Collect assets
 asset_files = [
     (str(f), str(Path("assets") / f.relative_to("assets")))
     for f in Path("assets").rglob("*")
     if f.is_file()
 ]
 
-# Collect icon files
 icon_files = [
     (str(f), str(Path("icons") / f.relative_to("icons")))
     for f in Path("icons").rglob("*")
     if f.is_file()
 ]
 
-# Add static text files
-data_files = []
+static_files = []
 for file in ["TERMS.txt", "LICENSE.txt"]:
     if Path(file).exists():
-        data_files.append((file, "."))
+        static_files.append((file, "."))
 
-# Collect PySide6 hidden modules
+# Combine data files
+data_files = asset_files + icon_files + static_files
+
+# Hidden imports
 hidden_imports = collect_submodules("PySide6")
 
-# ✅ Dynamically locate and bundle the Python shared library
-python_dylib = sysconfig.get_config_var("INSTSONAME")
-python_lib_path = Path(sys.executable).parent / python_dylib
-python_binary = [(str(python_lib_path), "Frameworks")]
-
-# Analysis section
+# Analysis block
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
-    binaries=python_binary,
-    datas=asset_files + icon_files + data_files,
+    binaries=[
+        (str(python_dylib_path), "Frameworks"),
+    ],
+    datas=data_files,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
@@ -55,10 +56,13 @@ a = Analysis(
     noarchive=False,
 )
 
-# Build the archive
+# PYZ block
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# EXE file
+# Icon
+icon_file = "icons/premedia.icns"
+
+# EXE block
 exe = EXE(
     pyz,
     a.scripts,
@@ -68,13 +72,13 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Disable UPX to avoid stripping debug symbols
+    upx=True,
     console=False,
-    target_arch="x86_64",  # Target for Intel-based Macs
+    target_arch="x86_64",  # Change to "arm64" for Apple Silicon
     icon=icon_file,
 )
 
-# macOS .app bundle
+# macOS App Bundle
 app = BUNDLE(
     exe,
     name="PremediaApp.app",
@@ -88,18 +92,18 @@ app = BUNDLE(
         "CFBundleVersion": "1.0.0",
         "CFBundleShortVersionString": "1.0.0",
         "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "11.0",
+        "LSMinimumSystemVersion": "11.0",  # macOS 11+
     },
 )
 
-# Collect everything into the final app bundle
+# Final bundle
 coll = COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     name="PremediaApp",
 )
