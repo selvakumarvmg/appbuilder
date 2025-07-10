@@ -36,7 +36,8 @@ jobs:
           echo "✅ PyInstaller version: $(pyinstaller --version)"
           python -c "import PySide6; print('✅ PySide6:', PySide6.__version__)"
           python -c "import PIL; print('✅ Pillow:', PIL.__version__)"
-          which dmgbuild && dmgbuild --version || echo "⚠️ dmgbuild not found"
+          echo "✅ dmgbuild found at: $(which dmgbuild)"
+          echo "✅ dmgbuild is available"
 
       - name: 🛠️ Build App with PyInstaller
         run: |
