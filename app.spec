@@ -1,40 +1,39 @@
 # -*- mode: python ; coding: utf-8 -*-
+
 import sys
 import os
 import sysconfig
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
+# Paths
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
 
-# Collect assets
-asset_files = [
-    (str(f), str(Path("assets") / f.relative_to("assets")))
-    for f in Path("assets").rglob("*")
-    if f.is_file()
-]
+# Collect all data files
+def collect_files(folder_name):
+    return [
+        (str(f), str(Path(folder_name) / f.relative_to(folder_name)))
+        for f in Path(folder_name).rglob("*") if f.is_file()
+    ]
 
-icon_files = [
-    (str(f), str(Path("icons") / f.relative_to("icons")))
-    for f in Path("icons").rglob("*")
-    if f.is_file()
-]
+asset_files = collect_files("assets")
+icon_files = collect_files("icons")
+ui_files = collect_files("ui") if Path("ui").exists() else []
+static_files = [(f, ".") for f in ["TERMS.txt", "LICENSE.txt"] if Path(f).exists()]
 
-static_files = []
-for file in ["TERMS.txt", "LICENSE.txt"]:
-    if Path(file).exists():
-        static_files.append((file, "."))
+data_files = asset_files + icon_files + ui_files + static_files
 
-data_files = asset_files + icon_files + static_files
+# PySide6 hidden imports
 hidden_imports = collect_submodules("PySide6")
 
-# Binaries (macOS only)
+# Handle dynamic libpython on macOS
+is_macos = sys.platform == "darwin"
 binaries = []
-if sys.platform == "darwin":
-    dylib_name = sysconfig.get_config_var("INSTSONAME")  # "libpython3.9.dylib"
-    if dylib_name:
-        dylib_path = Path(sys.executable).parent.parent / "lib" / dylib_name
+if is_macos:
+    dylib = sysconfig.get_config_var("INSTSONAME")
+    if dylib:
+        dylib_path = Path(sys.executable).parent.parent / "lib" / dylib
         if dylib_path.exists():
             binaries.append((str(dylib_path), "Frameworks"))
 
@@ -55,8 +54,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# Icon file (platform-specific)
-icon_file = "icons/premedia.icns" if sys.platform == "darwin" else "icons/premedia.ico"
+icon_file = "icons/premedia.icns" if is_macos else "icons/premedia.ico"
 
 exe = EXE(
     pyz,
@@ -69,12 +67,11 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    target_arch="x86_64",  # Use arm64 if needed
     icon=icon_file,
 )
 
-# macOS .app bundle
-if sys.platform == "darwin":
+# macOS bundle
+if is_macos:
     app = BUNDLE(
         exe,
         name="PremediaApp.app",
@@ -93,7 +90,7 @@ if sys.platform == "darwin":
     )
 
 coll = COLLECT(
-    exe,  # ✅ not `app`, PyInstaller handles `.app`
+    exe,
     a.binaries,
     a.zipfiles,
     a.datas,
