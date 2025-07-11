@@ -1,41 +1,44 @@
 # -*- mode: python ; coding: utf-8 -*-
-
 import sys
 import os
-import sysconfig
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
+import sysconfig
 
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
 
-# 🔍 Shared library for macOS
-binaries = []
-if sys.platform == "darwin":
-    dylib_name = sysconfig.get_config_var("INSTSONAME")
-    if dylib_name:
-        dylib_path = Path(sys.executable).parent.parent / "lib" / dylib_name
-        if dylib_path.exists():
-            binaries.append((str(dylib_path), "Frameworks"))
-
-# 📦 Data files
+# === Resource Collection ===
 asset_files = [
     (str(f), str(Path("assets") / f.relative_to("assets")))
-    for f in Path("assets").rglob("*")
-    if f.is_file()
+    for f in Path("assets").rglob("*") if f.is_file()
 ]
 icon_files = [
     (str(f), str(Path("icons") / f.relative_to("icons")))
-    for f in Path("icons").rglob("*")
-    if f.is_file()
+    for f in Path("icons").rglob("*") if f.is_file()
 ]
-text_files = [(f, ".") for f in ["TERMS.txt", "LICENSE.txt"] if Path(f).exists()]
-data_files = asset_files + icon_files + text_files
+static_files = []
+for file in ["TERMS.txt", "LICENSE.txt"]:
+    if Path(file).exists():
+        static_files.append((file, "."))
 
-# 🕵️ Hidden imports
+data_files = asset_files + icon_files + static_files
+
+# === Include Python dylib only on macOS ===
+binaries = []
+if sys.platform == "darwin":
+    dylib = sysconfig.get_config_var("INSTSONAME")
+    if dylib:
+        python_dylib_path = Path(sys.executable).parent.parent / "lib" / dylib
+        if python_dylib_path.exists():
+            binaries.append((str(python_dylib_path), "Frameworks"))
+        else:
+            print(f"⚠️ WARNING: dylib not found: {python_dylib_path}")
+
+# === Hidden imports ===
 hidden_imports = collect_submodules("PySide6")
 
-# 🧪 Analysis
+# === Analysis ===
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
@@ -53,9 +56,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# 🎯 Platform icon
-icon_file = "icons/premedia.icns" if sys.platform == "darwin" else "icons/premedia.ico"
-
+# === Executable ===
 exe = EXE(
     pyz,
     a.scripts,
@@ -67,29 +68,29 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon=icon_file,
+    target_arch="x86_64",  # Use "arm64" if building on M1/macOS-14
+    icon="icons/premedia.icns",
 )
 
-# 🍎 macOS .app bundle (optional)
-if sys.platform == "darwin":
-    app = BUNDLE(
-        exe,
-        name="PremediaApp.app",
-        icon=icon_file,
-        bundle_identifier="com.vmgdigital.premediaapp",
-        info_plist={
-            "CFBundleName": "PremediaApp",
-            "CFBundleDisplayName": "PremediaApp",
-            "CFBundleExecutable": "PremediaApp",
-            "CFBundleIdentifier": "com.vmgdigital.premediaapp",
-            "CFBundleVersion": "1.0.0",
-            "CFBundleShortVersionString": "1.0.0",
-            "NSHighResolutionCapable": True,
-            "LSMinimumSystemVersion": "11.0",
-        },
-    )
+# === macOS Bundle ===
+app = BUNDLE(
+    exe,
+    name="PremediaApp.app",
+    icon="icons/premedia.icns",
+    bundle_identifier="com.vmgdigital.premediaapp",
+    info_plist={
+        "CFBundleName": "PremediaApp",
+        "CFBundleDisplayName": "PremediaApp",
+        "CFBundleExecutable": "PremediaApp",
+        "CFBundleIdentifier": "com.vmgdigital.premediaapp",
+        "CFBundleVersion": "1.0.0",
+        "CFBundleShortVersionString": "1.0.0",
+        "NSHighResolutionCapable": True,
+        "LSMinimumSystemVersion": "11.0",
+    },
+)
 
-# 📦 Collect the EXE (always pass `exe`, not the BUNDLE)
+# === Final Collection ===
 coll = COLLECT(
     exe,
     a.binaries,

@@ -174,7 +174,9 @@ jobs:
 
     - name: 🚀 Build with PyInstaller
       run: |
+        echo "🚀 Building app with PyInstaller..."
         pyinstaller app.spec
+        echo "📁 dist/ directory contents:"
         ls -lh dist
 
     - name: 🔍 Check binary architecture
