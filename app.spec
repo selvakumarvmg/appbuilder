@@ -10,11 +10,25 @@ from PyInstaller.utils.hooks import collect_submodules
 script_path = "app.py"
 project_root = Path(os.getcwd()).resolve()
 
-# Dynamically locate Python shared library
-python_dylib_name = sysconfig.get_config_var("INSTSONAME")  # "libpython3.9.dylib"
-python_dylib_path = Path(sys.executable).parent.parent / "lib" / python_dylib_name
+# -------------------
+# Platform-specific binaries
+# -------------------
+binaries = []
 
+if sys.platform == "darwin":
+    python_dylib_name = sysconfig.get_config_var("INSTSONAME")  # usually "libpython3.9.dylib"
+    if python_dylib_name:
+        python_dylib_path = Path(sys.executable).parent.parent / "lib" / python_dylib_name
+        if python_dylib_path.exists():
+            binaries.append((str(python_dylib_path), "Frameworks"))
+        else:
+            print(f"⚠️ Warning: {python_dylib_path} not found.")
+    else:
+        print("⚠️ INSTSONAME not found in sysconfig.")
+
+# -------------------
 # Collect assets
+# -------------------
 asset_files = [
     (str(f), str(Path("assets") / f.relative_to("assets")))
     for f in Path("assets").rglob("*")
@@ -32,19 +46,18 @@ for file in ["TERMS.txt", "LICENSE.txt"]:
     if Path(file).exists():
         static_files.append((file, "."))
 
-# Combine data files
+# Combine all
 data_files = asset_files + icon_files + static_files
 
-# Hidden imports
+# -------------------
+# PyInstaller config
+# -------------------
 hidden_imports = collect_submodules("PySide6")
 
-# Analysis block
 a = Analysis(
     [script_path],
     pathex=[str(project_root)],
-    binaries=[
-        (str(python_dylib_path), "Frameworks"),
-    ],
+    binaries=binaries,
     datas=data_files,
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -56,13 +69,11 @@ a = Analysis(
     noarchive=False,
 )
 
-# PYZ block
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# Icon
-icon_file = "icons/premedia.icns"
+# Use appropriate icon
+icon_file = "icons/premedia.icns" if sys.platform == "darwin" else "icons/premedia.ico"
 
-# EXE block
 exe = EXE(
     pyz,
     a.scripts,
@@ -74,31 +85,33 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    target_arch="x86_64",  # Change to "arm64" for Apple Silicon
     icon=icon_file,
 )
 
-# macOS App Bundle
-app = BUNDLE(
-    exe,
-    name="PremediaApp.app",
-    icon=icon_file,
-    bundle_identifier="com.vmgdigital.premediaapp",
-    info_plist={
-        "CFBundleName": "PremediaApp",
-        "CFBundleDisplayName": "PremediaApp",
-        "CFBundleExecutable": "PremediaApp",
-        "CFBundleIdentifier": "com.vmgdigital.premediaapp",
-        "CFBundleVersion": "1.0.0",
-        "CFBundleShortVersionString": "1.0.0",
-        "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "11.0",  # macOS 11+
-    },
+# macOS .app bundle or plain EXE
+app_or_exe = (
+    BUNDLE(
+        exe,
+        name="PremediaApp.app",
+        icon=icon_file,
+        bundle_identifier="com.vmgdigital.premediaapp",
+        info_plist={
+            "CFBundleName": "PremediaApp",
+            "CFBundleDisplayName": "PremediaApp",
+            "CFBundleExecutable": "PremediaApp",
+            "CFBundleIdentifier": "com.vmgdigital.premediaapp",
+            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": "1.0.0",
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+        },
+    )
+    if sys.platform == "darwin"
+    else exe
 )
 
-# Final bundle
 coll = COLLECT(
-    exe,
+    app_or_exe,
     a.binaries,
     a.zipfiles,
     a.datas,
