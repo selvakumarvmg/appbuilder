@@ -16,14 +16,17 @@ from requests.exceptions import RequestException
 import urllib3
 import json
 from urllib.parse import urlparse, parse_qs, quote
-from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from PIL import Image
 import subprocess
 from queue import Queue
 import threading
 import time
+from psd_tools import PSDImage
+from PIL import Image
+import numpy as np
+import shutil
+from pathlib import Path
 
 # Handle paramiko import
 try:
@@ -34,25 +37,10 @@ except ImportError as e:
     NAS_AVAILABLE = False
     paramiko = None
 
-try:
-    import traceback
-except ImportError as e:
-    logging.error(f"Failed to import traceback module: {e}")
-    traceback = None  # Fallback to None if import fails
-
-# At the top of the file, ensure all imports are explicit
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"PIL not installed: {e}. Image conversion disabled.")
-    PIL_AVAILABLE = False
-    Image = None
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app-dev.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -117,7 +105,7 @@ USER_VALIDATE_URL = f"{BASE_DOMAIN}/api/user/validate"
 NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
-NAS_SHARE = "irdev"
+NAS_SHARE = ""
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 
 # === Global State ===
@@ -165,7 +153,6 @@ class LogWindowHandler(logging.Handler, QObject):
         QObject.__init__(self)
         self.setLevel(logging.INFO)
         self.setFormatter(formatter)
-        self.log_buffer = []  # Buffer for batch logging
 
     def emit(self, record):
         global LOGGING_ACTIVE
@@ -173,14 +160,10 @@ class LogWindowHandler(logging.Handler, QObject):
             return
         try:
             msg = self.format(record)
-            self.log_buffer.append(msg)
-            if len(self.log_buffer) >= 10:  # Batch every 10 logs
-                for buffered_msg in self.log_buffer:
-                    app_signals.append_log.emit(buffered_msg)
-                self.log_buffer.clear()
+            app_signals.append_log.emit(msg)
         except Exception as e:
             logger.error(f"Log signal emission error: {e}")
-            self.log_buffer.append(f"[Log] Log signal emission error: {str(e)}")
+            app_signals.append_log.emit(f"[Log] Log signal emission error: {str(e)}")
 
 # === Async Logging ===
 log_queue = Queue()
@@ -281,8 +264,6 @@ def initialize_cache():
 
 def save_cache(data):
     global GLOBAL_CACHE
-    if data == GLOBAL_CACHE:  # Skip if cache hasn't changed
-        return
     data_copy = data.copy()
     data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
     cache_dir = Path(CACHE_FILE).parent
@@ -293,7 +274,7 @@ def save_cache(data):
             with open(CACHE_FILE, "r") as f, open(backup_file, "w") as bf:
                 bf.write(f.read())
         with CACHE_WRITE_LOCK:
-            with open(CACHE_FILE, "w", encoding='utf-8') as f:
+            with open(CACHE_FILE, "w") as f:
                 json.dump(data_copy, f, indent=2)
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
@@ -306,9 +287,9 @@ def save_cache(data):
 
 def load_cache():
     global GLOBAL_CACHE
+    default_cache = get_default_cache()
     if GLOBAL_CACHE is not None:
         return GLOBAL_CACHE
-    default_cache = get_default_cache()
     cache_file = Path(CACHE_FILE)
     if not cache_file.exists():
         logger.warning("Cache file does not exist, initializing new cache")
@@ -316,7 +297,7 @@ def load_cache():
         initialize_cache()
         return GLOBAL_CACHE
     try:
-        with open(CACHE_FILE, "r", encoding='utf-8') as f:
+        with open(CACHE_FILE, "r") as f:
             data = json.load(f)
         required_keys = default_cache.keys()
         if not all(key in data for key in required_keys):
@@ -416,7 +397,7 @@ def validate_user(access_key, status_bar=None):
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
         cache = load_cache()
-        validation_url = "https://app-dev.vmgpremedia.com/api/user/validate"
+        validation_url = "https://app-uat.vmgpremedia.com/api/user/validate"
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
         
@@ -526,7 +507,7 @@ def connect_to_nas():
             transport = paramiko.Transport((NAS_IP, 22))
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
             sftp = paramiko.SFTPClient.from_transport(transport)
-            sftp.stat(NAS_SHARE)
+            # sftp.stat(NAS_SHARE)
             logger.info(f"Connected to NAS at {NAS_IP}/{NAS_SHARE}")
             app_signals.append_log.emit(f"[API Scan] Connected to NAS at {NAS_IP}/{NAS_SHARE}")
             return (transport, sftp)
@@ -556,29 +537,114 @@ class FileConversionWorker(QObject):
         self.src_path = src_path
         self.dest_dir = dest_dir
 
+    # def run(self):
+    #     try:
+    #         img = Image.open(self.src_path)
+    #         filename = os.path.splitext(Path(self.src_path).name)[0]
+    #         jpg_path = str(Path(self.dest_dir) / f"{filename}.jpg")
+    #         psd_path = str(Path(self.dest_dir) / f"{filename}.psd")
+
+    #         if img.mode != 'RGB':
+    #             img = img.convert('RGB')
+    #         img.save(jpg_path, 'JPEG', quality=95)
+    #         self.progress.emit(jpg_path, 50)
+    #         img.save(psd_path, 'PSD')
+    #         self.progress.emit(psd_path, 75)
+
+    #         with open(jpg_path, 'rb') as f:
+    #             resp = HTTP_SESSION.post(
+    #                 f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+    #                 files={'file': f},
+    #                 headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+    #                 verify=False,
+    #                 timeout=30
+    #             )
+    #             app_signals.api_call_status.emit(
+    #                 f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+    #                 "Success" if resp.status_code == 200 else f"Failed: {resp.status_code}",
+    #                 resp.status_code
+    #             )
+    #             resp.raise_for_status()
+
+    #         self.progress.emit(jpg_path, 100)
+    #         self.finished.emit(jpg_path, psd_path, Path(self.src_path).name)
+    #     except Exception as e:
+    #         logger.error(f"File conversion error for {self.src_path}: {e}")
+    #         self.error.emit(str(e), Path(self.src_path).name)
+
+    # def run(self):
+    #     try:
+    #         psd = PSDImage.open(self.src_path)
+    #         composite = psd.composite()
+
+    #         filename = os.path.splitext(Path(self.src_path).name)[0]
+    #         jpg_path = str(Path(self.dest_dir) / f"{filename}.jpg")
+    #         psd_path = str(Path(self.dest_dir) / f"{filename}.psd")
+
+    #         if composite.mode != 'RGB':
+    #             composite = composite.convert('RGB')
+    #         os.makedirs(self.dest_dir, exist_ok=True)
+    #         composite.save(jpg_path, format='JPEG', quality=95)
+    #         self.progress.emit(jpg_path, 50)
+
+    #         shutil.copy(self.src_path, psd_path)
+    #         self.progress.emit(psd_path, 75)
+
+    #         with open(jpg_path, 'rb') as f:
+    #             resp = HTTP_SESSION.post(
+    #                 f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+    #                 files={'file': f},
+    #                 headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
+    #                 verify=False,
+    #                 timeout=30
+    #             )
+    #             app_signals.api_call_status.emit(
+    #                 f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
+    #                 "Success" if resp.status_code == 200 else f"Failed: {resp.status_code}",
+    #                 resp.status_code
+    #             )
+    #             resp.raise_for_status()
+
+    #         self.progress.emit(jpg_path, 100)
+    #         self.finished.emit(jpg_path, psd_path, Path(self.src_path).name)
+
+    #     except Exception as e:
+    #         logger.error(f"File conversion error for {self.src_path}: {e}")
+    #         self.error.emit(str(e), Path(self.src_path).name)
+
     def run(self):
-        if not PIL_AVAILABLE:
-            self.error.emit("Pillow not installed, image conversion disabled", Path(self.src_path).name)
-            return
         try:
-            img = Image.open(self.src_path)
+            psd = PSDImage.open(self.src_path)
+
+            # Composite image
+            composite = psd.composite()
+
+            # Convert to numpy array and back to PIL Image for real JPEG saving
+            composite_array = np.array(composite)
+            composite_image = Image.fromarray(composite_array.astype('uint8')).convert('RGB')
+
+            # File names
             filename = os.path.splitext(Path(self.src_path).name)[0]
             jpg_path = str(Path(self.dest_dir) / f"{filename}.jpg")
             psd_path = str(Path(self.dest_dir) / f"{filename}.psd")
 
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            img.save(jpg_path, 'JPEG', quality=95)
+            # Ensure output directory exists
+            os.makedirs(self.dest_dir, exist_ok=True)
+
+            # Save real JPEG
+            composite_image.save(jpg_path, format='JPEG', quality=95)
             self.progress.emit(jpg_path, 50)
-            img.save(psd_path, 'PSD')
+
+            # Copy original PSD
+            shutil.copy(self.src_path, psd_path)
             self.progress.emit(psd_path, 75)
 
-            cache = load_cache()
+            # Upload JPEG to API
             with open(jpg_path, 'rb') as f:
                 resp = HTTP_SESSION.post(
                     f"{BASE_DOMAIN}/api/ir_production/upload/jpg",
                     files={'file': f},
-                    headers={"Authorization": f"Bearer {cache.get('token', '')}"},
+                    headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
                     verify=False,
                     timeout=30
                 )
@@ -589,11 +655,14 @@ class FileConversionWorker(QObject):
                 )
                 resp.raise_for_status()
 
+            # Emit final status
             self.progress.emit(jpg_path, 100)
             self.finished.emit(jpg_path, psd_path, Path(self.src_path).name)
+
         except Exception as e:
             logger.error(f"File conversion error for {self.src_path}: {e}")
             self.error.emit(str(e), Path(self.src_path).name)
+
 
 from PySide6.QtWidgets import QProgressDialog
 # class FileWatcherWorker(QObject):
@@ -915,8 +984,8 @@ class FileWatcherWorker(QObject):
     _instance = None
 
     def __init__(self, parent=None):
-        if FileWatcherWorker._instance is not None and parent is not None:
-            logger.warning("FileWatcherWorker already instantiated, reusing instance")
+        if FileWatcherWorker._instance is not None:
+            logger.warning("FileWatcherWorker already instantiated, skipping new instance")
             return
         super().__init__(parent)
         FileWatcherWorker._instance = self
@@ -992,9 +1061,11 @@ class FileWatcherWorker(QObject):
                         raise Exception(f"NAS connection failed to {NAS_IP}")
                     transport, sftp = nas_connection
                     try:
-                        nas_base_path = "/irdev"
-                        if not src_path.startswith("/"):
-                            src_path = f"{nas_base_path}/{src_path}"
+                        # ✅ Convert mount path back to NAS SFTP path
+                        mount_prefix = "/mnt/nas/softwaremedia/IR_uat"
+                        nas_base_path = ""
+                        if src_path.startswith(mount_prefix):
+                            src_path = src_path.replace(mount_prefix, nas_base_path)
                         logger.debug(f"Attempting NAS download: {src_path} to {dest_path}")
                         self.log_update.emit(f"[Transfer] Attempting NAS download: {src_path} to {dest_path}")
                         sftp.stat(src_path)  # Check if file exists
@@ -1004,10 +1075,20 @@ class FileWatcherWorker(QObject):
                         transport.close()
                         raise Exception(f"NAS download failed for {src_path}: {str(e)}")
                 else:
-                    response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
-                    response.raise_for_status()
-                    with open(dest_path, 'wb') as f:
-                        f.write(response.content)
+                    # response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
+                    # response.raise_for_status()
+                    # with open(dest_path, 'wb') as f:
+                    #     f.write(response.content)
+                    start_time = time.time()
+                    with HTTP_SESSION.get(src_path, stream=True, verify=False, timeout=60) as r:
+                        r.raise_for_status()
+                        with open(dest_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+                                if chunk:
+                                    f.write(chunk)
+                    end_time = time.time()
+                    print(f"Downloaded {Path(src_path).name} in {end_time - start_time:.2f} seconds")
+
                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
                 app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
@@ -1158,17 +1239,23 @@ class FileWatcherWorker(QObject):
                 cache["uploaded_files_with_metadata"] = {}
                 save_cache(cache)
 
-            updates = []  # Collect updates for batch emission
-            for item in tasks:
+            for item in tasks:  # Process all tasks
                 if not isinstance(item, dict):
                     logger.error(f"Invalid task item type: {type(item)}, item: {item}")
                     self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
                     continue
-                task_id = str(item.get('id', ''))
+                task_id = str(item.get('id', ''))  # Ensure task_id is string
                 file_path = item.get('file_path', '')
-                file_name = item.get('file_name', Path(file_path).name)
+                # 🔁 Path conversion from SFTP-style path to actual NAS mount path
+                SFTP_PREFIX = "/image.test"
+                NAS_MOUNT_PREFIX = "/mnt/nas/softwaremedia/IR_uat/image.test"
+                if file_path.startswith(SFTP_PREFIX):
+                    file_path = file_path.replace(SFTP_PREFIX, NAS_MOUNT_PREFIX)
+
+                # file_name = item.get('file_name', Path(file_path).name)
+                file_name = Path(file_path).name
                 action_type = item.get('request_type', '').lower()
-                task_key = f"{task_id}:{action_type}"
+                task_key = f"{task_id}:{action_type}"  # Use task_id to avoid conflicts
                 logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}")
                 self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}")
                 if task_key in self.processed_tasks:
@@ -1182,7 +1269,7 @@ class FileWatcherWorker(QObject):
                     self.status_update.emit(f"Downloading {file_name}")
                     self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-                    self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
+                    self.perform_file_transfer(file_path, local_path, action_type, item, not is_online, False)
                     cache = load_cache()
                     if "downloaded_files_with_metadata" not in cache:
                         cache["downloaded_files_with_metadata"] = {}
@@ -1196,9 +1283,10 @@ class FileWatcherWorker(QObject):
                         cache["timer_responses"][local_path] = timer_response
                     save_cache(cache)
                     self.processed_tasks.add(task_key)
-                    updates.append((local_path, "Download Completed", action_type, 100, not is_online))
-                    if not is_online and self.parent():
-                        self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
+                    # if not is_online and self.parent():
+                    #     self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
+                    self.log_update.emit(f"[API Scan] Download completed for {file_name} without conversion")
+                    app_signals.append_log.emit(f"[API Scan] Download completed for {file_name} without conversion")
                 elif action_type == "upload":
                     self.status_update.emit(f"Uploading {file_name}")
                     self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
@@ -1208,31 +1296,24 @@ class FileWatcherWorker(QObject):
                         cache["uploaded_files"] = []
                     if "uploaded_files_with_metadata" not in cache:
                         cache["uploaded_files_with_metadata"] = {}
+                    cache["uploaded_files"].append(local_path)
                     if task_id:
                         cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-                    if local_path not in cache["uploaded_files"]:
-                        cache["uploaded_files"].append(local_path)
                     save_cache(cache)
                     if Path(local_path).exists():
                         self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
                         timer_response = cache.get("timer_responses", {}).get(local_path)
                         if timer_response:
                             end_timer_api(file_path, timer_response, cache["token"])
-                        updates.append((local_path, "Upload Completed", action_type, 100, not is_online))
                     else:
                         self.log_update.emit(f"[API Scan] Upload skipped: {local_path} does not exist")
-                        updates.append((local_path, "Upload Failed: File not found", action_type, 0, not is_online))
+                        app_signals.update_file_list.emit(local_path, "Upload Failed: File not found", action_type, 0, not is_online)
                     self.processed_tasks.add(task_key)
-
-            # Emit updates in batch
-            for update in updates:
-                app_signals.update_file_list.emit(*update)
-
-            self.status_update.emit("File tasks check completed")
-            self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
-            app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
+                self.status_update.emit("File tasks check completed")
+                self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
+                app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
         except Exception as e:
-            logger.error(f"Error in file watcher run: {e}")
+            logger.error(f"Error processing tasks: {e}")
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
@@ -1264,13 +1345,9 @@ class LogWindow(QDialog):
         try:
             log_file = log_dir / "app.log"
             if log_file.exists():
-                with log_file.open("r", encoding='utf-8') as f:
-                    lines = []
-                    for i, line in enumerate(f):
-                        if i >= 200:  # Limit to last 200 lines
-                            break
-                        lines.append(line)
-                self.text_edit.setPlainText("".join(lines))
+                with log_file.open("r") as f:
+                    lines = f.readlines()
+                self.text_edit.setPlainText("".join(lines[-200:]))
                 self.text_edit.moveCursor(QTextCursor.End)
                 self.status_bar.showMessage("Logs loaded")
                 app_signals.append_log.emit("[Log] Loaded existing logs from app.log")
@@ -1367,20 +1444,9 @@ class FileListWindow(QDialog):
             logger.error(f"Error loading files in FileListWindow: {e}")
             app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
 
-        app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)  # Connect refresh signal
+        app_signals.update_file_list.connect(self.update_file_list, Qt.QueuedConnection)
         self.file_watcher = FileWatcherWorker.get_instance(parent=self)  # Use singleton
         self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
-
-
-    def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
-        """Refresh the file list if the action_type matches file_type."""
-        try:
-            if action_type == self.file_type:
-                self.load_files()  # Reload the entire table
-                app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
-        except Exception as e:
-            logger.error(f"Error refreshing file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
 
     # def load_files(self):
     #     """Load files into the table based on file_type."""
@@ -1438,63 +1504,10 @@ class FileListWindow(QDialog):
     #         app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
     #         raise
 
-    # def load_files(self):
-    #     """Load files into the table based on file_type."""
-    #     try:
-    #         cache = load_cache()
-    #         logger.debug(f"Loading files for {self.file_type}, cache: {json.dumps(cache, indent=2)}")
-    #         app_signals.append_log.emit(f"[Files] Loading files for {self.file_type}")
-    #         files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-    #         logger.debug(f"Files retrieved: {files}")
-    #         self.table.setRowCount(0)
-
-    #         file_list = files.items() if isinstance(files, dict) else enumerate(files)
-    #         for task_id, file_path in file_list:
-    #             row = self.table.rowCount()
-    #             self.table.insertRow(row)
-    #             filename = Path(file_path).name
-    #             path_item = QTableWidgetItem(filename)
-    #             self.table.setItem(row, 0, path_item)
-
-    #             folder_btn = QPushButton()
-    #             folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-    #             folder_btn.setIconSize(QSize(24, 24))
-    #             folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
-    #             self.table.setCellWidget(row, 1, folder_btn)
-
-    #             photoshop_btn = QPushButton()
-    #             photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-    #             photoshop_btn.setIconSize(QSize(24, 24))
-    #             photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
-    #             self.table.setCellWidget(row, 2, photoshop_btn)
-
-    #             metadata_key = f"{self.file_type}_files_with_metadata"
-    #             source = cache.get(metadata_key, {}).get(task_id, {}).get("api_response", {}).get("file_path", file_path)
-    #             source_item = QTableWidgetItem(source)
-    #             self.table.setItem(row, 3, source_item)
-    #             status_col = 4
-    #             progress_col = 5
-
-    #             status_item = QTableWidgetItem("Completed" if Path(file_path).exists() else "Failed")
-    #             self.table.setItem(row, status_col, status_item)
-    #             progress_bar = QProgressBar(self)
-    #             progress_bar.setMinimum(0)
-    #             progress_bar.setMaximum(100)
-    #             progress_bar.setValue(100 if Path(file_path).exists() else 0)
-    #             progress_bar.setFixedHeight(20)
-    #             self.table.setCellWidget(row, progress_col, progress_bar)
-
-    #         self.table.resizeColumnsToContents()
-    #         app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
-    #     except Exception as e:
-    #         logger.error(f"Error in load_files for {self.file_type}: {e}")
-    #         app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
-    #         raise
-
     def load_files(self):
         """Load files into the table based on file_type."""
         try:
-            cache = load_cache()  # Load cache once
+            cache = load_cache()
             logger.debug(f"Loading files for {self.file_type}, cache: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[Files] Loading files for {self.file_type}")
             files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
@@ -1521,12 +1534,18 @@ class FileListWindow(QDialog):
                 photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
                 self.table.setCellWidget(row, 2, photoshop_btn)
 
-                metadata_key = f"{self.file_type}_files_with_metadata"
-                source = cache.get(metadata_key, {}).get(task_id, {}).get("api_response", {}).get("file_path", file_path)
-                source_item = QTableWidgetItem(source)
-                self.table.setItem(row, 3, source_item)
-                status_col = 4
-                progress_col = 5
+                if self.file_type == "downloaded":
+                    source = cache.get("downloaded_files_with_metadata", {}).get(task_id, {}).get("api_response", {}).get("file_path", "Unknown")
+                    source_item = QTableWidgetItem(source)
+                    self.table.setItem(row, 3, source_item)
+                    status_col = 4
+                    progress_col = 5
+                else:  # For uploaded files
+                    source = cache.get("uploaded_files_with_metadata", {}).get(task_id, {}).get("api_response", {}).get("file_path", file_path)
+                    source_item = QTableWidgetItem(source)
+                    self.table.setItem(row, 3, source_item)
+                    status_col = 4
+                    progress_col = 5
 
                 status_item = QTableWidgetItem("Completed" if Path(file_path).exists() else "Failed")
                 self.table.setItem(row, status_col, status_item)
@@ -1647,111 +1666,77 @@ class FileListWindow(QDialog):
 
     def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
         """Update the table with file transfer status."""
-        if action_type != self.file_type or not file_path:
+        if action_type != self.file_type:
             return
         try:
             for row in range(self.table.rowCount()):
                 if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
                     status_col = 4 if self.file_type == "downloaded" else 3
                     progress_col = 5 if self.file_type == "downloaded" else 4
-                    self.table.setItem(row, status_col, QTableWidgetItem(status))
+                    self.table.item(row, status_col).setText(status)
                     progress_bar = self.table.cellWidget(row, progress_col)
-                    if not progress_bar or isinstance(progress_bar, QWidget):
+                    if progress == 100:
                         progress_bar = QProgressBar(self)
                         progress_bar.setMinimum(0)
                         progress_bar.setMaximum(100)
+                        progress_bar.setValue(100)
                         progress_bar.setFixedHeight(20)
                         self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
+                    else:
+                        if not progress_bar or isinstance(progress_bar, QWidget):
+                            progress_bar = QProgressBar(self)
+                            progress_bar.setMinimum(0)
+                            progress_bar.setMaximum(100)
+                            progress_bar.setFixedHeight(20)
+                            self.table.setCellWidget(row, progress_col, progress_bar)
+                        progress_bar.setValue(progress)
                     if self.file_type == "downloaded":
-                        self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+                        self.table.item(row, 3).setText("NAS" if is_nas_src else "DOMAIN")
                     self.table.resizeColumnsToContents()
                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
                     return
 
-            # If file not found, reload the entire table
-            self.load_files()
-            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            path_item = QTableWidgetItem(Path(file_path).name)
+            self.table.setItem(row, 0, path_item)
+
+            folder_btn = QPushButton()
+            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+            folder_btn.setIconSize(QSize(24, 24))
+            folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
+            self.table.setCellWidget(row, 1, folder_btn)
+
+            photoshop_btn = QPushButton()
+            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+            photoshop_btn.setIconSize(QSize(24, 24))
+            photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
+            self.table.setCellWidget(row, 2, photoshop_btn)
+
+            if self.file_type == "downloaded":
+                source_item = QTableWidgetItem("NAS" if is_nas_src else "DOMAIN")
+                self.table.setItem(row, 3, source_item)
+                status_col = 4
+                progress_col = 5
+            else:
+                status_col = 3
+                progress_col = 4
+
+            status_item = QTableWidgetItem(status)
+            self.table.setItem(row, status_col, status_item)
+
+            progress_bar = QProgressBar(self)
+            progress_bar.setMinimum(0)
+            progress_bar.setMaximum(100)
+            progress_bar.setValue(progress)
+            progress_bar.setFixedHeight(20)
+            self.table.setCellWidget(row, progress_col, progress_bar)
+
+            self.table.resizeColumnsToContents()
+            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list")
         except Exception as e:
             logger.error(f"Error updating file list: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
-
-
-
-
-    # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
-    #     """Update the table with file transfer status."""
-    #     if action_type != self.file_type:
-    #         return
-    #     try:
-    #         for row in range(self.table.rowCount()):
-    #             if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
-    #                 status_col = 4 if self.file_type == "downloaded" else 3
-    #                 progress_col = 5 if self.file_type == "downloaded" else 4
-    #                 self.table.item(row, status_col).setText(status)
-    #                 progress_bar = self.table.cellWidget(row, progress_col)
-    #                 if progress == 100:
-    #                     progress_bar = QProgressBar(self)
-    #                     progress_bar.setMinimum(0)
-    #                     progress_bar.setMaximum(100)
-    #                     progress_bar.setValue(100)
-    #                     progress_bar.setFixedHeight(20)
-    #                     self.table.setCellWidget(row, progress_col, progress_bar)
-    #                 else:
-    #                     if not progress_bar or isinstance(progress_bar, QWidget):
-    #                         progress_bar = QProgressBar(self)
-    #                         progress_bar.setMinimum(0)
-    #                         progress_bar.setMaximum(100)
-    #                         progress_bar.setFixedHeight(20)
-    #                         self.table.setCellWidget(row, progress_col, progress_bar)
-    #                     progress_bar.setValue(progress)
-    #                 if self.file_type == "downloaded":
-    #                     self.table.item(row, 3).setText("NAS" if is_nas_src else "DOMAIN")
-    #                 self.table.resizeColumnsToContents()
-    #                 app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
-    #                 return
-
-    #         row = self.table.rowCount()
-    #         self.table.insertRow(row)
-    #         path_item = QTableWidgetItem(Path(file_path).name)
-    #         self.table.setItem(row, 0, path_item)
-
-    #         folder_btn = QPushButton()
-    #         folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-    #         folder_btn.setIconSize(QSize(24, 24))
-    #         folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
-    #         self.table.setCellWidget(row, 1, folder_btn)
-
-    #         photoshop_btn = QPushButton()
-    #         photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-    #         photoshop_btn.setIconSize(QSize(24, 24))
-    #         photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
-    #         self.table.setCellWidget(row, 2, photoshop_btn)
-
-    #         if self.file_type == "downloaded":
-    #             source_item = QTableWidgetItem("NAS" if is_nas_src else "DOMAIN")
-    #             self.table.setItem(row, 3, source_item)
-    #             status_col = 4
-    #             progress_col = 5
-    #         else:
-    #             status_col = 3
-    #             progress_col = 4
-
-    #         status_item = QTableWidgetItem(status)
-    #         self.table.setItem(row, status_col, status_item)
-
-    #         progress_bar = QProgressBar(self)
-    #         progress_bar.setMinimum(0)
-    #         progress_bar.setMaximum(100)
-    #         progress_bar.setValue(progress)
-    #         progress_bar.setFixedHeight(20)
-    #         self.table.setCellWidget(row, progress_col, progress_bar)
-
-    #         self.table.resizeColumnsToContents()
-    #         app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list")
-    #     except Exception as e:
-    #         logger.error(f"Error updating file list: {e}")
-    #         app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
 
     def update_progress(self, title, file_path, progress):
         """Update progress for a file in the table."""
@@ -1952,130 +1937,102 @@ class LoginWorker(QObject):
                 self.status_bar.showMessage(error_msg)
 
 class LoginDialog(QDialog):
-    login_success = Signal(dict)  # Signal for successful login with user info
-    login_failure = Signal(str)   # Signal for login failure with error message
+    def __init__(self, tray_icon, on_success_callback=None):
+        super().__init__()
+        self.is_logged_in = False
+        self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
+        self.setWindowTitle("PremediaApp Login")
+        self.tray_icon = tray_icon
+        self.on_success_callback = on_success_callback
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
 
-    def __init__(self, parent=None):
+        # Load UI
+        self.ui = Ui_Dialog()
+        self.ui.setupUi(self)
+
+        # Create status bar
+        self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self.status_bar.setFixedHeight(20)
+        self.status_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+        # Add status bar to layout
+        main_layout = QVBoxLayout()
+        main_layout.addStretch(1)
+        main_layout.addWidget(self.status_bar, stretch=0)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+        self.setLayout(main_layout)
+
+        # Initialize tray menu
+        self.tray_menu = QMenu()
+        self.login_action = QAction("Login", self)
+        self.logout_action = QAction("Logout", self)
+        self.exit_action = QAction("Exit", self)
+        self.login_action.triggered.connect(self.show)
+        self.logout_action.triggered.connect(self.logout)
+        self.exit_action.triggered.connect(QApplication.quit)
+        self.tray_menu.addAction(self.login_action)
+        self.tray_menu.addAction(self.logout_action)
+        self.tray_menu.addAction(self.exit_action)
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.update_tray_menu()
+
+        # Check cache for valid token
+        cache = load_cache()
+        if cache.get("token") and cache.get("user"):
+            self.is_logged_in = True
+            self.update_tray_menu()
+            logger.info(f"Auto-login from cache for user: {cache['user']}")
+            app_signals.append_log.emit(f"[Login] Auto-login from cache for user: {cache['user']}")
+
+        # Load saved credentials
+        if cache.get("saved_username") and cache.get("saved_password"):
+            self.ui.usernametxt.setText(cache["saved_username"])
+            self.ui.passwordtxt.setText(cache["saved_password"])
+            self.ui.rememberme.setChecked(True)
+            app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+            self.status_bar.showMessage("Loaded saved credentials")
+        else:
+            app_signals.append_log.emit("[Login] No saved credentials found in cache")
+            self.status_bar.showMessage("No saved credentials found")
+
+        # Connect signals
+        app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
+        self.ui.buttonBox.accepted.connect(self.handle_login)
+
+        self.progress = None
+        logger.debug("[Login] LoginDialog initialized")
+        app_signals.append_log.emit("[Login] Initializing LoginDialog")
+        self.status_bar.showMessage("Login dialog initialized")
+
+        self.resize(764, 669)
+
+    def update_tray_menu(self):
+        self.login_action.setVisible(not self.is_logged_in)
+        self.logout_action.setVisible(self.is_logged_in)
+        logger.debug(f"Updated tray menu: logged_in={self.is_logged_in}, actions=[{', '.join([action.text() for action in self.tray_menu.actions()])}]")
+        app_signals.append_log.emit(f"[Tray] Updated menu: Login={not self.is_logged_in}, Logout={self.is_logged_in}")
+        self.tray_icon.setContextMenu(self.tray_menu)  # Refresh menu
+        self.tray_icon.show()  # Ensure tray icon is visible
+
+    def logout(self):
         try:
-            # Validate parent to ensure it's a QWidget or None
-            from PySide6.QtWidgets import QWidget
-            if parent is not None and not isinstance(parent, QWidget):
-                logger.warning(f"Invalid parent type {type(parent).__name__}, setting parent to None")
-                app_signals.append_log.emit(f"[Login] Warning: Invalid parent type {type(parent).__name__}, setting parent to None")
-                parent = None
-
-            # Call base class __init__ first
-            super().__init__(parent)
-            logger.debug(f"Initializing LoginDialog with parent={parent}")
-            if traceback:
-                logger.debug(f"Call stack:\n{''.join(traceback.format_stack()[:-1])}")
-            else:
-                logger.warning("traceback module not available, skipping stack trace")
-                app_signals.append_log.emit("[Login] Warning: traceback module not available, skipping stack trace")
-
             self.is_logged_in = False
-            try:
-                self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
-            except Exception as e:
-                logger.error(f"Failed to load login dialog icon: {e}")
-                app_signals.append_log.emit(f"[Login] Failed to load login dialog icon: {str(e)}")
-                QMessageBox.critical(self, "Icon Error", f"Failed to load login dialog icon: {str(e)}")
-
-            self.setWindowTitle("PremediaApp Login")
-            self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-
-            # Load UI
-            try:
-                self.ui = Ui_Dialog()
-                self.ui.setupUi(self)
-            except Exception as e:
-                logger.error(f"Failed to load UI: {e}")
-                app_signals.append_log.emit(f"[Login] Failed to load UI: {str(e)}")
-                QMessageBox.critical(self, "UI Error", f"Failed to load UI: {str(e)}")
-                raise Exception(f"Failed to load UI: {str(e)}")
-
-            # Create status bar
-            try:
-                self.status_bar = QStatusBar()
-                self.status_bar.setSizeGripEnabled(False)
-                self.status_bar.setFixedHeight(20)
-                self.status_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-            except Exception as e:
-                logger.error(f"Failed to create status bar: {e}")
-                app_signals.append_log.emit(f"[Login] Failed to create status bar: {str(e)}")
-                QMessageBox.critical(self, "Status Bar Error", f"Failed to create status bar: {str(e)}")
-                raise Exception(f"Failed to create status bar: {str(e)}")
-
-            # Add status bar to layout
-            try:
-                main_layout = QVBoxLayout()
-                main_layout.addStretch(1)
-                main_layout.addWidget(self.status_bar, stretch=0)
-                main_layout.setContentsMargins(5, 5, 5, 5)
-                main_layout.setSpacing(5)
-                self.setLayout(main_layout)
-            except Exception as e:
-                logger.error(f"Failed to set up layout: {e}")
-                app_signals.append_log.emit(f"[Login] Failed to set up layout: {str(e)}")
-                QMessageBox.critical(self, "Layout Error", f"Failed to set up layout: {str(e)}")
-                raise Exception(f"Failed to set up layout: {str(e)}")
-
-            # Check cache for valid token (optimized to avoid redundant calls)
-            try:
-                cache = load_cache()
-                if cache.get("token") and cache.get("user"):
-                    self.is_logged_in = True
-                    logger.info(f"Auto-login from cache for user: {cache['user']}")
-                    app_signals.append_log.emit(f"[Login] Auto-login from cache for user: {cache['user']}")
-                    if hasattr(self, 'parent') and hasattr(self.parent, 'set_logged_in_state'):
-                        self.parent.set_logged_in_state()
-                    else:
-                        logger.warning("Parent or set_logged_in_state not available for auto-login")
-                        app_signals.append_log.emit("[Login] Warning: Parent or set_logged_in_state not available for auto-login")
-            except Exception as e:
-                logger.error(f"Error checking cache for auto-login: {e}")
-                app_signals.append_log.emit(f"[Login] Failed: Error checking cache for auto-login - {str(e)}")
-                self.status_bar.showMessage(f"Auto-login error: {str(e)}")
-                QMessageBox.critical(self, "Auto-Login Error", f"Failed to check cache for auto-login: {str(e)}")
-
-            # Load saved credentials
-            try:
-                if cache.get("saved_username") and cache.get("saved_password"):
-                    self.ui.usernametxt.setText(cache["saved_username"])
-                    self.ui.passwordtxt.setText(cache["saved_password"])
-                    self.ui.rememberme.setChecked(True)
-                    app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
-                    self.status_bar.showMessage("Loaded saved credentials")
-                else:
-                    app_signals.append_log.emit("[Login] No saved credentials found in cache")
-                    self.status_bar.showMessage("No saved credentials found")
-            except Exception as e:
-                logger.error(f"Error loading saved credentials: {e}")
-                app_signals.append_log.emit(f"[Login] Failed: Error loading saved credentials - {str(e)}")
-                self.status_bar.showMessage(f"Credentials error: {str(e)}")
-                QMessageBox.critical(self, "Credentials Error", f"Failed to load saved credentials: {str(e)}")
-
-            # Connect signals
-            try:
-                app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
-                self.ui.buttonBox.accepted.connect(self.handle_login)
-            except Exception as e:
-                logger.error(f"Error connecting signals: {e}")
-                app_signals.append_log.emit(f"[Login] Failed: Error connecting signals - {str(e)}")
-                self.status_bar.showMessage(f"Signal connection error: {str(e)}")
-                QMessageBox.critical(self, "Signal Error", f"Failed to connect signals: {str(e)}")
-
-            self.progress = None
-            logger.debug("[Login] LoginDialog initialized")
-            app_signals.append_log.emit("[Login] Initializing LoginDialog")
-            self.status_bar.showMessage("Login dialog initialized")
-
-            self.resize(764, 669)
+            self.update_tray_menu()
+            cache = load_cache()
+            cache["token"] = ""
+            cache["saved_username"] = "" if not self.ui.rememberme.isChecked() else cache["saved_username"]
+            cache["saved_password"] = "" if not self.ui.rememberme.isChecked() else cache["saved_password"]
+            save_cache(cache)
+            logger.info("Logged out successfully")
+            app_signals.append_log.emit("[Login] Logged out successfully")
+            self.status_bar.showMessage("Logged out successfully")
+            self.show()
         except Exception as e:
-            logger.error(f"Failed to initialize LoginDialog: {e}")
-            app_signals.append_log.emit(f"[Login] Failed to initialize LoginDialog: {str(e)}")
-            QMessageBox.critical(None, "Initialization Error", f"Failed to initialize login dialog: {str(e)}")
-            raise
+            logger.error(f"Logout error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
+            self.status_bar.showMessage(f"Logout error: {str(e)}")
 
     def show_progress(self, message):
         try:
@@ -2097,7 +2054,6 @@ class LoginDialog(QDialog):
             logger.error(f"Progress dialog error: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Progress dialog error - {str(e)}")
             self.status_bar.showMessage(f"Progress error: {str(e)}")
-            QMessageBox.critical(self, "Progress Error", f"Progress dialog error: {str(e)}")
 
     def handle_login(self):
         try:
@@ -2123,16 +2079,12 @@ class LoginDialog(QDialog):
             self.status_bar.showMessage(f"Login error: {str(e)}")
             if self.progress:
                 self.progress.close()
-            QMessageBox.critical(self, "Login Error", f"Login error: {str(e)}")
 
     def perform_login(self, username, password):
         try:
             logger.debug("Starting login thread")
             self.thread = QThread()
-            # Pass tray_icon and status_bar from parent (PremediaApp)
-            tray_icon = getattr(self.parent, 'tray_icon', None) if hasattr(self, 'parent') else None
-            status_bar = self.status_bar  # Use LoginDialog's status_bar
-            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=tray_icon, status_bar=status_bar)
+            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=self.tray_icon, status_bar=self.status_bar)
             self.worker.moveToThread(self.thread)
             self.thread.started.connect(self.worker.run)
             self.worker.success.connect(self.on_login_success)
@@ -2151,26 +2103,27 @@ class LoginDialog(QDialog):
             self.status_bar.showMessage(f"Login thread error: {str(e)}")
             if self.progress:
                 self.progress.close()
-            QMessageBox.critical(self, "Login Error", f"Login thread error: {str(e)}")
 
     def on_login_success(self, user_info):
         try:
             if self.progress:
                 self.progress.close()
             self.is_logged_in = True
+            self.update_tray_menu()
+            if self.tray_icon:
+                self.tray_icon.show()
             logger.debug(f"Login success: {user_info}")
+            logger.debug("Showing success QMessageBox")
             QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
             app_signals.append_log.emit(f"[Login] Login successful for user: {user_info.get('uid', 'Unknown')}")
             self.status_bar.showMessage(f"Login successful for user: {user_info.get('uid', 'Unknown')}")
-            if hasattr(self, 'parent') and hasattr(self.parent, 'set_logged_in_state'):
-                self.parent.set_logged_in_state()
-            self.login_success.emit(user_info)
+            if self.on_success_callback:
+                self.on_success_callback()
             self.accept()
         except Exception as e:
             logger.error(f"Error in on_login_success: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Login success handling error - {str(e)}")
             self.status_bar.showMessage(f"Login success error: {str(e)}")
-            QMessageBox.critical(self, "Login Error", f"Login success handling error: {str(e)}")
 
     def on_login_failure(self, error_msg):
         try:
@@ -2180,33 +2133,188 @@ class LoginDialog(QDialog):
             QMessageBox.critical(self, "Login Failed", error_msg)
             app_signals.append_log.emit(f"[Login] Failed: Login error - {error_msg}")
             self.status_bar.showMessage(f"Login failed: {error_msg}")
-            self.login_failure.emit(error_msg)
         except Exception as e:
             logger.error(f"Error in on_login_failure: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Login failure handling error - {str(e)}")
             self.status_bar.showMessage(f"Login failure error: {str(e)}")
-            QMessageBox.critical(self, "Login Error", f"Login failure handling error: {str(e)}")
 
     def closeEvent(self, event):
         try:
-            if app_signals.update_status.isSignalConnected(self.status_bar.showMessage):
-                app_signals.update_status.disconnect(self.status_bar.showMessage)
+            app_signals.update_status.disconnect(self.status_bar.showMessage)
+        except Exception:
+            pass
+        super().closeEvent(event)
+    def __init__(self, tray_icon, on_success_callback=None):
+        super().__init__()
+
+        self.setWindowIcon(load_icon(ICON_PATH, "login dialog"))
+        self.setWindowTitle("PremediaApp Login")
+        self.tray_icon = tray_icon
+        self.on_success_callback = on_success_callback
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+
+        # Load UI
+        self.ui = Ui_Dialog()
+        self.ui.setupUi(self)
+
+        # Create status bar
+        self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self.status_bar.setFixedHeight(20)
+        self.status_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+        # Add status bar to layout
+        main_layout = QVBoxLayout()
+        main_layout.addStretch(1)
+        main_layout.addWidget(self.status_bar, stretch=0)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+        self.setLayout(main_layout)
+
+        # Set size policy
+        try:
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         except Exception as e:
-            logger.debug(f"Failed to disconnect update_status signal: {e}")
-            app_signals.append_log.emit(f"[Login] Failed to disconnect update_status signal: {str(e)}")
+            logger.warning(f"QSizePolicy not available: {e}")
+            app_signals.append_log.emit(f"[Init] QSizePolicy not available: {str(e)}")
+
+        # Load saved credentials
+        cache = load_cache()
+        if cache.get("saved_username") and cache.get("saved_password"):
+            self.ui.usernametxt.setText(cache["saved_username"])
+            self.ui.passwordtxt.setText(cache["saved_password"])
+            self.ui.rememberme.setChecked(True)
+            app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+            self.status_bar.showMessage("Loaded saved credentials")
+        else:
+            app_signals.append_log.emit("[Login] No saved credentials found in cache")
+            self.status_bar.showMessage("No saved credentials found")
+
+        # Connect signals
+        app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
+        self.ui.buttonBox.accepted.connect(self.handle_login)
+
+        self.progress = None
+        logger.debug("[Login] LoginDialog initialized")
+        app_signals.append_log.emit("[Login] Initializing LoginDialog")
+        self.status_bar.showMessage("Login dialog initialized")
+
+        self.resize(764, 669)
+
+    def show_progress(self, message):
+        try:
+            self.progress = QProgressDialog(message, None, 0, 0, self)
+            self.progress.setWindowModality(Qt.WindowModal)
+            self.progress.setCancelButton(None)
+            self.progress.setMinimumDuration(0)
+            self.progress.setWindowTitle("Please wait")
+            try:
+                self.progress.setWindowIcon(load_icon(ICON_PATH, "progress dialog"))
+            except Exception as e:
+                logger.warning(f"Failed to load progress dialog icon: {e}")
+            self.progress.show()
+            QApplication.processEvents()
+            logger.debug(f"Progress dialog shown: {message}")
+            app_signals.append_log.emit(f"[Login] Showing progress: {message}")
+            self.status_bar.showMessage(message)
+        except Exception as e:
+            logger.error(f"Progress dialog error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Progress dialog error - {str(e)}")
+            self.status_bar.showMessage(f"Progress error: {str(e)}")
+
+    def handle_login(self):
+        try:
+            logger.debug("handle_login called")
+            username = self.ui.usernametxt.text().strip()
+            password = self.ui.passwordtxt.text().strip()
+            logger.debug(f"Login attempt with username: {username}, rememberme: {self.ui.rememberme.isChecked()}")
+            app_signals.append_log.emit(f"[Login] Attempting login with username: {username}")
+            self.status_bar.showMessage(f"Attempting login for {username}")
+            if not username or not password:
+                QMessageBox.warning(self, "Input Error", "Please enter both username and password.")
+                app_signals.append_log.emit("[Login] Failed: Missing username or password")
+                self.status_bar.showMessage("Missing username or password")
+                return
+            self.show_progress("Validating credentials...")
+            self.perform_login(username, password)
+            logger.info("Login process started")
+            app_signals.append_log.emit("[Login] Login process started")
+            self.status_bar.showMessage("Login process started")
+        except Exception as e:
+            logger.error(f"Error in handle_login: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Handle login error - {str(e)}")
+            self.status_bar.showMessage(f"Login error: {str(e)}")
+            if self.progress:
+                self.progress.close()
+
+    def perform_login(self, username, password):
+        try:
+            logger.debug("Starting login thread")
+            self.thread = QThread()
+            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=self.tray_icon, status_bar=self.status_bar)
+            self.worker.moveToThread(self.thread)
+            self.thread.started.connect(self.worker.run)
+            self.worker.success.connect(self.on_login_success)
+            self.worker.failure.connect(self.on_login_failure)
+            self.worker.success.connect(self.thread.quit)
+            self.worker.failure.connect(self.thread.quit)
+            self.worker.success.connect(self.worker.deleteLater)
+            self.worker.failure.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+            app_signals.append_log.emit(f"[Login] Starting login thread for user: {username}")
+            self.status_bar.showMessage(f"Starting login for {username}")
+        except Exception as e:
+            logger.error(f"Login thread error: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login thread error - {str(e)}")
+            self.status_bar.showMessage(f"Login thread error: {str(e)}")
+            if self.progress:
+                self.progress.close()
+
+    def on_login_success(self, user_info):
+        try:
+            if self.progress:
+                self.progress.close()
+            if self.tray_icon:
+                self.tray_icon.show()
+            logger.debug(f"Login success: {user_info}")
+            QMessageBox.information(self, "Login Success", f"Welcome: {user_info.get('uid', 'Unknown')}")
+            app_signals.append_log.emit(f"[Login] Login successful for user: {user_info.get('uid', 'Unknown')}")
+            self.status_bar.showMessage(f"Login successful for user: {user_info.get('uid', 'Unknown')}")
+            if self.on_success_callback:
+                self.on_success_callback()
+            self.accept()
+        except Exception as e:
+            logger.error(f"Error in on_login_success: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login success handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login success error: {str(e)}")
+
+    def on_login_failure(self, error_msg):
+        try:
+            if self.progress:
+                self.progress.close()
+            logger.debug(f"Login failure: {error_msg}")
+            QMessageBox.critical(self, "Login Failed", error_msg)
+            app_signals.append_log.emit(f"[Login] Failed: Login error - {error_msg}")
+            self.status_bar.showMessage(f"Login failed: {error_msg}")
+        except Exception as e:
+            logger.error(f"Error in on_login_failure: {e}")
+            app_signals.append_log.emit(f"[Login] Failed: Login failure handling error - {str(e)}")
+            self.status_bar.showMessage(f"Login failure error: {str(e)}")
+
+    def closeEvent(self, event):
+        try:
+            app_signals.update_status.disconnect(self.status_bar.showMessage)
+        except Exception:
+            pass
         super().closeEvent(event)
 
-
-        
 class PremediaApp:
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
-            super().__init__()
             self.app = QApplication.instance() or QApplication(sys.argv)
             self.app.setQuitOnLastWindowClosed(False)
             self.app.setWindowIcon(load_icon(ICON_PATH, "application"))
-
-            # Initialize system tray icon (simplified to avoid duplicate initialization)
             self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray")) if QSystemTrayIcon.isSystemTrayAvailable() else None
             if self.tray_icon:
                 self.tray_icon.setToolTip("PremediaApp")
@@ -2217,8 +2325,8 @@ class PremediaApp:
             self.logged_in = False
             load_cache()  # Initialize GLOBAL_CACHE
 
-            # Set up tray menu (unchanged order and actions)
-            self.tray_menu = QMenu()
+            # Set up tray menu
+            tray_menu = QMenu()
             self.login_action = QAction("Login")
             self.logout_action = QAction("Logout")
             self.quit_action = QAction("Quit")
@@ -2227,17 +2335,16 @@ class PremediaApp:
             self.uploaded_files_action = QAction("Uploaded Files")
             self.clear_cache_action = QAction("Clear Cache")
             self.open_cache_action = QAction("Open Cache File")
-            self.tray_menu.addAction(self.log_action)
-            self.tray_menu.addAction(self.downloaded_files_action)
-            self.tray_menu.addAction(self.uploaded_files_action)
-            self.tray_menu.addAction(self.open_cache_action)
-            self.tray_menu.addAction(self.login_action)
-            self.tray_menu.addAction(self.clear_cache_action)
-            self.tray_menu.addAction(self.quit_action)
+            tray_menu.addAction(self.log_action)
+            tray_menu.addAction(self.downloaded_files_action)
+            tray_menu.addAction(self.uploaded_files_action)
+            tray_menu.addAction(self.open_cache_action)
+            tray_menu.addAction(self.login_action)
+            tray_menu.addAction(self.clear_cache_action)
+            tray_menu.addAction(self.quit_action)
             if self.tray_icon:
-                self.tray_icon.setContextMenu(self.tray_menu)
+                self.tray_icon.setContextMenu(tray_menu)
 
-            # Connect actions to slots
             self.login_action.triggered.connect(self.show_login)
             self.logout_action.triggered.connect(self.logout)
             self.quit_action.triggered.connect(self.quit)
@@ -2251,7 +2358,7 @@ class PremediaApp:
             self.downloaded_files_window = None
             self.uploaded_files_window = None
             try:
-                self.login_dialog = LoginDialog(parent=self)  # Removed tray_icon and callback, parent set to self
+                self.login_dialog = LoginDialog(self.tray_icon, self.post_login_processes)
             except Exception as e:
                 logger.error(f"Failed to initialize LoginDialog: {e}")
                 app_signals.append_log.emit(f"[Init] Failed to initialize LoginDialog: {str(e)}")
@@ -2259,11 +2366,11 @@ class PremediaApp:
                 QMessageBox.critical(None, "Initialization Error", f"Failed to initialize login dialog: {str(e)}")
                 return
 
-            # Connect signals to log window
             try:
                 app_signals.update_status.disconnect(self.log_window.status_bar.showMessage)
             except Exception:
                 pass
+
             app_signals.update_status.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
             setup_logger(self.log_window)
 
@@ -2272,21 +2379,24 @@ class PremediaApp:
 
             logger.debug(f"Initializing with key: {key[:8]}...")
             app_signals.append_log.emit(f"[Init] Initializing with key: {key[:8]}...")
+            # Inside PremediaApp.__init__
+            # Inside PremediaApp.__init__
+            load_cache()  # Initialize GLOBAL_CACHE
             cache = load_cache()
             logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[Init] Cache contents: {json.dumps(cache, indent=2)}")
 
-            # Auto-login logic (unchanged)
+            # Auto-login logic
             if cache.get("token") and cache.get("user") and cache.get("user_id") and not self.logged_in:
                 logger.debug("Attempting auto-login with cached credentials")
                 app_signals.append_log.emit("[Init] Attempting auto-login with cached credentials")
                 validation_result = validate_user(key, self.log_window.status_bar)
-                if validation_result.get("uuid"):
+                if validation_result.get("uuid"):  # Check for uuid to indicate successful validation
                     try:
                         info_resp = HTTP_SESSION.get(
                             f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
                             headers={"Authorization": f"Bearer {cache.get('token')}"},
-                            verify=False,
+                            verify=False,  # Replace with verify="/path/to/server-ca.pem" in production
                             timeout=30
                         )
                         app_signals.api_call_status.emit(
@@ -2315,10 +2425,10 @@ class PremediaApp:
                         }
                         save_cache(cache_data)
                         self.set_logged_in_state()
-                        self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
+                        self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))  # Update tray icon
                         self.log_window.status_bar.showMessage(f"Auto-login successful for {cache.get('user')}")
                         self.post_login_processes()
-                        self.show_logs()
+                        self.show_logs()  # Show log window after auto-login
                         app_signals.append_log.emit("[Init] Auto-login successful with cached credentials")
                     except Exception as e:
                         logger.error(f"Auto-login failed during user info fetch: {e}")
@@ -2340,6 +2450,7 @@ class PremediaApp:
                 self.set_logged_out_state()
                 self.login_dialog.show()
 
+        #############################################################
             logger.info("PremediaApp initialized")
             app_signals.append_log.emit("[Init] PremediaApp initialized")
         except Exception as e:
@@ -2352,109 +2463,43 @@ class PremediaApp:
                 QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
             self.set_logged_out_state()
 
-    def update_tray_menu(self):
-        """Update tray menu based on login state."""
-        try:
-            if self.tray_icon:
-                self.login_action.setVisible(not self.logged_in)
-                self.logout_action.setVisible(self.logged_in)
-                self.downloaded_files_action.setEnabled(self.logged_in)
-                self.uploaded_files_action.setEnabled(self.logged_in)
-                self.clear_cache_action.setEnabled(self.logged_in)
-                self.open_cache_action.setEnabled(self.logged_in)
-                self.log_action.setEnabled(True)
-                self.quit_action.setEnabled(True)
-                self.tray_icon.setContextMenu(self.tray_menu)
-                self.tray_icon.show()
-                logger.debug(f"Updated tray menu: logged_in={self.logged_in}, visible actions: {[action.text() for action in self.tray_menu.actions() if action.isVisible()]}")
-                app_signals.append_log.emit(f"[Tray] Updated menu: Login={not self.logged_in}, Logout={self.logged_in}")
-        except Exception as e:
-            logger.error(f"Error updating tray menu: {e}")
-            app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
-            app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
-            QMessageBox.critical(self, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
-
-    def logout(self):
-        """Handle logout action."""
-        try:
-            self.logged_in = False
-            cache = load_cache()
-            cache["token"] = ""
-            if not self.login_dialog.ui.rememberme.isChecked():
-                cache["saved_username"] = ""
-                cache["saved_password"] = ""
-            save_cache(cache)
-            self.update_tray_menu()
-            logger.info("Logged out successfully")
-            app_signals.append_log.emit("[Login] Logged out successfully")
-            app_signals.update_status.emit("Logged out successfully")
-            self.show_login()
-        except Exception as e:
-            logger.error(f"Logout error: {e}")
-            app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
-            app_signals.update_status.emit(f"Logout error: {str(e)}")
-            QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
-
-    def set_logged_in_state(self):
-        try:
-            self.logged_in = True
-            self.update_tray_menu()  # Manage tray menu in PremediaApp
-            if hasattr(self, 'login_dialog'):
-                self.login_dialog.is_logged_in = True
-            logger.info("Set logged in state")
-            app_signals.append_log.emit("[State] Set to logged-in state")
-            app_signals.update_status.emit("Logged in state set")
-        except Exception as e:
-            logger.error(f"Error in set_logged_in_state: {e}")
-            app_signals.append_log.emit(f"[State] Failed: Error setting logged-in state - {str(e)}")
-            app_signals.update_status.emit(f"Error setting logged-in state: {str(e)}")
-            QMessageBox.critical(self, "State Error", f"Failed to set logged-in state: {str(e)}")
-
-    def set_logged_out_state(self):
-        try:
-            self.logged_in = False
-            self.update_tray_menu()  # Manage tray menu in PremediaApp
-            if hasattr(self, 'login_dialog'):
-                self.login_dialog.is_logged_in = False
-            logger.info("Set logged out state")
-            app_signals.append_log.emit("[State] Set to logged-out state")
-            app_signals.update_status.emit("Logged out state set")
-        except Exception as e:
-            logger.error(f"Error in set_logged_out_state: {e}")
-            app_signals.append_log.emit(f"[State] Failed: Error setting logged-out state - {str(e)}")
-            app_signals.update_status.emit(f"Error setting logged-out state: {str(e)}")
-            QMessageBox.critical(self, "State Error", f"Failed to set logged-out state: {str(e)}")
-
     def open_cache_file(self):
         try:
             cache_file = Path(CACHE_FILE)
             if not cache_file.exists():
                 logger.warning("Cache file does not exist")
                 app_signals.append_log.emit("[Cache] Cache file does not exist")
-                app_signals.update_status.emit("Cache file does not exist")
                 QMessageBox.warning(None, "Cache Error", "Cache file does not exist.")
                 return
 
+            # Read the cache file content
             with cache_file.open('r', encoding='utf-8') as f:
                 content = f.read()
 
+            # Create a dialog to display the file content
             dialog = QDialog()
             dialog.setWindowTitle("Cache File Content")
-            dialog.setMinimumSize(600, 400)
+            dialog.setMinimumSize(600, 400)  # Set a reasonable size for the dialog
+
+            # Create a QTextEdit to display the content
             text_edit = QTextEdit()
-            text_edit.setReadOnly(True)
-            text_edit.setPlainText(content)
+            text_edit.setReadOnly(True)  # Make it read-only to prevent editing
+            text_edit.setPlainText(content)  # Set the file content
+
+            # Set up the layout
             layout = QVBoxLayout()
             layout.addWidget(text_edit)
             dialog.setLayout(layout)
+
+            # Show the dialog
             dialog.exec_()
 
             app_signals.update_status.emit("Opened cache file")
             app_signals.append_log.emit(f"[Cache] Opened cache file: {cache_file}")
+
         except Exception as e:
             logger.error(f"Error opening cache file: {e}")
             app_signals.append_log.emit(f"[Cache] Failed: Error opening cache file - {str(e)}")
-            app_signals.update_status.emit(f"Error opening cache file: {str(e)}")
             QMessageBox.critical(None, "Cache Error", f"Failed to open cache file: {str(e)}")
 
     def clear_cache(self):
@@ -2462,43 +2507,38 @@ class PremediaApp:
         try:
             initialize_cache()
             GLOBAL_CACHE = None
-            self.logged_in = False
-            self.update_tray_menu()
             app_signals.append_log.emit("[Cache] Cache cleared manually")
             logger.info("Cache cleared manually")
-            app_signals.update_status.emit("Cache cleared")
-            self.show_login()
+            self.login_dialog.show()
+            self.set_logged_out_state()
+            app_signals.append_log.emit("[Cache] Showing login dialog after cache clear")
         except Exception as e:
             logger.error(f"Error clearing cache: {e}")
             app_signals.append_log.emit(f"[Cache] Failed: Error clearing cache - {str(e)}")
-            app_signals.update_status.emit(f"Error clearing cache: {str(e)}")
-            QMessageBox.critical(self, "Cache Error", f"Failed to clear cache: {str(e)}")
 
-    def quit(self):
-        global HTTP_SESSION, FILE_WATCHER_RUNNING
+    def set_logged_in_state(self):
         try:
-            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
-                self.poll_timer.stop()
-                FILE_WATCHER_RUNNING = False
-            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
-                self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(2000)
-            if hasattr(self, 'login_dialog') and self.login_dialog.isVisible():
-                self.login_dialog.close()
+            self.logged_in = True
             if self.tray_icon:
-                self.tray_icon.hide()
-            HTTP_SESSION.close()
-            stop_logging()
-            app_signals.update_status.emit("Application quitting")
-            app_signals.append_log.emit("[App] Application quitting")
-            logger.info("Application quitting")
-            self.app.quit()
+                self.tray_icon.contextMenu().removeAction(self.login_action)
+                self.tray_icon.contextMenu().insertAction(self.quit_action, self.logout_action)
+            logger.info("Set logged in state")
+            app_signals.append_log.emit("[State] Set to logged-in state")
         except Exception as e:
-            logger.error(f"Error in quit: {e}")
-            app_signals.append_log.emit(f"[App] Failed: Quit error - {str(e)}")
-            app_signals.update_status.emit(f"Quit error: {str(e)}")
-            stop_logging()
-            self.app.quit()
+            logger.error(f"Error in set_logged_in_state: {e}")
+            app_signals.append_log.emit(f"[State] Failed: Error setting logged-in state - {str(e)}")
+
+    def set_logged_out_state(self):
+        try:
+            self.logged_in = False
+            if self.tray_icon:
+                self.tray_icon.contextMenu().removeAction(self.logout_action)
+                self.tray_icon.contextMenu().insertAction(self.quit_action, self.login_action)
+            logger.info("Set logged out state")
+            app_signals.append_log.emit("[State] Set to logged-out state")
+        except Exception as e:
+            logger.error(f"Error in set_logged_out_state: {e}")
+            app_signals.append_log.emit(f"[State] Failed: Error setting logged-out state - {str(e)}")
 
     def show_login(self):
         try:
@@ -2511,9 +2551,53 @@ class PremediaApp:
                 app_signals.append_log.emit("[Login] Already logged in")
         except Exception as e:
             logger.error(f"Error in show_login: {e}")
-            app_signals.append_log.emit(f"[Login] Failed: Error opening login dialog - {str(e)}")
             app_signals.update_status.emit(f"Error opening login dialog: {str(e)}")
-            QMessageBox.critical(self, "Login Error", f"Failed to open login dialog: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Error opening login dialog - {str(e)}")
+
+    def logout(self):
+        global GLOBAL_CACHE, FILE_WATCHER_RUNNING
+        try:
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                self.poll_timer.stop()
+                FILE_WATCHER_RUNNING = False
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait()
+            initialize_cache()
+            GLOBAL_CACHE = None
+            self.set_logged_out_state()
+            self.login_dialog.show()
+            QMessageBox.information(None, "Logged Out", "You have been logged out.")
+            app_signals.update_status.emit("Logged out")
+            app_signals.append_log.emit("[Login] Logged out successfully")
+        except Exception as e:
+            logger.error(f"Error in logout: {e}")
+            app_signals.update_status.emit(f"Logout error: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
+
+    def quit(self):
+        global HTTP_SESSION, FILE_WATCHER_RUNNING
+        try:
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                self.poll_timer.stop()
+                FILE_WATCHER_RUNNING = False
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait(2000)  # Wait up to 2 seconds
+            if self.tray_icon:
+                self.tray_icon.hide()
+            HTTP_SESSION.close()
+            stop_logging()
+            app_signals.update_status.emit("Application quitting")
+            app_signals.append_log.emit("[App] Application quitting")
+            logger.info("Application quitting")
+            self.app.quit()
+        except Exception as e:
+            logger.error(f"Error in quit: {e}")
+            app_signals.update_status.emit(f"Quit error: {str(e)}")
+            app_signals.append_log.emit(f"[App] Failed: Quit error - {str(e)}")
+            stop_logging()
+            self.app.quit()
 
     def show_logs(self):
         try:
@@ -2523,9 +2607,8 @@ class PremediaApp:
             app_signals.append_log.emit("[Log] Log window opened")
         except Exception as e:
             logger.error(f"Error in show_logs: {e}")
-            app_signals.append_log.emit(f"[Log] Failed: Error opening log window - {str(e)}")
             app_signals.update_status.emit(f"Error opening log window: {str(e)}")
-            QMessageBox.critical(self, "Log Error", f"Failed to open log window: {str(e)}")
+            app_signals.append_log.emit(f"[Log] Failed: Error opening log window - {str(e)}")
 
     def show_downloaded_files(self):
         try:
@@ -2536,9 +2619,8 @@ class PremediaApp:
                 app_signals.append_log.emit("[Files] Downloaded files window opened")
         except Exception as e:
             logger.error(f"Error in show_downloaded_files: {e}")
-            app_signals.append_log.emit(f"[Files] Failed: Error showing downloaded files - {str(e)}")
             app_signals.update_status.emit(f"Error showing downloaded files: {str(e)}")
-            QMessageBox.critical(self, "Files Error", f"Failed to show downloaded files: {str(e)}")
+            app_signals.append_log.emit(f"[Files] Failed: Error showing downloaded files - {str(e)}")
 
     def show_uploaded_files(self):
         try:
@@ -2549,9 +2631,8 @@ class PremediaApp:
                 app_signals.append_log.emit("[Files] Uploaded files window opened")
         except Exception as e:
             logger.error(f"Error in show_uploaded_files: {e}")
-            app_signals.append_log.emit(f"[Files] Failed: Error showing uploaded files - {str(e)}")
             app_signals.update_status.emit(f"Error showing uploaded files: {str(e)}")
-            QMessageBox.critical(self, "Files Error", f"Failed to show uploaded files: {str(e)}")
+            app_signals.append_log.emit(f"[Files] Failed: Error showing uploaded files - {str(e)}")
 
     def convert_to_jpg_and_psd(self, src_path, dest_dir):
         try:
@@ -2571,9 +2652,8 @@ class PremediaApp:
             app_signals.append_log.emit(f"[Conversion] Starting conversion for {src_path}")
         except Exception as e:
             logger.error(f"File conversion thread error: {e}")
-            app_signals.append_log.emit(f"[Conversion] Failed: File conversion thread error - {str(e)}")
             app_signals.update_status.emit(f"File conversion thread error: {str(e)}")
-            QMessageBox.critical(self, "Conversion Error", f"File conversion thread error: {str(e)}")
+            app_signals.append_log.emit(f"[Conversion] Failed: File conversion thread error - {str(e)}")
 
     def on_conversion_finished(self, jpg_path, psd_path, basename):
         try:
@@ -2587,9 +2667,8 @@ class PremediaApp:
             app_signals.append_log.emit(f"[Conversion] Completed conversion for {basename}")
         except Exception as e:
             logger.error(f"Error in on_conversion_finished: {e}")
-            app_signals.append_log.emit(f"[Conversion] Failed: Conversion error - {str(e)}")
             app_signals.update_status.emit(f"Conversion error: {str(e)}")
-            QMessageBox.critical(self, "Conversion Error", f"Conversion error: {str(e)}")
+            app_signals.append_log.emit(f"[Conversion] Failed: Conversion error - {str(e)}")
 
     def on_conversion_error(self, error, basename):
         try:
@@ -2599,14 +2678,15 @@ class PremediaApp:
         except Exception as e:
             logger.error(f"Error in on_conversion_error: {e}")
             app_signals.append_log.emit(f"[Conversion] Failed: Error handling conversion error - {str(e)}")
-            app_signals.update_status.emit(f"Error handling conversion error: {str(e)}")
-            QMessageBox.critical(self, "Conversion Error", f"Error handling conversion error: {str(e)}")
 
     def open_with_photoshop(self, file_path):
+        """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
             system = platform.system()
             photoshop_path = None
+
             if system == "Windows":
+                # Search Program Files and Program Files (x86) for Photoshop
                 search_dirs = [
                     Path("C:/Program Files/Adobe"),
                     Path("C:/Program Files (x86)/Adobe")
@@ -2614,14 +2694,18 @@ class PremediaApp:
                 for base_dir in search_dirs:
                     if not base_dir.exists():
                         continue
+                    # Find all Photoshop executables, sort by version (descending)
                     photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
                     if photoshop_exes:
+                        # Pick the latest version based on directory name (e.g., "Adobe Photoshop 2023")
                         photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
                         photoshop_path = str(photoshop_exes[0])
                         break
                 if not photoshop_path:
                     raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
             elif system == "Darwin":
+                # Use mdfind to locate Photoshop or check common paths
                 try:
                     result = subprocess.run(
                         ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
@@ -2630,15 +2714,19 @@ class PremediaApp:
                     if result.stdout.strip():
                         photoshop_path = result.stdout.strip().split("\n")[0]
                 except subprocess.CalledProcessError:
+                    # Fallback to common paths
                     photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
                     if photoshop_apps:
                         photoshop_apps.sort(key=lambda x: x.name, reverse=True)
                         photoshop_path = str(photoshop_apps[0])
                 if not photoshop_path:
                     raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+
             elif system == "Linux":
+                # Check for wine and Photoshop in common Wine directories
                 try:
                     subprocess.run(["wine", "--version"], capture_output=True, check=True)
+                    # Check common Wine program files
                     wine_dirs = [
                         Path.home() / ".wine/drive_c/Program Files/Adobe",
                         Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
@@ -2655,33 +2743,27 @@ class PremediaApp:
                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
                 except subprocess.CalledProcessError:
                     raise FileNotFoundError("Wine is not installed or not functioning")
+
             else:
-                error_msg = f"Unsupported platform for Photoshop: {system}"
-                logger.warning(error_msg)
-                app_signals.append_log.emit(f"[Photoshop] {error_msg}")
-                app_signals.update_status.emit(error_msg)
-                QMessageBox.critical(self, "Photoshop Error", error_msg)
+                logger.warning(f"Unsupported platform for Photoshop: {system}")
+                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
+                app_signals.update_status.emit(f"Unsupported platform: {system}")
                 return
-            if not Path(file_path).is_file():
-                error_msg = f"File not found: {file_path}"
-                logger.error(error_msg)
-                app_signals.append_log.emit(f"[Photoshop] {error_msg}")
-                app_signals.update_status.emit(error_msg)
-                QMessageBox.critical(self, "Photoshop Error", error_msg)
-                return
+
+            # Open the file with Photoshop
             if system == "Darwin":
                 subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
             else:
                 subprocess.run([photoshop_path, file_path], check=True)
+
             logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
             app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+
         except Exception as e:
-            error_msg = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
-            logger.error(error_msg)
-            app_signals.append_log.emit(f"[Photoshop] {error_msg}")
-            app_signals.update_status.emit(error_msg)
-            QMessageBox.critical(self, "Photoshop Error", error_msg)
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
 
     def post_login_processes(self):
         global FILE_WATCHER_RUNNING
@@ -2697,21 +2779,17 @@ class PremediaApp:
                 return
 
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
-                self.poll_timer.stop()
-                FILE_WATCHER_RUNNING = False
-            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
-                self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(2000)
+                logger.debug("Poll timer already active, skipping initialization")
+                app_signals.append_log.emit("[Login] Poll timer already active, skipping initialization")
+                return
 
-            FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
             self.file_watcher_thread = QThread()
-            self.file_watcher = FileWatcherWorker.get_instance(parent=self)
+            self.file_watcher = FileWatcherWorker()  # Initialize without parent
             self.file_watcher.moveToThread(self.file_watcher_thread)
             self.file_watcher_thread.started.connect(self.file_watcher.run)
             self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage)
             self.file_watcher.log_update.connect(app_signals.append_log.emit)
-            self.file_watcher.progress_update.connect(self.log_window.append_log)
             self.poll_timer = QTimer()
             self.poll_timer.timeout.connect(self.file_watcher.run)
             self.poll_timer.start(API_POLL_INTERVAL)
@@ -2723,7 +2801,6 @@ class PremediaApp:
             logger.error(f"Error in post_login_processes: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Post-login processes error - {str(e)}")
             app_signals.update_status.emit(f"Post-login error: {str(e)}")
-            QMessageBox.critical(self, "Post-Login Error", f"Post-login error: {str(e)}")
 
 if __name__ == "__main__":
     key = parse_custom_url()
