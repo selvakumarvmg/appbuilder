@@ -1264,6 +1264,13 @@ class FileWatcherWorker(QObject):
                     continue
                 is_online = 'http' in file_path.lower()
                 local_path = str(BASE_TARGET_DIR / file_name)
+                
+                # ✅ Skip if file already exists
+                # if Path(local_path).exists():
+                #     logger.info(f"Skipping download: {local_path} already exists")
+                #     self.log_update.emit(f"[API Scan] Skipping download: {local_path} already exists")
+                #     self.processed_tasks.add(task_key)  # Optional to avoid rechecking next time
+                #     continue
 
                 if action_type == "download":
                     self.status_update.emit(f"Downloading {file_name}")

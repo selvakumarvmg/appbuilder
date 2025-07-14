@@ -5,3 +5,5 @@ Pillow==11.3.0
 urllib3==2.5.0
 tzdata==2025.2
 cffi==1.17.1
+numpy==2.2.6
+psd-tools==1.10.8
