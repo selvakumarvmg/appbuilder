@@ -24,6 +24,9 @@ static_files = [(f, ".") for f in ["TERMS.txt", "LICENSE.txt"] if Path(f).exists
 
 data_files = asset_files + icon_files + ui_files + static_files
 
+from PyInstaller.utils.hooks import collect_data_files
+data_files += collect_data_files("PySide6")
+
 # PySide6 hidden imports
 hidden_imports = collect_submodules("PySide6")
 
@@ -45,7 +48,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=["runtime-hook.py"],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -90,7 +93,7 @@ if is_macos:
     )
 
 coll = COLLECT(
-    exe,
+    app if is_macos else exe,
     a.binaries,
     a.zipfiles,
     a.datas,
