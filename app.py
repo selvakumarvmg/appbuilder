@@ -24,7 +24,8 @@ import subprocess
 from queue import Queue
 import threading
 import time
-import fcntl
+if platform.system() != "Windows":
+    import fcntl
 
 
 # Global stop queue for signaling
@@ -1622,6 +1623,38 @@ class FileWatcherWorker(QObject):
                 logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
                 self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
                 
+                            # ✅ FIXED PATH for upload
+                if action_type == "upload":
+                    file_path = item.get("file_path", "").lstrip("/")
+                    file_name = Path(file_path).name.replace(".psd", ".jpg")
+
+                    # ✅ Use dynamic path exactly like in download
+                    local_path = str(Path(BASE_TARGET_DIR) / file_path).replace(".psd", ".jpg")
+
+                    # Extract client and project names safely
+                    client_name = item.get("client_name", "").strip().replace(" ", "_")
+                    project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_")
+
+                    # Fallback parsing from nas_path if missing
+                    if not client_name or client_name.lower() == "unknown" or not project_name or project_name.lower() == "unknown":
+                        try:
+                            parts = Path(nas_path).parts
+                            if len(parts) >= 3:
+                                project_name = project_name or parts[-2]
+                                client_name = client_name or parts[-3]
+                        except Exception as e:
+                            self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
+
+                    # Final fallback
+                    if not client_name:
+                        client_name = "default_client"
+                    if not project_name:
+                        project_name = "default_project"
+
+                    # Final upload path
+                    # local_path = str(Path(BASE_TARGET_DIR) / client_name / project_name / file_name)
+
+                
                 if action_type == "download":
                     self.status_update.emit(f"Downloading {file_name}")
                     self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
@@ -1651,7 +1684,40 @@ class FileWatcherWorker(QObject):
                     save_cache(cache)
                     
                     if Path(local_path).exists():
+                                # ✅ PSD to JPG conversion
+                        if local_path.endswith(".psd"):
+                            try:
+                                from psd_tools import PSDImage
+                                from PIL import Image
+                                import numpy as np
+
+                                psd = PSDImage.open(local_path)
+                                composite = psd.composite()
+
+                                # Step 1: Construct new JPG path
+                                jpg_name = Path(local_path).stem
+                                jpg_folder = Path(BASE_TARGET_DIR) / client_name / project_name
+                                jpg_folder.mkdir(parents=True, exist_ok=True)
+
+                                jpg_path = jpg_folder / jpg_name
+                                composite.convert("RGB").save(jpg_path, format="JPEG", quality=95)
+                                # ✅ Debug print
+                                print(f"[DEBUG] PSD converted to JPG at: {jpg_path}")
+                                # ✅ Step 2: Update file info for upload
+                                local_path = str(jpg_path)
+                                file_name = jpg_name
+                                file_path = f"/{client_name}/{project_name}/{jpg_name}"  # ← FIXED PATH
+
+                                self.log_update.emit(f"[Upload] Converted PSD to JPG: {jpg_path}")
+                            except Exception as e:
+                                self.log_update.emit(f"[Upload] Failed to convert PSD to JPG: {str(e)}")
+                                updates.append((local_path, f"Upload Failed: JPG conversion error - {e}", action_type, 0, not is_online))
+                                continue  # Skip to next task
                         self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
+                        if Path(local_path).exists():
+                            self.log_update.emit(f"[DEBUG] File exists, proceeding to upload: {local_path}")
+                        else:
+                            self.log_update.emit(f"[ERROR] File does NOT exist: {local_path}")
                         timer_response = cache.get("timer_responses", {}).get(local_path)
                         if timer_response:
                             end_timer_api(file_path, timer_response, token)
