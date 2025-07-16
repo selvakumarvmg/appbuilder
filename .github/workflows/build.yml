@@ -333,8 +333,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
 
           echo "Checking PySide6 plugins..."
-          $pluginsPath = python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+
+          $pluginsPath = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
           $pluginsPath = $pluginsPath.Trim()
+
           echo "🔍 Raw plugins path: '$pluginsPath'"
 
           if (Test-Path $pluginsPath) {
@@ -363,6 +365,7 @@ jobs:
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+
 
 
 
