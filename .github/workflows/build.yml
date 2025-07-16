@@ -415,8 +415,8 @@ jobs:
           $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
           $installLog = Join-Path (Get-Location) "requirements_install.log"
 
-          if (Test-Path requirements.txt) {
-            Get-Content requirements.txt | Out-File -FilePath "$requirementsLog" -Encoding utf8
+          if (Test-Path "requirements.txt") {
+            Get-Content "requirements.txt" | Out-File -FilePath "$requirementsLog" -Encoding utf8
             echo "requirements.txt contents:"
             Get-Content "$requirementsLog"
           } else {
@@ -428,26 +428,27 @@ jobs:
 
           echo "📦 Installing all packages with pip --prefer-binary..."
 
-          # Downgrade pip to a more lenient version (optional safety)
+          # Downgrade pip for compatibility
           python -m pip install --upgrade "pip<25.0"
 
-          # Install all packages at once, forcing binaries to avoid incompatible builds
+          # Install all packages with binary preference
           python -m pip install `
             --no-cache-dir `
             --prefer-binary `
             --only-binary=:all: `
             --upgrade `
-            -r requirements.txt `
+            -r "requirements.txt" `
             --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
 
           if ($LASTEXITCODE -ne 0) {
-            echo "❌ Package installation failed. Dumping log:" | Out-File -FilePath "$installLog" -Append -Encoding utf8
+            echo "❌ Package installation failed. See log below:"
             Get-Content "$installLog"
             exit 1
           }
 
           echo "✅ All packages installed successfully!"
           Get-Content "$installLog"
+
 
 
 
