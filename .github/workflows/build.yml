@@ -299,11 +299,7 @@ jobs:
           )
           foreach ($pkg in $packages) {
             echo "Installing $pkg..."
-            if ($pkg -eq "psd-tools==1.9.31" -or $pkg -eq "docopt==0.6.2") {
-              pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
-            } else {
-              pip install $pkg --no-cache-dir --force-reinstall --only-binary :all: --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
-            }
+            pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
             if ($LASTEXITCODE -ne 0 -and $pkg -ne "psd-tools==1.9.31") {
               echo "❌ Failed to install $pkg"
               Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
