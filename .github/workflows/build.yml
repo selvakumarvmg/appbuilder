@@ -323,20 +323,13 @@ jobs:
             "paramiko==3.5.0",
             "cffi==1.17.1",
             "numpy==1.26.4",
-            "psd-tools==1.9.31",
             "tzdata==2024.1"
           )
-          $nonFatalPackages = @("psd-tools==1.9.31")
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
             pip install $pkg --no-cache-dir --force-reinstall --verbose *> $logfile 2>&1
             if ($LASTEXITCODE -ne 0) {
-              if ($nonFatalPackages -contains $pkg) {
-                echo "⚠️ Failed to install $pkg, continuing..."
-                Get-Content $logfile
-                continue
-              }
               echo "❌ Failed to install $pkg"
               Get-Content $logfile
               exit 1
@@ -400,6 +393,11 @@ jobs:
           Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
           Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
           Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+
+
+
+
+
 
       # Show installed packages
       - name: Show installed packages
