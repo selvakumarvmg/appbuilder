@@ -426,42 +426,42 @@ jobs:
           python -m pip install --upgrade --prefer-binary -r patched-reqs.txt
 
 
-      - name: 📦 Install requirements safely
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          echo "Installing packages from requirements.txt at $(Get-Date)"
+      # - name: 📦 Install requirements safely
+      #   shell: powershell
+      #   run: |
+      #     $ErrorActionPreference = 'Stop'
+      #     echo "Installing packages from requirements.txt at $(Get-Date)"
 
-          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
-          $installLog = Join-Path (Get-Location) "requirements_install.log"
+      #     $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
+      #     $installLog = Join-Path (Get-Location) "requirements_install.log"
 
-          if (Test-Path "requirements.txt") {
-            Get-Content "requirements.txt" | Out-File -FilePath "$requirementsLog" -Encoding utf8
-            echo "requirements.txt contents:"
-            Get-Content "$requirementsLog"
-          } else {
-            echo "requirements.txt not found"
-            dir | Out-File -FilePath "dir_contents.log" -Encoding utf8
-            Get-Content "dir_contents.log"
-            exit 1
-          }
+      #     if (Test-Path "requirements.txt") {
+      #       Get-Content "requirements.txt" | Out-File -FilePath "$requirementsLog" -Encoding utf8
+      #       echo "requirements.txt contents:"
+      #       Get-Content "$requirementsLog"
+      #     } else {
+      #       echo "requirements.txt not found"
+      #       dir | Out-File -FilePath "dir_contents.log" -Encoding utf8
+      #       Get-Content "dir_contents.log"
+      #       exit 1
+      #     }
 
-          # Install all requirements using a single pip call WITHOUT --only-binary
-          python -m pip install `
-            --no-cache-dir `
-            --prefer-binary `
-            --upgrade `
-            -r "requirements.txt" `
-            --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
+      #     # Install all requirements using a single pip call WITHOUT --only-binary
+      #     python -m pip install `
+      #       --no-cache-dir `
+      #       --prefer-binary `
+      #       --upgrade `
+      #       -r "requirements.txt" `
+      #       --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
 
-          if ($LASTEXITCODE -ne 0) {
-            echo "Package installation failed. See log:"
-            Get-Content "$installLog"
-            exit 1
-          }
+      #     if ($LASTEXITCODE -ne 0) {
+      #       echo "Package installation failed. See log:"
+      #       Get-Content "$installLog"
+      #       exit 1
+      #     }
 
-          echo "✅ All packages installed successfully!"
-          Get-Content "$installLog"
+      #     echo "✅ All packages installed successfully!"
+      #     Get-Content "$installLog"
 
 
 
