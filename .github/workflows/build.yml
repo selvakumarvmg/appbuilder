@@ -274,6 +274,7 @@ jobs:
         shell: powershell
 
       # Install dependencies
+      # Install dependencies
       - name: Install dependencies
         run: |
           echo "Starting dependency installation at $(Get-Date)"
@@ -324,8 +325,15 @@ jobs:
             exit 1
           }
 
+          echo "Creating installed_packages.txt..."
+          echo "Current directory: $(Get-Location)"
           pip list > installed_packages.txt
-
+          if (-not (Test-Path installed_packages.txt)) {
+            echo "❌ Failed to create installed_packages.txt"
+            exit 1
+          }
+          echo "Contents of current directory:"
+          dir
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller not installed"
@@ -339,7 +347,6 @@ jobs:
           }
 
           echo "Checking PySide6 plugins..."
-
           $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
           $pluginsPath = $pluginsPathRaw.Trim()
 
@@ -372,6 +379,20 @@ jobs:
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+
+      # Show installed packages
+      - name: Show installed packages
+        run: |
+          echo "Current directory: $(Get-Location)"
+          if (-not (Test-Path installed_packages.txt)) {
+            echo "❌ installed_packages.txt not found"
+            dir
+            exit 1
+          }
+          echo "Contents of installed_packages.txt:"
+          Get-Content installed_packages.txt
+        shell: powershell
+        if: always()
 
 
 
