@@ -30,15 +30,25 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip cache purge
+        echo "Installing requirements..."
+        pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
         echo "Installing PyInstaller..."
         pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+        python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         cat plugins_path.txt
-        ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
+        ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory not found"
       shell: bash
+
+    - name: Upload requirements install log
+      uses: actions/upload-artifact@v4
+      with:
+        name: requirements-install-log-macos
+        path: requirements_install.log
+      if: always()
 
     - name: Upload PyInstaller install log
       uses: actions/upload-artifact@v4
@@ -73,15 +83,40 @@ jobs:
 
     - name: Build App with PyInstaller
       run: |
+        echo ===== Building with PyInstaller =====
+        echo Checking syntax of app.py...
+        python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+        echo Finding PySide6 plugins...
         python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'plugins'); print(plugins_path)" > plugins_path.txt
         export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-        ls -ld "$PYSIDE6_PLUGINS/platforms" || export PYSIDE6_PLUGINS=/Library/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages/PySide6/plugins
+        echo PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS
+        ls -ld "$PYSIDE6_PLUGINS/platforms" || echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms"
+        echo Searching for platforms directory...
+        find /Users/runner/hostedtoolcache/Python -name qcocoa.dylib 2>/dev/null > platforms_path.txt
+        find /Library/Frameworks/Python.framework -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
+        find /usr/local -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
+        find /opt -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
+        cat platforms_path.txt
+        if [ -s platforms_path.txt ]; then
+          export PYSIDE6_PLUGINS=$(dirname $(dirname $(cat platforms_path.txt | head -n 1)))
+          echo "Found plugins at: $PYSIDE6_PLUGINS"
+        else
+          echo "❌ Could not find qcocoa.dylib"
+          exit 1
+        fi
         ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory missing" && exit 1)
         ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
         python -m PyInstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
         echo "📁 dist/ contents:"
         ls -lh dist
       shell: bash
+
+    - name: Upload platforms path log
+      uses: actions/upload-artifact@v4
+      with:
+        name: platforms-path-log-macos
+        path: platforms_path.txt
+      if: always()
 
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
@@ -194,15 +229,10 @@ jobs:
     - name: Build GUI Executable
       run: |
         echo ===== Building with PyInstaller =====
-        python -c "import PySide6; print(PySide6.__file__)" > pyside6_path.txt
-        set /p PYSIDE6_PATH=<pyside6_path.txt
-        echo PYSIDE6_PATH=%PYSIDE6_PATH%
-        set PYSIDE6_PLUGINS=%PYSIDE6_PATH%\..\PySide6\plugins
+        echo Checking syntax of app.py...
+        python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+        set PYSIDE6_PLUGINS=C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins
         echo PYSIDE6_PLUGINS=%PYSIDE6_PLUGINS%
-        if not exist "%PYSIDE6_PLUGINS%\platforms" (
-          echo "❌ Platforms directory missing, using fallback path"
-          set PYSIDE6_PLUGINS=C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins
-        )
         dir "%PYSIDE6_PLUGINS%\platforms" || (echo "❌ Platforms directory missing" && exit 1)
         dir "%PYSIDE6_PLUGINS%\imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
         echo Verifying input files...
