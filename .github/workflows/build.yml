@@ -417,52 +417,27 @@ jobs:
 
           if (Test-Path requirements.txt) {
             Get-Content requirements.txt | Out-File -FilePath "$requirementsLog" -Encoding utf8
-            echo "requirements.txt contents:"
+            echo "`nrequirements.txt contents:`n"
             Get-Content "$requirementsLog"
           } else {
-            echo "requirements.txt not found"
+            echo "❌ requirements.txt not found"
             dir | Out-File -FilePath "dir_contents.log" -Encoding utf8
             Get-Content "dir_contents.log"
             exit 1
           }
 
-          function Install-Package {
-            param (
-              [string]$pkg,
-              [string]$options = ""
-            )
-            echo "Installing $pkg $options..." | Out-File -FilePath "$installLog" -Append -Encoding utf8
-            python -m pip install $pkg $options --no-cache-dir --upgrade --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
-            if ($LASTEXITCODE -ne 0) {
-              echo "Failed to install $pkg $options" | Out-File -FilePath "$installLog" -Append -Encoding utf8
-              Get-Content "$installLog"
-              exit 1
-            }
+          echo "`nInstalling all packages from requirements.txt using pip..."
+          python -m pip install --no-cache-dir --upgrade --use-pep517 -r requirements.txt --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
+
+          if ($LASTEXITCODE -ne 0) {
+            echo "`n❌ Failed to install one or more packages from requirements.txt" | Out-File -FilePath "$installLog" -Append -Encoding utf8
+            Get-Content "$installLog"
+            exit 1
           }
 
-          # Install packages (psd-tools first with --no-deps)
-          Install-Package "psd-tools==1.9.31" "--no-deps"
-          Install-Package "urllib3==2.2.3"
-          Install-Package "tzdata==2024.1"
-          Install-Package "pycparser==2.22"
-          Install-Package "charset-normalizer==3.4.2"
-          Install-Package "idna==3.10"
-          Install-Package "certifi==2025.7.14"
-          Install-Package "bcrypt==4.3.0"
-          Install-Package "numpy==1.26.4"
-          Install-Package "PyNaCl==1.5.0"
-          Install-Package "cryptography==45.0.5"
-          Install-Package "Pillow==10.3.0"
-          Install-Package "cffi==1.17.1"
-          Install-Package "requests==2.32.3"
-          Install-Package "paramiko==3.5.0"
-          Install-Package "shiboken6==6.9.1"
-          Install-Package "PySide6-Addons==6.9.1"
-          Install-Package "PySide6==6.9.1"
-          Install-Package "PySide6-Essentials==6.9.1"
-
-          echo "All packages installed successfully!"
+          echo "`n✅ All packages installed successfully!"
           Get-Content "$installLog"
+
 
 
 
