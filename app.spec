@@ -37,14 +37,25 @@ static_files = [(f, ".") for f in ["terms.txt", "license.txt"] if Path(f).exists
 
 data_files = asset_files + icon_files + ui_files + static_files
 data_files += collect_data_files("PySide6")
-data_files += [(os.path.join("PySide6", "plugins", "platforms"), "PySide6/plugins/platforms")]
-data_files += [(os.path.join("PySide6", "plugins", "imageformats"), "PySide6/plugins/imageformats")]
 data_files += collect_data_files("PIL")
 data_files += collect_data_files("requests")
 data_files += collect_data_files("urllib3")
 data_files += collect_data_files("paramiko")
 data_files += collect_data_files("numpy")
 data_files += collect_data_files("psd_tools")
+
+# ✅ Add PySide6 platform/imageformats plugin .dll files explicitly
+from PySide6 import __file__ as pyside6_init
+pyside6_dir = Path(pyside6_init).parent
+plugins_dir = pyside6_dir / "Qt" / "plugins"
+
+for plugin_subdir in ["platforms", "imageformats"]:
+    full_dir = plugins_dir / plugin_subdir
+    if full_dir.exists():
+        for file in full_dir.glob("*"):
+            if file.suffix.lower() == ".dll":
+                rel_path = f"PySide6/Qt/plugins/{plugin_subdir}"
+                data_files.append((str(file), rel_path))
 
 hidden_imports = (
     collect_submodules("PySide6") +
@@ -90,7 +101,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,  # For debugging
+    console=True,  # Enable for debugging; switch to False for GUI-only
     icon=icon_file,
 )
 

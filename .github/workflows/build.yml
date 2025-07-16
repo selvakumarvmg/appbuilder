@@ -386,26 +386,7 @@ jobs:
           }
         shell: powershell
 
-      # - name: Install docopt-ng
-      #   run: |
-      #     $ErrorActionPreference = 'Stop'
-      #     echo "Installing docopt-ng at $(Get-Date)"
-      #     $docoptLog = Join-Path (Get-Location) "docopt_install.log"
-      #     try {
-      #       python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
-      #       if ($LASTEXITCODE -ne 0) {
-      #         echo "Failed to install docopt-ng"
-      #         Get-Content $docoptLog
-      #         exit 1
-      #       }
-      #       echo "Successfully installed docopt-ng"
-      #     } catch {
-      #       echo "Error installing docopt-ng: $_"
-      #       Get-Content $docoptLog
-      #       exit 1
-      #     }
-      #   shell: powershell
-
+     
       - name: 🛠️ Upgrade pip and tools
         run: |
           python -m pip install --upgrade pip==24.3.1 setuptools wheel
@@ -425,112 +406,29 @@ jobs:
           grep -v "psd-tools" requirements.txt > patched-reqs.txt
           python -m pip install --upgrade --prefer-binary -r patched-reqs.txt
 
-
-      # - name: 📦 Install requirements safely
-      #   shell: powershell
-      #   run: |
-      #     $ErrorActionPreference = 'Stop'
-      #     echo "Installing packages from requirements.txt at $(Get-Date)"
-
-      #     $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
-      #     $installLog = Join-Path (Get-Location) "requirements_install.log"
-
-      #     if (Test-Path "requirements.txt") {
-      #       Get-Content "requirements.txt" | Out-File -FilePath "$requirementsLog" -Encoding utf8
-      #       echo "requirements.txt contents:"
-      #       Get-Content "$requirementsLog"
-      #     } else {
-      #       echo "requirements.txt not found"
-      #       dir | Out-File -FilePath "dir_contents.log" -Encoding utf8
-      #       Get-Content "dir_contents.log"
-      #       exit 1
-      #     }
-
-      #     # Install all requirements using a single pip call WITHOUT --only-binary
-      #     python -m pip install `
-      #       --no-cache-dir `
-      #       --prefer-binary `
-      #       --upgrade `
-      #       -r "requirements.txt" `
-      #       --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
-
-      #     if ($LASTEXITCODE -ne 0) {
-      #       echo "Package installation failed. See log:"
-      #       Get-Content "$installLog"
-      #       exit 1
-      #     }
-
-      #     echo "✅ All packages installed successfully!"
-      #     Get-Content "$installLog"
-
-
-
-
-
-
-
-
-
-      - name: Verify PySide6 plugins
+      - name: Verify PySide6 plugins directory structure
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Checking PySide6 plugins at $(Get-Date)"
-          $pluginsPathLog = Join-Path (Get-Location) "plugins_path.log"
-          try {
-            $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))" 2>&1
-            $pluginsPathRaw | Out-File -FilePath $pluginsPathLog -Encoding utf8
-            $pluginsPath = $pluginsPathRaw.Trim()
-            echo "PySide6 plugins path: '$pluginsPath'"
-            if (Test-Path $pluginsPath) {
-              echo "Found plugins directory: $pluginsPath"
-              dir $pluginsPath | Out-File -FilePath plugins_dir.log -Encoding utf8
-              $platformsPath = Join-Path $pluginsPath "platforms"
-              if (Test-Path $platformsPath) {
-                echo "Found platforms directory: $platformsPath"
-                dir $platformsPath | Out-File -FilePath platforms_dir.log -Encoding utf8
-                echo "Platforms directory contents:"
-                Get-Content platforms_dir.log
-              } else {
-                echo "PySide6 platforms directory missing: $platformsPath"
-                dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents.log -Encoding utf8
-                echo "Listing plugins directory contents:"
-                Get-Content plugins_dir_contents.log
-                echo "Attempting to reinstall PySide6-Essentials..."
-                $pyside6EssentialsRetryLog = Join-Path (Get-Location) "pyside6_essentials_retry.log"
-                python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6EssentialsRetryLog
-                if ($LASTEXITCODE -ne 0) {
-                  echo "Failed to reinstall PySide6-Essentials"
-                  Get-Content $pyside6EssentialsRetryLog
-                  exit 1
-                }
-                echo "Rechecking platforms directory after reinstall..."
-                if (Test-Path $platformsPath) {
-                  echo "Found platforms directory after reinstall: $platformsPath"
-                  dir $platformsPath | Out-File -FilePath platforms_dir_retry.log -Encoding utf8
-                  echo "Platforms directory contents after reinstall:"
-                  Get-Content platforms_dir_retry.log
-                } else {
-                  echo "PySide6 platforms directory still missing after reinstall: $platformsPath"
-                  dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents_retry.log -Encoding utf8
-                  echo "Listing plugins directory contents after reinstall:"
-                  Get-Content plugins_dir_contents_retry.log
-                  exit 1
-                }
-              }
-            } else {
-              echo "PySide6 plugins directory missing: $pluginsPath"
-              $pysideDir = & python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))"
-              dir $pysideDir -Recurse | Out-File -FilePath pyside6_dir_contents.log -Encoding utf8
-              echo "Listing PySide6 directory contents:"
-              Get-Content pyside6_dir_contents.log
-              exit 1
-            }
-          } catch {
-            echo "Error checking PySide6 plugins: $_"
-            Get-Content $pluginsPathLog
+          $pluginsPath = python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+          echo "Detected plugins path: $pluginsPath"
+          if (-not (Test-Path $pluginsPath)) {
+            echo "Plugins directory NOT found: $pluginsPath"
             exit 1
           }
+          $platformsPath = Join-Path $pluginsPath "platforms"
+          if (-not (Test-Path $platformsPath)) {
+            echo "Platforms directory not found in: $platformsPath"
+            echo "Trying to reinstall PySide6-Essentials..."
+            python -m pip install --force-reinstall PySide6-Essentials==6.9.1
+            if (-not (Test-Path $platformsPath)) {
+              echo "Still missing: $platformsPath"
+              exit 1
+            }
+          }
+          echo "✅ Verified PySide6 plugin structure."
+          dir $pluginsPath
         shell: powershell
+
 
       - name: Create installed packages list
         run: |
@@ -746,53 +644,19 @@ jobs:
         shell: powershell
 
       # Build GUI executable
-      - name: Build GUI Executable
+      - name: Build GUI Executable using app.spec
         run: |
-          echo "Starting PyInstaller build at $(Get-Date)"
-          echo "Checking syntax of app.py..."
-          python -m py_compile app.py
-          if ($LASTEXITCODE -ne 0) { echo "Syntax error in app.py"; exit 1 }
-          $env:PYSIDE6_PLUGINS = "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\Qt\plugins"
-          echo "PYSIDE6_PLUGINS=$env:PYSIDE6_PLUGINS"
-          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\platforms")) { echo "Platforms directory missing"; exit 1 }
-          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\imageformats")) { echo "Imageformats directory missing"; exit 1 }
-          echo "Running PyInstaller..."
-          python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir `
-            --name PremediaApp `
-            --icon=icons/premedia.ico `
-            --add-data "cache/cache.json;cache" `
-            --add-data "icons/premedia.ico;icons" `
-            --add-data "icons/photoshop.png;icons" `
-            --add-data "icons/folder.png;icons" `
-            --add-data "icons/premedia.png;icons" `
-            --add-data "icons/vmg-premedia-logo.png;icons" `
-            --add-data "terms.txt;." `
-            --add-data "license.txt;." `
-            --add-data "login.ui;." `
-            --add-data "premediaapp.ui;." `
-            --add-data "icons.qrc;." `
-            --add-data "icons_rc.py;." `
-            --add-data "login.py;." `
-            --add-data "$env:PYSIDE6_PLUGINS/platforms;PySide6/Qt/plugins/platforms" `
-            --add-data "$env:PYSIDE6_PLUGINS/imageformats;PySide6/Qt/plugins/imageformats" `
-            --hidden-import=paramiko `
-            --hidden-import=requests `
-            --hidden-import=cryptography `
-            --hidden-import=tzdata `
-            --hidden-import=PySide6.QtWidgets `
-            --hidden-import=PySide6.QtCore `
-            --hidden-import=PySide6.QtGui `
-            --hidden-import=PySide6.uic `
-            --hidden-import=PIL.Image `
-            --hidden-import=login `
-            --hidden-import=icons_rc `
-            --runtime-hook=runtime-hook.py `
-            app.py *> pyinstaller.log
-          if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
-          echo "dist/ contents:"
+          echo "Running PyInstaller with custom spec file at $(Get-Date)"
+          python -m PyInstaller app.spec > pyinstaller.log 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ PyInstaller build failed!"
+            Get-Content pyinstaller.log
+            exit 1
+          }
+          echo "✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
-          echo "PyInstaller build completed at $(Get-Date)"
         shell: powershell
+
 
       # Upload PyInstaller log
       - name: Upload PyInstaller log
