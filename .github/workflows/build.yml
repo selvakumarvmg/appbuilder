@@ -277,11 +277,24 @@ jobs:
       - name: Install dependencies
         run: |
           echo "Starting dependency installation at $(Get-Date)"
+          echo "Current directory: $(Get-Location)"
+          
+          # Upgrade pip and install wheel/setuptools
           python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to upgrade pip"; exit 1 }
           pip install --upgrade wheel setuptools
-          echo "Inspecting requirements.txt..."
-          Get-Content requirements.txt
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install wheel/setuptools"; exit 1 }
 
+          # Inspect requirements.txt
+          echo "Inspecting requirements.txt..."
+          if (Test-Path requirements.txt) {
+            Get-Content requirements.txt
+          } else {
+            echo "❌ requirements.txt not found"
+            exit 1
+          }
+
+          # Define packages
           $packages = @(
             "PySide6==6.9.1",
             "PySide6-Essentials==6.9.1",
@@ -297,9 +310,9 @@ jobs:
             "psd-tools==1.9.31",
             "tzdata==2024.1"
           )
-
           $nonFatalPackages = @("docopt==0.6.2", "psd-tools==1.9.31")
 
+          # Install packages
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
@@ -316,6 +329,7 @@ jobs:
             }
           }
 
+          # Install PyInstaller
           echo "Installing PyInstaller..."
           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
           if ($LASTEXITCODE -ne 0) {
@@ -324,10 +338,8 @@ jobs:
             exit 1
           }
 
+          # Create installed_packages.txt
           echo "Creating installed_packages.txt..."
-          echo "Current directory: $(Get-Location)"
-          echo "Running pip list..."
-          pip list
           pip list > installed_packages.txt
           if ($LASTEXITCODE -ne 0) {
             echo "❌ pip list command failed"
@@ -340,50 +352,35 @@ jobs:
             exit 1
           }
           echo "Successfully created installed_packages.txt"
-          echo "Contents of installed_packages.txt:"
           Get-Content installed_packages.txt
-          echo "Current directory contents:"
-          dir
 
+          # Verify PyInstaller and PySide6
           python -m pip show pyinstaller
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ PyInstaller not installed"
-            exit 1
-          }
-
+          if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
           python -m pip show PySide6
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ PySide6 not installed"
-            exit 1
-          }
+          if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
 
+          # Check PySide6 plugins
           echo "Checking PySide6 plugins..."
           $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
           $pluginsPath = $pluginsPathRaw.Trim()
-
           echo "🔍 Raw plugins path: '$pluginsPath'"
-
           if (Test-Path $pluginsPath) {
             echo "✔️ Found plugins directory: $pluginsPath"
-            dir $pluginsPath | Out-String | Write-Output
-
+            dir $pluginsPath | Out-String
             $platformsPath = Join-Path $pluginsPath "platforms"
             $imageformatsPath = Join-Path $pluginsPath "imageformats"
-
             if (-not (Test-Path $platformsPath)) {
               echo "❌ PySide6 platforms directory missing: $platformsPath"
               exit 1
             }
-
             if (-not (Test-Path $imageformatsPath)) {
               echo "❌ PySide6 imageformats directory missing: $imageformatsPath"
               exit 1
             }
-
-            dir $platformsPath | Out-String | Write-Output
-            dir $imageformatsPath | Out-String | Write-Output
-          }
-          else {
+            dir $platformsPath | Out-String
+            dir $imageformatsPath | Out-String
+          } else {
             echo "❌ PySide6 plugins directory missing: $pluginsPath"
             exit 1
           }
