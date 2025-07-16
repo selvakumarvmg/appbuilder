@@ -390,46 +390,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           echo "Installing packages from requirements.txt at $(Get-Date)"
+          
+          # Print contents
           echo "Inspecting requirements.txt..."
-          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
-          if (Test-Path requirements.txt) {
-            Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
-            echo "requirements.txt contents:"
-            Get-Content $requirementsLog
-          } else {
-            echo "❌ requirements.txt not found"
-            dir | Out-File -FilePath dir_contents.log -Encoding utf8
-            Get-Content dir_contents.log
-            exit 1
-          }
-          echo "Installing packages from requirements.txt..."
-          $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
-          try {
-            python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
-            if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install requirements, attempting docopt fallback..."
-              echo "Installing docopt separately..."
-              $docoptLog = Join-Path (Get-Location) "docopt_install.log"
-              python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
-              if ($LASTEXITCODE -ne 0) {
-                echo "❌ Failed to install docopt-ng"
-                Get-Content $docoptLog
-                exit 1
-              }
-              echo "Retrying requirements.txt without docopt..."
-              python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 psd-tools==1.9.31 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
-              if ($LASTEXITCODE -ne 0) {
-                echo "❌ Failed to install requirements after docopt fallback"
-                Get-Content $requirementsInstallLog
-                exit 1
-              }
-            }
-          } catch {
-            echo "❌ Error installing requirements: $_"
-            Get-Content $requirementsInstallLog
-            exit 1
-          }
-        shell: powershell
+          Get-Content requirements.txt
+
+          # Ensure build tools are available
+          python -m pip install --upgrade pip setuptools wheel build
+
+          # Install dependencies
+          pip install -r requirements.txt
+
 
       - name: Install PyInstaller
         run: |
