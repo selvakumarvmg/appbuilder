@@ -327,10 +327,16 @@ jobs:
           pip list > installed_packages.txt
 
           python -m pip show pyinstaller
-          if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ PyInstaller not installed"
+            exit 1
+          }
 
           python -m pip show PySide6
-          if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ PySide6 not installed"
+            exit 1
+          }
 
           echo "Checking PySide6 plugins..."
 
@@ -358,7 +364,8 @@ jobs:
 
             dir $platformsPath | Out-String | Write-Output
             dir $imageformatsPath | Out-String | Write-Output
-          } else {
+          }
+          else {
             echo "❌ PySide6 plugins directory missing: $pluginsPath"
             exit 1
           }
