@@ -35,6 +35,7 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0
         pip list > installed_packages.txt
+        python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         cat plugins_path.txt
         ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
@@ -68,7 +69,7 @@ jobs:
         ls -ld "$PYSIDE6_PLUGINS/platforms" || export PYSIDE6_PLUGINS=/Library/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages/PySide6/plugins
         ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory missing" && exit 1)
         ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
-        pyinstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
+        python -m PyInstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
         echo "📁 dist/ contents:"
         ls -lh dist
 
@@ -138,6 +139,8 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller>=6.14.0,<7.0.0
         pip list > installed_packages.txt
+        python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+        where pyinstaller || (echo "❌ pyinstaller command not found" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         type plugins_path.txt
         dir type plugins_path.txt || echo "❌ PySide6 plugins directory missing"
@@ -197,7 +200,7 @@ jobs:
         dir login.py || (echo "❌ login.py missing" && exit 1)
         dir runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
         echo Running PyInstaller...
-        pyinstaller --log-level=DEBUG --noconfirm --windowed --onedir ^
+        python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
