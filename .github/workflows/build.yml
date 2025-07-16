@@ -573,7 +573,7 @@ jobs:
             $pluginsPath = python -c "import PySide6.QtCore; print(PySide6.QtCore.QLibraryInfo.path(PySide6.QtCore.QLibraryInfo.PluginsPath))"
           }
           echo "PySide6 plugins path: $pluginsPath"
-          echo "Running PyInstaller with custom spec file at $(Get-Date)"
+          echo "Running PyInstaller at $(Get-Date)"
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir `
             --name PremediaApp `
             --icon=icons/premedia.ico `
@@ -603,6 +603,7 @@ jobs:
             --hidden-import=PIL.Image `
             --hidden-import=login `
             --hidden-import=icons_rc `
+            --hidden-import=docopt_ng `
             --runtime-hook=runtime-hook.py `
             app.py > pyinstaller.log 2>&1
           if ($LASTEXITCODE -ne 0) {

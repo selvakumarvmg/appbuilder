@@ -59,7 +59,7 @@ for plugin_subdir in ["platforms", "imageformats"]:
 
 hidden_imports = (
     collect_submodules("PySide6") +
-    ["paramiko", "tzdata", "PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui", "PySide6.uic", "PIL.Image", "login", "icons_rc"]
+    ["paramiko", "tzdata", "PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui", "PySide6.uic", "PIL.Image", "login", "icons_rc", "docopt_ng"]
 )
 
 # Handle dynamic libpython on macOS
