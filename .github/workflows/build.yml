@@ -258,60 +258,20 @@ jobs:
           $maxRetries = 3
           $retryDelay = 30
 
-          function Install-BuildTools {
-            param(
-              [string]$package
-            )
-
-            for ($i = 1; $i -le $maxRetries; $i++) {
-              Write-Host "Attempt $i to install $package..."
-              try {
-                choco install $package --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
-                if ($LASTEXITCODE -eq 0) {
-                  Write-Host "Successfully installed $package"
-                  return $true
-                }
-              } catch {
-                Write-Host ("Failed attempt $i: " + $_.Exception.Message)
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            Write-Host "Attempt $i to install Visual Studio Build Tools..."
+            try {
+              choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully installed Visual Studio Build Tools"
+                break
               }
-              Start-Sleep -Seconds $retryDelay
+            } catch {
+              Write-Host ("Failed attempt $i: " + $_.Exception.Message)
             }
-
-            Write-Host "Failed to install $package after $maxRetries attempts"
-            return $false
+            Start-Sleep -Seconds $retryDelay
           }
 
-          $success = Install-BuildTools -package "visualstudio2019buildtools"
-          if (-not $success) {
-            Write-Host "Trying fallback: Visual Studio 2022 Build Tools..."
-            $success = Install-BuildTools -package "visualstudio2022buildtools"
-            if (-not $success) {
-              Write-Host "Could not install either VS2019 or VS2022 build tools. Exiting."
-              exit 1
-            }
-          }
-
-          # Verify MSVC installation
-          $paths = @(
-            "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC",
-            "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
-          )
-
-          $msvcFound = $false
-          foreach ($path in $paths) {
-            if (Test-Path $path) {
-              Write-Host "MSVC found at: $path"
-              $msvcFound = $true
-              break
-            }
-          }
-
-          if (-not $msvcFound) {
-            Write-Host "MSVC directory not found in expected locations."
-            exit 1
-          }
-
-          Write-Host ("Visual Studio Build Tools installation completed at " + (Get-Date))
 
 
 
