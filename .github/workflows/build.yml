@@ -406,14 +406,24 @@ jobs:
       #     }
       #   shell: powershell
 
-      - name: 🛠️ Upgrade pip + tools
+      - name: 🛠️ Upgrade pip and tools
         run: |
-          python -m pip install --upgrade pip==24.3.1 wheel==0.42.0 setuptools==68.2.2
+          python -m pip install --upgrade pip==24.3.1 setuptools wheel
           python -m pip config set global.index-url https://pypi.org/simple
 
-      - name: ✅ Install docopt-ng safely
+      - name: 🧩 Pre-install docopt-ng to prevent build errors
         run: |
           python -m pip install --only-binary=:all: docopt-ng==0.9.0
+
+      - name: 🩹 Patch psd-tools dependency to use docopt-ng (safe fork)
+        run: |
+          python -m pip install --no-deps psd-tools==1.9.30
+
+      - name: 📦 Install remaining dependencies
+        shell: bash
+        run: |
+          grep -v "psd-tools" requirements.txt > patched-reqs.txt
+          python -m pip install --upgrade --prefer-binary -r patched-reqs.txt
 
 
       - name: 📦 Install requirements safely
