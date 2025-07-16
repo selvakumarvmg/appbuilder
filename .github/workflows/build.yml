@@ -303,10 +303,8 @@ jobs:
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
-            try {
-              pip install $pkg --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $logfile
-              if ($LASTEXITCODE -ne 0) { throw "Install failed" }
-            } catch {
+            pip install $pkg --no-cache-dir --force-reinstall --verbose *> $logfile 2>&1
+            if ($LASTEXITCODE -ne 0) {
               if ($nonFatalPackages -contains $pkg) {
                 echo "⚠️ Failed to install $pkg, continuing..."
                 Get-Content $logfile
@@ -319,16 +317,14 @@ jobs:
           }
 
           echo "Installing PyInstaller..."
-          try {
-            pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath pyinstaller_install.log
-            if ($LASTEXITCODE -ne 0) { throw "Install failed" }
-          } catch {
+          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
+          if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller installation failed"
             Get-Content pyinstaller_install.log
             exit 1
           }
 
-          pip list | Out-File -FilePath installed_packages.txt -Encoding utf8
+          pip list > installed_packages.txt
 
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
@@ -337,20 +333,37 @@ jobs:
           if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
 
           echo "Checking PySide6 plugins..."
-          python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
-          $pluginsPath = Get-Content plugins_path.txt
+          $pluginsPath = python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+          $pluginsPath = $pluginsPath.Trim()
+          echo "🔍 Raw plugins path: '$pluginsPath'"
 
           if (Test-Path $pluginsPath) {
-            dir $pluginsPath | Out-String
-            if (-not (Test-Path "$pluginsPath/platforms")) { echo "❌ PySide6 platforms directory missing"; exit 1 }
-            if (-not (Test-Path "$pluginsPath/imageformats")) { echo "❌ PySide6 imageformats directory missing"; exit 1 }
+            echo "✔️ Found plugins directory: $pluginsPath"
+            dir $pluginsPath | Out-String | Write-Output
+
+            $platformsPath = Join-Path $pluginsPath "platforms"
+            $imageformatsPath = Join-Path $pluginsPath "imageformats"
+
+            if (-not (Test-Path $platformsPath)) {
+              echo "❌ PySide6 platforms directory missing: $platformsPath"
+              exit 1
+            }
+
+            if (-not (Test-Path $imageformatsPath)) {
+              echo "❌ PySide6 imageformats directory missing: $imageformatsPath"
+              exit 1
+            }
+
+            dir $platformsPath | Out-String | Write-Output
+            dir $imageformatsPath | Out-String | Write-Output
           } else {
-            echo "❌ PySide6 plugins directory missing"
+            echo "❌ PySide6 plugins directory missing: $pluginsPath"
             exit 1
           }
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+
 
 
 
