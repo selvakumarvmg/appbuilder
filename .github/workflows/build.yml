@@ -573,6 +573,9 @@ jobs:
           }
           echo "PySide6 plugins path: $pluginsPath"
           echo "Running PyInstaller at $(Get-Date)"
+
+          $pyinstallerLog = "pyinstaller.log"
+
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir `
             --name PremediaApp `
             --icon=icons/premedia.ico `
@@ -604,18 +607,18 @@ jobs:
             --hidden-import=icons_rc `
             --hidden-import=docopt_ng `
             --runtime-hook=runtime-hook.py `
-            app.py > pyinstaller.log 2>&1
+            app.py 2>&1 | Tee-Object -FilePath $pyinstallerLog
 
           if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller build failed!"
-            echo "Last 100 lines of pyinstaller.log:"
-            Get-Content pyinstaller.log -Tail 100
+            Get-Content $pyinstallerLog
             exit 1
           }
 
           echo "✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
         shell: powershell
+
 
 
 
