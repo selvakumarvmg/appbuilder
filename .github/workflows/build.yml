@@ -46,6 +46,8 @@ jobs:
         test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
         test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
         test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
+        test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
+        test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
         test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
         test -f license.txt || (echo "❌ license.txt missing" && exit 1)
         test -f login.ui || (echo "❌ login.ui missing" && exit 1)
@@ -54,6 +56,7 @@ jobs:
         test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
         test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
         test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
+        test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
 
     - name: Build App with PyInstaller
       run: |
@@ -72,6 +75,7 @@ jobs:
       run: |
         codesign --deep --force --verbose --sign - dist/PremediaApp.app
       if: ${{ env.APPLE_CERTIFICATE == '' }}
+
     - name: Sign App with Developer ID
       run: |
         codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
@@ -140,6 +144,8 @@ jobs:
         dir icons\premedia.ico || (echo "❌ premedia.ico missing" && exit 1)
         dir icons\photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
         dir icons\folder.png || (echo "❌ folder.png missing" && exit 1)
+        dir icons\premedia.png || (echo "❌ premedia.png missing" && exit 1)
+        dir icons\vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
         dir terms.txt || (echo "❌ terms.txt missing" && exit 1)
         dir license.txt || (echo "❌ license.txt missing" && exit 1)
         dir login.ui || (echo "❌ login.ui missing" && exit 1)
@@ -147,17 +153,23 @@ jobs:
         dir icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
         dir icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
         dir installer\installer.iss || (echo "❌ installer.iss missing" && exit 1)
+        dir runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
       shell: cmd
 
-    - name: Build GUI Executable (onedir for fast startup)
+    - name: Build GUI Executable
       run: |
         echo ===== Building with PyInstaller =====
+        python -c "import PySide6; print(PySide6.__file__)" > pyside6_path.txt
+        set /p PYSIDE6_PATH=<pyside6_path.txt
+        set PYSIDE6_PLUGINS=%PYSIDE6_PATH%\..\PySide6\plugins
         pyinstaller --noconfirm --windowed --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
           --add-data "icons\photoshop.png;icons" ^
           --add-data "icons\folder.png;icons" ^
+          --add-data "icons\premedia.png;icons" ^
+          --add-data "icons\vmg-premedia-logo.png;icons" ^
           --add-data "terms.txt;." ^
           --add-data "license.txt;." ^
           --add-data "login.ui;." ^
@@ -165,8 +177,8 @@ jobs:
           --add-data "icons.qrc;." ^
           --add-data "icons_rc.py;." ^
           --add-data "login.py;." ^
-          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
-          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\imageformats;PySide6\plugins\imageformats" ^
+          --add-data "%PYSIDE6_PLUGINS%\platforms;PySide6\plugins\platforms" ^
+          --add-data "%PYSIDE6_PLUGINS%\imageformats;PySide6\plugins\imageformats" ^
           --hidden-import=paramiko ^
           --hidden-import=tzdata ^
           --hidden-import=PySide6.QtWidgets ^
@@ -177,6 +189,7 @@ jobs:
           --hidden-import=login ^
           --hidden-import=icons_rc ^
           --collect-submodules PySide6 ^
+          --runtime-hook=runtime-hook.py ^
           app.py > pyinstaller.log 2>&1
       shell: cmd
 

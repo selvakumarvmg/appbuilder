@@ -17,12 +17,14 @@ def collect_files(folder_name):
         for f in Path(folder_name).rglob("*") if f.is_file()
     ]
 
-asset_files = collect_files("assets")
+asset_files = collect_files("assets") if Path("assets").exists() else []
 icon_files = [
     ("icons/premedia.icns", "icons"),
     ("icons/premedia.ico", "icons"),
     ("icons/photoshop.png", "icons"),
     ("icons/folder.png", "icons"),
+    ("icons/premedia.png", "icons"),
+    ("icons/vmg-premedia-logo.png", "icons"),
 ]
 ui_files = [
     ("login.ui", "."),
@@ -67,7 +69,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],  # Remove runtime-hook.py unless verified
+    runtime_hooks=["runtime-hook.py"],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -87,8 +89,8 @@ exe = EXE(
     debug=True,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Disable UPX
-    console=True,  # Keep console for debugging
+    upx=False,
+    console=True,  # For debugging
     icon=icon_file,
 )
 
