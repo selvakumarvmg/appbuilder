@@ -409,77 +409,45 @@ jobs:
       - name: Install requirements
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Installing packages from requirements.txt at $(Get-Date)"
-          echo "Inspecting requirements.txt..."
-          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
-          if (Test-Path requirements.txt) {
-            Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
-            echo "requirements.txt contents:"
-            Get-Content $requirementsLog
-          } else {
-            echo "❌ requirements.txt not found"
-            dir | Out-File -FilePath dir_contents.log -Encoding utf8
-            Get-Content dir_contents.log
-            exit 1
-          }
+          $installLog = Join-Path (Get-Location) "requirements_install.log"
 
-          echo "Installing psd-tools with no dependencies (manually managed)..."
-          $psdToolsLog = Join-Path (Get-Location) "psd_tools_install.log"
-          try {
-            python -m pip install psd-tools==1.9.31 --no-deps --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $psdToolsLog
+          function Install-Package {
+            param (
+              [string]$pkg
+            )
+            echo "Installing $pkg..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install $pkg --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install psd-tools"
-              Get-Content $psdToolsLog
+              echo "❌ Failed to install $pkg" | Out-File -FilePath $installLog -Append -Encoding utf8
+              Get-Content $installLog
               exit 1
             }
-          } catch {
-            echo "❌ Error installing psd-tools: $_"
-            Get-Content $psdToolsLog
-            exit 1
           }
 
-          echo "Installing base dependencies together..."
-          $installLog = Join-Path (Get-Location) "requirements_install.log"
-          python -m pip install `
-            urllib3==2.2.3 `
-            tzdata==2024.1 `
-            pycparser==2.22 `
-            charset-normalizer==3.4.2 `
-            idna==3.10 `
-            certifi==2025.7.14 `
-            bcrypt==4.3.0 `
-            numpy==1.26.4 `
-            PyNaCl==1.5.0 `
-            cryptography==45.0.5 `
-            Pillow==10.3.0 `
-            cffi==1.17.1 `
-            requests==2.32.3 `
-            paramiko==3.5.0 `
-            --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+          Install-Package "psd-tools==1.9.31 --no-deps"
+          Install-Package "urllib3==2.2.3"
+          Install-Package "tzdata==2024.1"
+          Install-Package "pycparser==2.22"
+          Install-Package "charset-normalizer==3.4.2"
+          Install-Package "idna==3.10"
+          Install-Package "certifi==2025.7.14"
+          Install-Package "bcrypt==4.3.0"
+          Install-Package "numpy==1.26.4"
+          Install-Package "PyNaCl==1.5.0"
+          Install-Package "cryptography==45.0.5"
+          Install-Package "Pillow==10.3.0"
+          Install-Package "cffi==1.17.1"
+          Install-Package "requests==2.32.3"
+          Install-Package "paramiko==3.5.0"
+          Install-Package "shiboken6==6.9.1"
+          Install-Package "PySide6-Addons==6.9.1"
+          Install-Package "PySide6==6.9.1"
+          Install-Package "PySide6-Essentials==6.9.1"
 
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ Failed to install base dependencies" | Out-File -FilePath $installLog -Append -Encoding utf8
-            Get-Content $installLog
-            exit 1
-          }
-
-          echo "Installing PySide6 stack together..."
-          python -m pip install `
-            shiboken6==6.9.1 `
-            PySide6-Addons==6.9.1 `
-            PySide6==6.9.1 `
-            PySide6-Essentials==6.9.1 `
-            --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
-
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ Failed to install PySide6 stack" | Out-File -FilePath $installLog -Append -Encoding utf8
-            Get-Content $installLog
-            exit 1
-          }
-
-          echo "✅ All requirements installed successfully"
+          echo "✅ All packages installed successfully."
           Get-Content $installLog
         shell: powershell
+
 
 
       - name: Verify PySide6 plugins
