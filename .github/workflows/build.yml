@@ -303,8 +303,10 @@ jobs:
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
-            pip install $pkg --no-cache-dir --force-reinstall --verbose *> $logfile 2>&1
-            if ($LASTEXITCODE -ne 0) {
+            try {
+              pip install $pkg --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $logfile
+              if ($LASTEXITCODE -ne 0) { throw "Install failed" }
+            } catch {
               if ($nonFatalPackages -contains $pkg) {
                 echo "⚠️ Failed to install $pkg, continuing..."
                 Get-Content $logfile
@@ -317,14 +319,16 @@ jobs:
           }
 
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
-          if ($LASTEXITCODE -ne 0) {
+          try {
+            pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath pyinstaller_install.log
+            if ($LASTEXITCODE -ne 0) { throw "Install failed" }
+          } catch {
             echo "❌ PyInstaller installation failed"
             Get-Content pyinstaller_install.log
             exit 1
           }
 
-          pip list > installed_packages.txt
+          pip list | Out-File -FilePath installed_packages.txt -Encoding utf8
 
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
@@ -334,14 +338,12 @@ jobs:
 
           echo "Checking PySide6 plugins..."
           python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
-          Get-Content plugins_path.txt
+          $pluginsPath = Get-Content plugins_path.txt
 
-          if (Test-Path (Get-Content plugins_path.txt)) {
-            dir (Get-Content plugins_path.txt) | Out-String
-            dir "$(Get-Content plugins_path.txt)/platforms" | Out-String
-            if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 platforms directory missing"; exit 1 }
-            dir "$(Get-Content plugins_path.txt)/imageformats" | Out-String
-            if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 imageformats directory missing"; exit 1 }
+          if (Test-Path $pluginsPath) {
+            dir $pluginsPath | Out-String
+            if (-not (Test-Path "$pluginsPath/platforms")) { echo "❌ PySide6 platforms directory missing"; exit 1 }
+            if (-not (Test-Path "$pluginsPath/imageformats")) { echo "❌ PySide6 imageformats directory missing"; exit 1 }
           } else {
             echo "❌ PySide6 plugins directory missing"
             exit 1
@@ -349,6 +351,7 @@ jobs:
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+
 
 
       # Upload install logs
