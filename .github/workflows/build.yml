@@ -1,133 +1,13 @@
-name: Build PremediaApp (macOS & Windows)
+name: Build PremediaApp Windows Installer
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
-  build:
-    name: 🛠️ Build macOS x86_64 App
-    runs-on: macos-13
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9.13'
-        architecture: 'x64'
-
-    - name: Clear pip cache
-      run: |
-        pip cache purge
-      shell: bash
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        echo "Installing PyInstaller..."
-        pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
-        pip list > installed_packages.txt
-        python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
-        python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
-        cat plugins_path.txt
-        ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
-      shell: bash
-
-    - name: Upload PyInstaller install log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-install-log-macos
-        path: pyinstaller_install.log
-      if: always()
-
-    - name: Show installed packages
-      run: cat installed_packages.txt
-      shell: bash
-
-    - name: Verify required files
-      run: |
-        test -f app.py || (echo "❌ app.py missing" && exit 1)
-        test -f login.py || (echo "❌ login.py missing" && exit 1)
-        test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
-        test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
-        test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
-        test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
-        test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
-        test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
-        test -f license.txt || (echo "❌ license.txt missing" && exit 1)
-        test -f login.ui || (echo "❌ login.ui missing" && exit 1)
-        test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
-        test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
-        test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
-        test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
-        test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
-        test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
-      shell: bash
-
-    - name: Build App with PyInstaller
-      run: |
-        python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'plugins'); print(plugins_path)" > plugins_path.txt
-        export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-        ls -ld "$PYSIDE6_PLUGINS/platforms" || export PYSIDE6_PLUGINS=/Library/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages/PySide6/plugins
-        ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory missing" && exit 1)
-        ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
-        python -m PyInstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
-        echo "📁 dist/ contents:"
-        ls -lh dist
-      shell: bash
-
-    - name: Upload PyInstaller log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-log-macos
-        path: pyinstaller.log
-      if: always()
-
-    - name: Sign App
-      run: |
-        codesign --deep --force --verbose --sign - dist/PremediaApp.app
-      if: ${{ env.APPLE_CERTIFICATE == '' }}
-      shell: bash
-
-    - name: Sign App with Developer ID
-      run: |
-        codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
-      if: ${{ env.APPLE_CERTIFICATE != '' }}
-      env:
-        APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      shell: bash
-
-    - name: Inspect built .app
-      run: |
-        du -sh dist/PremediaApp.app
-        find dist/PremediaApp.app
-      shell: bash
-
-    - name: Build DMG
-      run: |
-        mkdir -p dmg-build
-        cp -R dist/PremediaApp.app dmg-build/
-        dmgbuild -s installer/dmg-settings.py \
-                 -D app_path="dmg-build/PremediaApp.app" \
-                 "PremediaApp" PremediaApp.dmg
-      shell: bash
-
-    - name: Upload DMG Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-macos-dmg
-        path: PremediaApp.dmg
-        retention-days: 7
-
   build-windows:
-    name: 🪟 Build Windows EXE Installer
     runs-on: windows-latest
 
     steps:
@@ -138,97 +18,29 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.9.13'
-        architecture: 'x64'
-
-    - name: Clear pip cache
-      run: |
-        pip cache purge
-      shell: cmd
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        echo "Installing PyInstaller..."
-        pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && type pyinstaller_install.log && exit 1)
+        pip install pyinstaller
         pip list > installed_packages.txt
-        python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
-        set PATH=%PATH%;C:\hostedtoolcache\windows\Python\3.9.13\x64\Scripts
-        where pyinstaller || (echo "❌ pyinstaller command not found" && exit 1)
-        python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
-        type plugins_path.txt
-        dir type plugins_path.txt || echo "❌ PySide6 plugins directory missing"
       shell: cmd
-
-    - name: Upload PyInstaller install log
-      uses: actions/upload-artifact@v4
-      with:
-        name: pyinstaller-install-log-windows
-        path: pyinstaller_install.log
-      if: always()
 
     - name: Show installed packages
       run: type installed_packages.txt
       shell: cmd
       if: always()
 
-    - name: Verify required files exist
-      run: |
-        dir app.py || (echo "❌ app.py missing" && exit 1)
-        dir login.py || (echo "❌ login.py missing" && exit 1)
-        dir icons\premedia.ico || (echo "❌ premedia.ico missing" && exit 1)
-        dir icons\photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
-        dir icons\folder.png || (echo "❌ folder.png missing" && exit 1)
-        dir icons\premedia.png || (echo "❌ premedia.png missing" && exit 1)
-        dir icons\vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
-        dir terms.txt || (echo "❌ terms.txt missing" && exit 1)
-        dir license.txt || (echo "❌ license.txt missing" && exit 1)
-        dir login.ui || (echo "❌ login.ui missing" && exit 1)
-        dir premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
-        dir icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
-        dir icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
-        dir installer\installer.iss || (echo "❌ installer.iss missing" && exit 1)
-        dir runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
-      shell: cmd
-
-    - name: Build GUI Executable
+    - name: Build GUI Executable (--onedir)
       run: |
         echo ===== Building with PyInstaller =====
-        python -c "import PySide6; print(PySide6.__file__)" > pyside6_path.txt
-        set /p PYSIDE6_PATH=<pyside6_path.txt
-        echo PYSIDE6_PATH=%PYSIDE6_PATH%
-        set PYSIDE6_PLUGINS=%PYSIDE6_PATH%\..\PySide6\plugins
-        echo PYSIDE6_PLUGINS=%PYSIDE6_PLUGINS%
-        if not exist "%PYSIDE6_PLUGINS%\platforms" (
-          echo "❌ Platforms directory missing, using fallback path"
-          set PYSIDE6_PLUGINS=C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins
-        )
-        dir "%PYSIDE6_PLUGINS%\platforms" || (echo "❌ Platforms directory missing" && exit 1)
-        dir "%PYSIDE6_PLUGINS%\imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
-        echo Verifying input files...
-        dir app.py || (echo "❌ app.py missing" && exit 1)
-        dir icons\premedia.ico || (echo "❌ premedia.ico missing" && exit 1)
-        dir icons\photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
-        dir icons\folder.png || (echo "❌ folder.png missing" && exit 1)
-        dir icons\premedia.png || (echo "❌ premedia.png missing" && exit 1)
-        dir icons\vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
-        dir terms.txt || (echo "❌ terms.txt missing" && exit 1)
-        dir license.txt || (echo "❌ license.txt missing" && exit 1)
-        dir login.ui || (echo "❌ login.ui missing" && exit 1)
-        dir premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
-        dir icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
-        dir icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
-        dir login.py || (echo "❌ login.py missing" && exit 1)
-        dir runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
-        echo Running PyInstaller...
-        python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir ^
+        pyinstaller --noconfirm --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
           --add-data "icons\premedia.ico;icons" ^
           --add-data "icons\photoshop.png;icons" ^
           --add-data "icons\folder.png;icons" ^
-          --add-data "icons\premedia.png;icons" ^
-          --add-data "icons\vmg-premedia-logo.png;icons" ^
           --add-data "terms.txt;." ^
           --add-data "license.txt;." ^
           --add-data "login.ui;." ^
@@ -236,20 +48,20 @@ jobs:
           --add-data "icons.qrc;." ^
           --add-data "icons_rc.py;." ^
           --add-data "login.py;." ^
-          --add-data "%PYSIDE6_PLUGINS%\platforms;PySide6\plugins\platforms" ^
-          --add-data "%PYSIDE6_PLUGINS%\imageformats;PySide6\plugins\imageformats" ^
+          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
           --hidden-import=paramiko ^
           --hidden-import=tzdata ^
           --hidden-import=PySide6.QtWidgets ^
           --hidden-import=PySide6.QtCore ^
           --hidden-import=PySide6.QtGui ^
+          --hidden-import=PySide6.QtNetwork ^
+          --hidden-import=PySide6.QtSvg ^
           --hidden-import=PySide6.uic ^
           --hidden-import=PIL.Image ^
           --hidden-import=login ^
           --hidden-import=icons_rc ^
           --collect-submodules PySide6 ^
-          --runtime-hook=runtime-hook.py ^
-          app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && type pyinstaller.log && exit 1)
+          app.py > pyinstaller.log 2>&1
       shell: cmd
 
     - name: Show PyInstaller log
@@ -260,14 +72,27 @@ jobs:
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
       with:
-        name: pyinstaller-log-windows
+        name: pyinstaller-log
         path: pyinstaller.log
       if: always()
+
+    - name: Upload Application Build Directory
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-Build
+        path: dist\PremediaApp
+      if: always()
+
+    - name: Upload App Crash Log if available
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-error-log
+        path: dist\PremediaApp\error.log
+        if-no-files-found: warn
 
     - name: Check if EXE exists
       run: |
         echo Checking dist\PremediaApp\PremediaApp.exe
-        dir dist\PremediaApp
         if not exist dist\PremediaApp\PremediaApp.exe (
           echo ERROR: Executable not found!
           exit 1
@@ -292,9 +117,9 @@ jobs:
         )
       shell: cmd
 
-    - name: Upload Installer Artifact
+    - name: Upload Windows Installer
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
-        path: Output/PremediaApp-Setup.exe
+        path: Output\PremediaApp-Setup.exe
         retention-days: 7
