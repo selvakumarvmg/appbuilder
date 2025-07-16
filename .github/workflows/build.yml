@@ -416,7 +416,7 @@ jobs:
           python -m pip install --only-binary=:all: docopt-ng==0.9.0
 
 
-      - name: Install requirements safely
+      - name: 📦 Install requirements safely
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -436,14 +436,10 @@ jobs:
             exit 1
           }
 
-          # Downgrade pip for Python 3.9 compatibility
-          python -m pip install --upgrade "pip<25.0"
-
-          # Install all requirements using a single pip call with binary preference
+          # Install all requirements using a single pip call WITHOUT --only-binary
           python -m pip install `
             --no-cache-dir `
             --prefer-binary `
-            --only-binary=:all: `
             --upgrade `
             -r "requirements.txt" `
             --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
@@ -454,7 +450,7 @@ jobs:
             exit 1
           }
 
-          echo "All packages installed successfully!"
+          echo "✅ All packages installed successfully!"
           Get-Content "$installLog"
 
 
