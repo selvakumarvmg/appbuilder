@@ -250,6 +250,16 @@ jobs:
           python-version: '3.9.13'
           architecture: 'x64'
 
+      # Install Visual Studio Build Tools for C++ (required for docopt, psd-tools)
+      - name: Install Visual Studio Build Tools
+        run: |
+          echo "Installing Visual Studio Build Tools at $(Get-Date)"
+          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+          echo "Verifying MSVC installation..."
+          dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
+          echo "Visual Studio Build Tools installation completed at $(Get-Date)"
+        shell: powershell
+
       # Cache pip packages
       - name: Cache pip packages
         uses: actions/cache@v4
