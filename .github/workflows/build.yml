@@ -1,13 +1,106 @@
-name: Build PremediaApp Windows Installer
+name: Build PremediaApp (macOS & Windows)
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
+  build:
+    name: 🛠️ Build macOS x86_64 App
+    runs-on: macos-13
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9.13'
+        architecture: 'x64'
+
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0
+        pip list > installed_packages.txt
+
+    - name: Show installed packages
+      run: cat installed_packages.txt
+
+    - name: Verify required files
+      run: |
+        test -f app.py || (echo "❌ app.py missing" && exit 1)
+        test -f login.py || (echo "❌ login.py missing" && exit 1)
+        test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
+        test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
+        test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
+        test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
+        test -f license.txt || (echo "❌ license.txt missing" && exit 1)
+        test -f login.ui || (echo "❌ login.ui missing" && exit 1)
+        test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
+        test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
+        test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
+        test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
+        test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
+
+    - name: Build App with PyInstaller
+      run: |
+        pyinstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1
+        echo "📁 dist/ contents:"
+        ls -lh dist
+
+    - name: Upload PyInstaller log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-log-macos
+        path: pyinstaller.log
+      if: always()
+
+    - name: Sign App
+      run: |
+        codesign --deep --force --verbose --sign - dist/PremediaApp.app
+      if: ${{ env.APPLE_CERTIFICATE == '' }}
+    - name: Sign App with Developer ID
+      run: |
+        codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
+      if: ${{ env.APPLE_CERTIFICATE != '' }}
+      env:
+        APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+
+    - name: Inspect built .app
+      run: |
+        du -sh dist/PremediaApp.app
+        find dist/PremediaApp.app
+
+    - name: Build DMG
+      run: |
+        mkdir -p dmg-build
+        cp -R dist/PremediaApp.app dmg-build/
+        dmgbuild -s installer/dmg-settings.py \
+                 -D app_path="dmg-build/PremediaApp.app" \
+                 "PremediaApp" PremediaApp.dmg
+
+    - name: Upload DMG Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PremediaApp-macos-dmg
+        path: PremediaApp.dmg
+        retention-days: 7
+
   build-windows:
+    name: 🪟 Build Windows EXE Installer
     runs-on: windows-latest
 
     steps:
@@ -18,12 +111,20 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.9.13'
+        architecture: 'x64'
+
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~\AppData\Local\pip\Cache
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: ${{ runner.os }}-pip-
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
+        pip install pyinstaller>=6.14.0,<7.0.0
         pip list > installed_packages.txt
       shell: cmd
 
@@ -34,20 +135,19 @@ jobs:
 
     - name: Verify required files exist
       run: |
-        dir app.py
-        dir icons\premedia.ico
-        dir icons\photoshop.png
-        dir icons\folder.png
-        dir terms.txt
-        dir license.txt
-        dir login.ui
-        dir premediaapp.ui
-        dir icons.qrc
-        dir icons_rc.py
-        dir installer\installer.iss
-        dir login.py
+        dir app.py || (echo "❌ app.py missing" && exit 1)
+        dir login.py || (echo "❌ login.py missing" && exit 1)
+        dir icons\premedia.ico || (echo "❌ premedia.ico missing" && exit 1)
+        dir icons\photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
+        dir icons\folder.png || (echo "❌ folder.png missing" && exit 1)
+        dir terms.txt || (echo "❌ terms.txt missing" && exit 1)
+        dir license.txt || (echo "❌ license.txt missing" && exit 1)
+        dir login.ui || (echo "❌ login.ui missing" && exit 1)
+        dir premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
+        dir icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
+        dir icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
+        dir installer\installer.iss || (echo "❌ installer.iss missing" && exit 1)
       shell: cmd
-      continue-on-error: true
 
     - name: Build GUI Executable (onedir for fast startup)
       run: |
@@ -66,6 +166,7 @@ jobs:
           --add-data "icons_rc.py;." ^
           --add-data "login.py;." ^
           --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
+          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\imageformats;PySide6\plugins\imageformats" ^
           --hidden-import=paramiko ^
           --hidden-import=tzdata ^
           --hidden-import=PySide6.QtWidgets ^
@@ -78,7 +179,6 @@ jobs:
           --collect-submodules PySide6 ^
           app.py > pyinstaller.log 2>&1
       shell: cmd
-      continue-on-error: true
 
     - name: Show PyInstaller log
       run: type pyinstaller.log || echo "Log missing"
@@ -88,7 +188,7 @@ jobs:
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
       with:
-        name: pyinstaller-log
+        name: pyinstaller-log-windows
         path: pyinstaller.log
       if: always()
 
@@ -105,7 +205,6 @@ jobs:
     - name: Install Inno Setup
       run: choco install innosetup --no-progress --yes --force
       shell: cmd
-      continue-on-error: true
 
     - name: Verify Inno Setup installed
       run: where iscc || echo "ISCC not found!"
@@ -125,5 +224,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: PremediaApp-Windows-Installer
-        path: Output\PremediaApp-Setup.exe
+        path: Output/PremediaApp-Setup.exe
         retention-days: 7

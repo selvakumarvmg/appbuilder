@@ -21,9 +21,17 @@ asset_files = collect_files("assets")
 icon_files = [
     ("icons/premedia.icns", "icons"),
     ("icons/premedia.ico", "icons"),
+    ("icons/photoshop.png", "icons"),
+    ("icons/folder.png", "icons"),
 ]
-ui_files = collect_files("ui") if Path("ui").exists() else []
-static_files = [(f, ".") for f in ["TERMS.txt", "LICENSE.txt"] if Path(f).exists()]
+ui_files = [
+    ("login.ui", "."),
+    ("premediaapp.ui", "."),
+    ("icons.qrc", "."),
+    ("icons_rc.py", "."),
+    ("login.py", "."),
+]
+static_files = [(f, ".") for f in ["terms.txt", "license.txt"] if Path(f).exists()]
 
 data_files = asset_files + icon_files + ui_files + static_files
 data_files += collect_data_files("PySide6")
@@ -36,7 +44,10 @@ data_files += collect_data_files("paramiko")
 data_files += collect_data_files("numpy")
 data_files += collect_data_files("psd_tools")
 
-hidden_imports = collect_submodules("PySide6")
+hidden_imports = (
+    collect_submodules("PySide6") +
+    ["paramiko", "tzdata", "PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui", "PySide6.uic", "PIL.Image", "login", "icons_rc"]
+)
 
 # Handle dynamic libpython on macOS
 is_macos = sys.platform == "darwin"
@@ -56,7 +67,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["runtime-hook.py"],  # Verify this exists; remove if unnecessary
+    runtime_hooks=[],  # Remove runtime-hook.py unless verified
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -105,7 +116,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,  # Disable UPX
+    upx=False,
     upx_exclude=[],
     name="PremediaApp",
 )
