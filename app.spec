@@ -4,7 +4,7 @@ import sys
 import os
 import sysconfig
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 # Paths
 script_path = "app.py"
@@ -18,16 +18,24 @@ def collect_files(folder_name):
     ]
 
 asset_files = collect_files("assets")
-icon_files = collect_files("icons")
+icon_files = [
+    ("icons/premedia.icns", "icons"),
+    ("icons/premedia.ico", "icons"),
+]
 ui_files = collect_files("ui") if Path("ui").exists() else []
 static_files = [(f, ".") for f in ["TERMS.txt", "LICENSE.txt"] if Path(f).exists()]
 
 data_files = asset_files + icon_files + ui_files + static_files
-
-from PyInstaller.utils.hooks import collect_data_files
 data_files += collect_data_files("PySide6")
+data_files += [(os.path.join("PySide6", "plugins", "platforms"), "PySide6/plugins/platforms")]
+data_files += [(os.path.join("PySide6", "plugins", "imageformats"), "PySide6/plugins/imageformats")]
+data_files += collect_data_files("PIL")
+data_files += collect_data_files("requests")
+data_files += collect_data_files("urllib3")
+data_files += collect_data_files("paramiko")
+data_files += collect_data_files("numpy")
+data_files += collect_data_files("psd_tools")
 
-# PySide6 hidden imports
 hidden_imports = collect_submodules("PySide6")
 
 # Handle dynamic libpython on macOS
@@ -48,7 +56,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["runtime-hook.py"],
+    runtime_hooks=["runtime-hook.py"],  # Verify this exists; remove if unnecessary
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -68,12 +76,11 @@ exe = EXE(
     debug=True,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=True,
+    upx=False,  # Disable UPX
+    console=True,  # Keep console for debugging
     icon=icon_file,
 )
 
-# macOS bundle
 if is_macos:
     app = BUNDLE(
         exe,
@@ -98,7 +105,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # Disable UPX
     upx_exclude=[],
     name="PremediaApp",
 )
