@@ -484,46 +484,6 @@ jobs:
             exit 1
           }
 
-
-
-
-
-
-      - name: Create installed packages list
-        run: |
-          $ErrorActionPreference = 'Stop'
-          echo "Creating installed_packages.txt at $(Get-Date)"
-          $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
-          try {
-            python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
-            if ($LASTEXITCODE -ne 0) {
-              echo "pip list command failed"
-              if (Test-Path $installPackagesFile) {
-                echo "Partial output in installed_packages.txt:"
-                Get-Content $installPackagesFile
-              }
-              exit 1
-            }
-          } catch {
-            echo "Error running pip list: $_"
-            if (Test-Path $installPackagesFile) {
-              echo "Partial output in installed_packages.txt:"
-              Get-Content $installPackagesFile
-            }
-            exit 1
-          }
-          if (-not (Test-Path $installPackagesFile)) {
-            echo "installed_packages.txt not created at $installPackagesFile"
-            dir | Out-File -FilePath dir_contents.log -Encoding utf8
-            echo "Directory contents:"
-            Get-Content dir_contents.log
-            exit 1
-          }
-          echo "Contents of installed_packages.txt:"
-          Get-Content $installPackagesFile
-        shell: powershell
-
-
       - name: Upload all install logs
         uses: actions/upload-artifact@v4
         with:
@@ -532,10 +492,6 @@ jobs:
             *.log
             installed_packages.txt
         if: always()
-
-
-
-
 
 
       # Show installed packages
@@ -551,10 +507,6 @@ jobs:
           Get-Content installed_packages.txt
         shell: powershell
         if: always()
-
-
-
-
 
 
       # Upload install logs
@@ -605,15 +557,22 @@ jobs:
           $ErrorActionPreference = 'Stop'
           echo "Installing PySide6 dependencies at $(Get-Date)"
           $pyside6Log = Join-Path (Get-Location) "pyside6_install.log"
-          python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 `
-            --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6Log
-          if ($LASTEXITCODE -ne 0) {
-            echo "Failed to install PySide6"
-            Get-Content $pyside6Log
+
+          try {
+            python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 `
+              --no-cache-dir --force-reinstall --verbose | Tee-Object -FilePath $pyside6Log
+            echo "✅ PySide6 installed successfully."
+          }
+          catch {
+            echo "❌ Failed to install PySide6. Showing log:"
+            if (Test-Path $pyside6Log) {
+              Get-Content $pyside6Log
+            }
             exit 1
           }
-          echo "PySide6 installed"
         shell: powershell
+
+
 
       # Build GUI executable
       - name: Build GUI Executable using app.spec
