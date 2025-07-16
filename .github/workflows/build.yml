@@ -274,7 +274,6 @@ jobs:
         shell: powershell
 
       # Install dependencies
-      # Install dependencies
       - name: Install dependencies
         run: |
           echo "Starting dependency installation at $(Get-Date)"
@@ -327,13 +326,25 @@ jobs:
 
           echo "Creating installed_packages.txt..."
           echo "Current directory: $(Get-Location)"
+          echo "Running pip list..."
+          pip list
           pip list > installed_packages.txt
-          if (-not (Test-Path installed_packages.txt)) {
-            echo "❌ Failed to create installed_packages.txt"
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ pip list command failed"
             exit 1
           }
-          echo "Contents of current directory:"
+          if (-not (Test-Path installed_packages.txt)) {
+            echo "❌ Failed to create installed_packages.txt"
+            echo "Current directory contents:"
+            dir
+            exit 1
+          }
+          echo "Successfully created installed_packages.txt"
+          echo "Contents of installed_packages.txt:"
+          Get-Content installed_packages.txt
+          echo "Current directory contents:"
           dir
+
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller not installed"
@@ -379,6 +390,12 @@ jobs:
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+        env:
+          pythonLocation: C:\hostedtoolcache\windows\Python\3.9.13\x64
+          PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.9.13\x64/lib/pkgconfig
+          Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+          Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+          Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
 
       # Show installed packages
       - name: Show installed packages
