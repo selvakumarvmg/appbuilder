@@ -24,11 +24,6 @@ import subprocess
 from queue import Queue
 import threading
 import time
-<<<<<<< Updated upstream
-if platform.system() != "Windows":
-    import fcntl
-
-=======
 import re
 import io
 import hashlib
@@ -53,7 +48,6 @@ SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
     "psd", "psb", "cr2", "nef", "arw", "dng", "raf", "pef", "srw"
 ]
->>>>>>> Stashed changes
 
 # Global stop queue for signaling
 FILE_WATCHER_STOP_QUEUE = Queue()
