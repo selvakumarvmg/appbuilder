@@ -390,16 +390,115 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           echo "Installing packages from requirements.txt at $(Get-Date)"
-          
-          # Print contents
           echo "Inspecting requirements.txt..."
-          Get-Content requirements.txt
+          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
+          if (Test-Path requirements.txt) {
+            Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
+            echo "requirements.txt contents:"
+            Get-Content $requirementsLog
+          } else {
+            echo "❌ requirements.txt not found"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            Get-Content dir_contents.log
+            exit 1
+          }
+          echo "Installing packages from requirements.txt..."
+          $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
+          try {
+            python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install requirements, attempting docopt fallback..."
+              echo "Installing docopt separately..."
+              $docoptLog = Join-Path (Get-Location) "docopt_install.log"
+              python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
+              if ($LASTEXITCODE -ne 0) {
+                echo "❌ Failed to install docopt-ng"
+                Get-Content $docoptLog
+                exit 1
+              }
+              echo "Retrying requirements.txt without docopt..."
+              python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 psd-tools==1.9.31 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
+              if ($LASTEXITCODE -ne 0) {
+                echo "❌ Failed to install requirements after docopt fallback"
+                Get-Content $requirementsInstallLog
+                exit 1
+              }
+            }
+            echo "Reinstalling PySide6-Essentials to ensure plugins..."
+            $pyside6EssentialsLog = Join-Path (Get-Location) "pyside6_essentials_install.log"
+            python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6EssentialsLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to reinstall PySide6-Essentials"
+              Get-Content $pyside6EssentialsLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error installing requirements: $_"
+            Get-Content $requirementsInstallLog
+            exit 1
+          }
+        shell: powershell
 
-          # Ensure build tools are available
-          python -m pip install --upgrade pip setuptools wheel build
-
-          # Install dependencies
-          pip install -r requirements.txt
+      - name: Verify PySide6 plugins
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Checking PySide6 plugins at $(Get-Date)"
+          $pluginsPathLog = Join-Path (Get-Location) "plugins_path.log"
+          try {
+            $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))" 2>&1
+            $pluginsPathRaw | Out-File -FilePath $pluginsPathLog -Encoding utf8
+            $pluginsPath = $pluginsPathRaw.Trim()
+            echo "PySide6 plugins path: '$pluginsPath'"
+            if (Test-Path $pluginsPath) {
+              echo "Found plugins directory: $pluginsPath"
+              dir $pluginsPath | Out-File -FilePath plugins_dir.log -Encoding utf8
+              $platformsPath = Join-Path $pluginsPath "platforms"
+              if (Test-Path $platformsPath) {
+                echo "Found platforms directory: $platformsPath"
+                dir $platformsPath | Out-File -FilePath platforms_dir.log -Encoding utf8
+                echo "Platforms directory contents:"
+                Get-Content platforms_dir.log
+              } else {
+                echo "❌ PySide6 platforms directory missing: $platformsPath"
+                dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents.log -Encoding utf8
+                echo "Listing plugins directory contents:"
+                Get-Content plugins_dir_contents.log
+                echo "Attempting to reinstall PySide6-Essentials..."
+                $pyside6EssentialsRetryLog = Join-Path (Get-Location) "pyside6_essentials_retry.log"
+                python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6EssentialsRetryLog
+                if ($LASTEXITCODE -ne 0) {
+                  echo "❌ Failed to reinstall PySide6-Essentials"
+                  Get-Content $pyside6EssentialsRetryLog
+                  exit 1
+                }
+                echo "Rechecking platforms directory after reinstall..."
+                if (Test-Path $platformsPath) {
+                  echo "Found platforms directory after reinstall: $platformsPath"
+                  dir $platformsPath | Out-File -FilePath platforms_dir_retry.log -Encoding utf8
+                  echo "Platforms directory contents after reinstall:"
+                  Get-Content platforms_dir_retry.log
+                } else {
+                  echo "❌ PySide6 platforms directory still missing after reinstall: $platformsPath"
+                  dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents_retry.log -Encoding utf8
+                  echo "Listing plugins directory contents after reinstall:"
+                  Get-Content plugins_dir_contents_retry.log
+                  exit 1
+                }
+              }
+            } else {
+              echo "❌ PySide6 plugins directory missing: $pluginsPath"
+              $pysideDir = & python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))"
+              dir $pysideDir -Recurse | Out-File -FilePath pyside6_dir_contents.log -Encoding utf8
+              echo "Listing PySide6 directory contents:"
+              Get-Content pyside6_dir_contents.log
+              exit 1
+            }
+          } catch {
+            echo "❌ Error checking PySide6 plugins: $_"
+            Get-Content $pluginsPathLog
+            exit 1
+          }
+        shell: powershell
 
 
       - name: Install PyInstaller
@@ -565,7 +664,7 @@ jobs:
           if (-not (Test-Path runtime-hook.py)) { echo "❌ runtime-hook.py missing"; exit 1 }
           if (-not (Test-Path cache/cache.json)) { echo "❌ cache.json missing"; exit 1 }
         shell: powershell
-        
+
       - name: Install PySide6 and dependencies (Windows)
         run: |
           $ErrorActionPreference = 'Stop'
