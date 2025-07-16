@@ -422,12 +422,26 @@ jobs:
             Get-Content dir_contents.log
             exit 1
           }
-          echo "Installing packages from requirements.txt..."
+          echo "Installing psd-tools with no dependencies..."
+          $psdToolsLog = Join-Path (Get-Location) "psd_tools_install.log"
+          try {
+            python -m pip install psd-tools==1.9.31 --no-deps --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $psdToolsLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install psd-tools"
+              Get-Content $psdToolsLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error installing psd-tools: $_"
+            Get-Content $psdToolsLog
+            exit 1
+          }
+          echo "Installing remaining requirements..."
           $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
           try {
-            python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
+            python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install requirements"
+              echo "❌ Failed to install remaining requirements"
               Get-Content $requirementsInstallLog
               exit 1
             }
@@ -440,7 +454,7 @@ jobs:
               exit 1
             }
           } catch {
-            echo "❌ Error installing requirements: $_"
+            echo "❌ Error installing remaining requirements: $_"
             Get-Content $requirementsInstallLog
             exit 1
           }
@@ -540,7 +554,6 @@ jobs:
           echo "Contents of installed_packages.txt:"
           Get-Content $installPackagesFile
         shell: powershell
-
 
       - name: Install PyInstaller
         run: |
