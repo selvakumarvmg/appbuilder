@@ -386,10 +386,10 @@ jobs:
           }
         shell: powershell
 
-      - name: Install requirements and PyInstaller
+      - name: Install requirements
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Installing packages at $(Get-Date)"
+          echo "Installing packages from requirements.txt at $(Get-Date)"
           echo "Inspecting requirements.txt..."
           $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
           if (Test-Path requirements.txt) {
@@ -407,16 +407,34 @@ jobs:
           try {
             python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install requirements"
-              Get-Content $requirementsInstallLog
-              exit 1
+              echo "❌ Failed to install requirements, attempting docopt fallback..."
+              echo "Installing docopt separately..."
+              $docoptLog = Join-Path (Get-Location) "docopt_install.log"
+              python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
+              if ($LASTEXITCODE -ne 0) {
+                echo "❌ Failed to install docopt-ng"
+                Get-Content $docoptLog
+                exit 1
+              }
+              echo "Retrying requirements.txt without docopt..."
+              python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 psd-tools==1.9.31 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
+              if ($LASTEXITCODE -ne 0) {
+                echo "❌ Failed to install requirements after docopt fallback"
+                Get-Content $requirementsInstallLog
+                exit 1
+              }
             }
           } catch {
             echo "❌ Error installing requirements: $_"
             Get-Content $requirementsInstallLog
             exit 1
           }
-          echo "Installing PyInstaller..."
+        shell: powershell
+
+      - name: Install PyInstaller
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Installing PyInstaller at $(Get-Date)"
           $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
           try {
             python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyInstallerLog
@@ -431,6 +449,40 @@ jobs:
             Get-Content $pyInstallerLog
             exit 1
           }
+        shell: powershell
+
+      - name: Create installed packages list
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Creating installed_packages.txt at $(Get-Date)"
+          $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
+          try {
+            python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ pip list command failed"
+              if (Test-Path $installPackagesFile) {
+                echo "Partial output in installed_packages.txt:"
+                Get-Content $installPackagesFile
+              }
+              exit 1
+            }
+          } catch {
+            echo "❌ Error running pip list: $_"
+            if (Test-Path $installPackagesFile) {
+              echo "Partial output in installed_packages.txt:"
+              Get-Content $installPackagesFile
+            }
+            exit 1
+          }
+          if (-not (Test-Path $installPackagesFile)) {
+            echo "❌ installed_packages.txt not created at $installPackagesFile"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            echo "Directory contents:"
+            Get-Content dir_contents.log
+            exit 1
+          }
+          echo "Contents of installed_packages.txt:"
+          Get-Content $installPackagesFile
         shell: powershell
 
       - name: Create installed packages list
