@@ -162,6 +162,8 @@ jobs:
         python -c "import PySide6; print(PySide6.__file__)" > pyside6_path.txt
         set /p PYSIDE6_PATH=<pyside6_path.txt
         set PYSIDE6_PLUGINS=%PYSIDE6_PATH%\..\PySide6\plugins
+        dir "%PYSIDE6_PLUGINS%\platforms" || (echo "❌ Platforms directory missing" && exit 1)
+        dir "%PYSIDE6_PLUGINS%\imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
         pyinstaller --noconfirm --windowed --onedir ^
           --name PremediaApp ^
           --icon=icons\premedia.ico ^
