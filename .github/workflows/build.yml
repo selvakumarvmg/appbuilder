@@ -281,7 +281,7 @@ jobs:
           pip install --upgrade wheel setuptools
           echo "Inspecting requirements.txt..."
           Get-Content requirements.txt
-          echo "Installing requirements individually..."
+
           $packages = @(
             "PySide6==6.9.1",
             "PySide6-Essentials==6.9.1",
@@ -297,34 +297,45 @@ jobs:
             "psd-tools==1.9.31",
             "tzdata==2024.1"
           )
+
+          $nonFatalPackages = @("docopt==0.6.2", "psd-tools==1.9.31")
+
           foreach ($pkg in $packages) {
+            $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
-            pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
-            if ($LASTEXITCODE -ne 0 -and $pkg -ne "psd-tools==1.9.31") {
-              echo "❌ Failed to install $pkg"
-              Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
-              exit 1
-            }
-            if ($LASTEXITCODE -ne 0 -and $pkg -eq "psd-tools==1.9.31") {
-              echo "⚠️ Failed to install psd-tools==1.9.31, continuing without it..."
-              Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
+            pip install $pkg --no-cache-dir --force-reinstall --verbose *> $logfile 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              if ($nonFatalPackages -contains $pkg) {
+                echo "⚠️ Failed to install $pkg, continuing..."
+                Get-Content $logfile
+              } else {
+                echo "❌ Failed to install $pkg"
+                Get-Content $logfile
+                exit 1
+              }
             }
           }
+
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log
+          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
           if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller installation failed"
             Get-Content pyinstaller_install.log
             exit 1
           }
+
           pip list > installed_packages.txt
+
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
+
           python -m pip show PySide6
           if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
+
           echo "Checking PySide6 plugins..."
           python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
           Get-Content plugins_path.txt
+
           if (Test-Path (Get-Content plugins_path.txt)) {
             dir (Get-Content plugins_path.txt) | Out-String
             dir "$(Get-Content plugins_path.txt)/platforms" | Out-String
@@ -335,8 +346,10 @@ jobs:
             echo "❌ PySide6 plugins directory missing"
             exit 1
           }
+
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
+
 
       # Upload install logs
       - name: Upload requirements install logs
