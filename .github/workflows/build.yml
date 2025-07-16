@@ -473,27 +473,17 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Installing PyInstaller at $(Get-Date)"
-          $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
-
+          Write-Host "Installing PyInstaller at $(Get-Date)"
+          
           try {
-            python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 `
-              | Tee-Object -FilePath $pyInstallerLog
-
-            if ($LASTEXITCODE -ne 0) {
-              echo "❌ PyInstaller installation failed with exit code $LASTEXITCODE"
-              Get-Content $pyInstallerLog
-              exit 1
-            }
-
-            echo "✅ Successfully installed PyInstaller"
-          } catch {
-            echo "❌ Error installing PyInstaller: $_"
-            if (Test-Path $pyInstallerLog) {
-              Get-Content $pyInstallerLog
-            }
+            python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall
+            Write-Host "✅ PyInstaller installed successfully."
+          }
+          catch {
+            Write-Error "❌ Failed to install PyInstaller: $_"
             exit 1
           }
+
 
 
 
