@@ -406,28 +406,33 @@ jobs:
           grep -v "psd-tools" requirements.txt > patched-reqs.txt
           python -m pip install --upgrade --prefer-binary -r patched-reqs.txt
 
-      - name: Verify PySide6 plugins directory structure
+      - name: Verify PySide6 plugin directory
         run: |
           $ErrorActionPreference = 'Stop'
-          $pluginsPath = python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
-          echo "Detected plugins path: $pluginsPath"
-          if (-not (Test-Path $pluginsPath)) {
-            echo "Plugins directory NOT found: $pluginsPath"
-            exit 1
-          }
-          $platformsPath = Join-Path $pluginsPath "platforms"
-          if (-not (Test-Path $platformsPath)) {
-            echo "Platforms directory not found in: $platformsPath"
-            echo "Trying to reinstall PySide6-Essentials..."
-            python -m pip install --force-reinstall PySide6-Essentials==6.9.1
-            if (-not (Test-Path $platformsPath)) {
-              echo "Still missing: $platformsPath"
+          echo "Trying to detect PySide6 plugins..."
+
+          $defaultPluginsPath = python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+          echo "Default plugins path: $defaultPluginsPath"
+
+          if (-not (Test-Path $defaultPluginsPath)) {
+            echo "Default plugins path not found. Attempting fallback..."
+
+            $fallbackPluginsPath = python -c "import PySide6.QtCore; print(PySide6.QtCore.QLibraryInfo.path(PySide6.QtCore.QLibraryInfo.PluginsPath))"
+            echo "Fallback plugins path from QLibraryInfo: $fallbackPluginsPath"
+
+            if (-not (Test-Path $fallbackPluginsPath)) {
+              echo "Fallback plugins path also not found!"
               exit 1
+            } else {
+              echo "✅ Found fallback plugins path: $fallbackPluginsPath"
+              dir $fallbackPluginsPath
             }
+          } else {
+            echo "✅ Found plugins directory: $defaultPluginsPath"
+            dir $defaultPluginsPath
           }
-          echo "✅ Verified PySide6 plugin structure."
-          dir $pluginsPath
         shell: powershell
+
 
 
       - name: Create installed packages list
