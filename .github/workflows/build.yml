@@ -1,258 +1,129 @@
-# name: build-macos
-
-# on:
-#   push:
-#     branches: [main]
-#   pull_request:
-#     branches: [main]
-
-# jobs:
-#   build:
-#     name: 🛠️ Build macOS x86_64 App
-#     runs-on: macos-13  # ✅ Intel-based macOS runner
-
-#     steps:
-#     - name: 🧾 Checkout code
-#       uses: actions/checkout@v4
-
-#     - name: 🐍 Set up Python 3.9 (x86_64)
-#       uses: actions/setup-python@v5
-#       with:
-#         python-version: "3.9"
-#         architecture: "x64"
-
-#     - name: 🔍 Show system & Python info
-#       run: |
-#         echo "Python version: $(python3 --version)"
-#         echo "Python path: $(which python3)"
-#         uname -a
-#         sysctl -n machdep.cpu.brand_string
-#         sw_vers
-
-#     - name: 📦 Install dependencies
-#       run: |
-#         python -m pip install --upgrade pip
-#         pip install -r requirements.txt
-#         pip install "pyinstaller>=6.14,<7" dmgbuild
-#         pip list
-
-#     - name: 🔍 Confirm libpython3.9.dylib exists
-#       run: |
-#         DYLIB_PATH="/Users/runner/hostedtoolcache/Python/3.9.23/x64/lib/libpython3.9.dylib"
-#         if [ ! -f "$DYLIB_PATH" ]; then
-#           echo "❌ $DYLIB_PATH not found"
-#           exit 1
-#         else
-#           echo "✅ Found: $DYLIB_PATH"
-#         fi
-
-#     - name: 🖼️ Verify DMG background image
-#       run: |
-#         file installer-assets/dmg-background.bmp || true
-
-#     - name: 📜 Print app.spec for review
-#       run: |
-#         echo "---- app.spec ----"
-#         cat app.spec
-#         echo "------------------"
-
-#     - name: 🚀 Build with PyInstaller
-#       run: |
-#         echo "🚀 Building app with PyInstaller..."
-#         pyinstaller app.spec
-#         echo "📁 dist/ directory contents:"
-#         ls -lh dist
-
-#     - name: 🔍 Check built binary architecture
-#       run: |
-#         file dist/PremediaApp.app/Contents/MacOS/PremediaApp || echo "Binary missing"
-
-#     - name: 🧹 Remove quarantine attribute and ad-hoc sign
-#       run: |
-#         xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-#         codesign --deep --force --verbose --sign - dist/PremediaApp.app
-
-#     - name: 📁 Copy .app into dmg-build directory
-#       run: |
-#         mkdir -p dmg-build
-#         cp -R dist/PremediaApp.app dmg-build/
-#         echo "✅ Copied app:"
-#         du -sh dmg-build/PremediaApp.app
-
-#     - name: 💿 Build DMG
-#       run: |
-#         dmgbuild -s installer/dmg-settings.py \
-#                  -D app_path="dmg-build/PremediaApp.app" \
-#                  "PremediaApp" PremediaApp.dmg
-
-#     - name: 🧪 Verify DMG mount (optional)
-#       run: |
-#         hdiutil attach PremediaApp.dmg
-#         sleep 3
-#         ls /Volumes/PremediaApp || echo "❌ Could not mount DMG"
-#         hdiutil detach /Volumes/PremediaApp || true
-
-#     - name: 📦 Show final sizes
-#       run: |
-#         du -sh dist/PremediaApp.app || true
-#         du -sh PremediaApp.dmg || true
-
-#     - name: ⬆️ Upload DMG
-#       uses: actions/upload-artifact@v4
-#       with:
-#         name: PremediaApp-macos-dmg
-#         path: PremediaApp.dmg
-
-#     - name: ⬆️ Upload .app & build logs
-#       uses: actions/upload-artifact@v4
-#       with:
-#         name: build-logs
-#         path: |
-#           dist/PremediaApp.app
-#           build/
-
-
-
-name: Build PremediaApp (macOS & Windows)
+name: Build PremediaApp Windows Installer
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
-  build:
-    name: 🛠️ Build macOS x86_64 App
-    runs-on: macos-13
-
-    steps:
-    - name: 🧾 Checkout code
-      uses: actions/checkout@v4
-
-    - name: 🐍 Setup Python 3.9 x64
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.9"
-        architecture: "x64"
-
-    - name: 🧪 Show System Info
-      run: |
-        python3 --version
-        which python3
-        uname -a
-        sw_vers
-
-    - name: 📦 Install Python deps
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install "pyinstaller>=6.14,<7" dmgbuild
-
-    - name: ✅ Check for Required Files
-      run: |
-        test -f app.py || (echo "❌ app.py missing" && exit 1)
-        test -f icons/premedia.icns || (echo "❌ Icon missing" && exit 1)
-
-    - name: 🖼️ Verify DMG background
-      run: file installer-assets/dmg-background.bmp || true
-
-    - name: 🚀 Build App with PyInstaller
-      run: |
-        pyinstaller --log-level=DEBUG app.spec
-        echo "📁 dist/ contents:"
-        ls -lh dist
-
-    - name: 🧹 Remove quarantine & ad-hoc sign
-      run: |
-        xattr -rd com.apple.quarantine dist/PremediaApp.app || true
-        codesign --deep --force --verbose --sign - dist/PremediaApp.app
-
-    - name: 🧪 Inspect built .app
-      run: |
-        du -sh dist/PremediaApp.app
-        find dist/PremediaApp.app
-
-    - name: 💿 Build DMG
-      run: |
-        mkdir -p dmg-build
-        cp -R dist/PremediaApp.app dmg-build/
-        dmgbuild -s installer/dmg-settings.py \
-                 -D app_path="dmg-build/PremediaApp.app" \
-                 "PremediaApp" PremediaApp.dmg
-
-    - name: 📏 Final Sizes
-      run: |
-        du -sh dist/PremediaApp.app
-        du -sh PremediaApp.dmg
-
-    - name: ⬆️ Upload DMG Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: PremediaApp-macos-dmg
-        path: PremediaApp.dmg
-
-    - name: ⬆️ Upload macOS Build Logs
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-app-logs
-        path: |
-          dist/PremediaApp.app
-          build/
-
-          
   build-windows:
-    name: 🪟 Build Windows EXE Installer
     runs-on: windows-latest
 
     steps:
-    - name: 🧾 Checkout code
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python 3.9
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.9"
+        python-version: '3.9.13'
 
-    - name: 🧪 Show system info
-      run: |
-        systeminfo
-        python --version
-        where python
-        echo %PROCESSOR_ARCHITECTURE%
-
-    - name: 📦 Install Python dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
+        pip list > installed_packages.txt
+      shell: cmd
 
-    - name: 🚀 Build with PyInstaller
+    - name: Show installed packages
+      run: type installed_packages.txt
+      shell: cmd
+      if: always()
+
+    - name: Verify required files exist
       run: |
-        pyinstaller app.spec
-        dir dist
+        dir app.py
+        dir icons\premedia.ico
+        dir icons\photoshop.png
+        dir icons\folder.png
+        dir terms.txt
+        dir license.txt
+        dir login.ui
+        dir premediaapp.ui
+        dir icons.qrc
+        dir icons_rc.py
+        dir installer\installer.iss
+        dir login.py
+      shell: cmd
+      continue-on-error: true
 
-    - name: 🛠️ Install Inno Setup
-      run: choco install innosetup
-
-    - name: 🛠️ Build Windows Installer
-      shell: pwsh
+    - name: Build GUI Executable (onedir for fast startup)
       run: |
-        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\installer.iss"
+        echo ===== Building with PyInstaller =====
+        pyinstaller --noconfirm --windowed --onedir ^
+          --name PremediaApp ^
+          --icon=icons\premedia.ico ^
+          --add-data "icons\premedia.ico;icons" ^
+          --add-data "icons\photoshop.png;icons" ^
+          --add-data "icons\folder.png;icons" ^
+          --add-data "terms.txt;." ^
+          --add-data "license.txt;." ^
+          --add-data "login.ui;." ^
+          --add-data "premediaapp.ui;." ^
+          --add-data "icons.qrc;." ^
+          --add-data "icons_rc.py;." ^
+          --add-data "login.py;." ^
+          --add-data "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins\platforms;PySide6\plugins\platforms" ^
+          --hidden-import=paramiko ^
+          --hidden-import=tzdata ^
+          --hidden-import=PySide6.QtWidgets ^
+          --hidden-import=PySide6.QtCore ^
+          --hidden-import=PySide6.QtGui ^
+          --hidden-import=PySide6.uic ^
+          --hidden-import=PIL.Image ^
+          --hidden-import=login ^
+          --hidden-import=icons_rc ^
+          --collect-submodules PySide6 ^
+          app.py > pyinstaller.log 2>&1
+      shell: cmd
+      continue-on-error: true
 
+    - name: Show PyInstaller log
+      run: type pyinstaller.log || echo "Log missing"
+      shell: cmd
+      if: always()
 
-    - name: ⬆️ Upload EXE
+    - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
       with:
-        name: PremediaApp-windows-installer
-        path: Output/PremediaApp-Setup.exe
+        name: pyinstaller-log
+        path: pyinstaller.log
+      if: always()
 
-    - name: ⬆️ Upload Windows logs
+    - name: Check if EXE exists
+      run: |
+        echo Checking dist\PremediaApp\PremediaApp.exe
+        dir dist\PremediaApp
+        if not exist dist\PremediaApp\PremediaApp.exe (
+          echo ERROR: Executable not found!
+          exit 1
+        )
+      shell: cmd
+
+    - name: Install Inno Setup
+      run: choco install innosetup --no-progress --yes --force
+      shell: cmd
+      continue-on-error: true
+
+    - name: Verify Inno Setup installed
+      run: where iscc || echo "ISCC not found!"
+      shell: cmd
+
+    - name: Build Installer with Inno Setup
+      run: |
+        echo Running Inno Setup compiler...
+        iscc installer\installer.iss
+        if not exist Output\PremediaApp-Setup.exe (
+          echo ERROR: Installer not created!
+          exit 1
+        )
+      shell: cmd
+
+    - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: windows-build-logs
-        path: |
-          dist/
-          build/
-          app.spec
+        name: PremediaApp-Windows-Installer
+        path: Output\PremediaApp-Setup.exe
+        retention-days: 7
