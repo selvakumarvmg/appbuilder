@@ -243,6 +243,12 @@ jobs:
           python-version: '3.9.13'
           architecture: 'x64'
 
+      # Install Visual Studio Build Tools for C++ (required for numpy, cffi)
+      - name: Install Visual Studio Build Tools
+        run: |
+          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+        shell: powershell
+
       # Clear pip cache
       - name: Clear pip cache
         run: pip cache purge
@@ -256,9 +262,18 @@ jobs:
           echo "Inspecting requirements.txt..."
           Get-Content requirements.txt
           echo "Installing requirements..."
-          pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose *> requirements_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install requirements"; Get-Content requirements_install.log; exit 1 }
-          echo "Installing PySide6 and dependencies..."
-          pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose *> pyside6_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install PySide6"; Get-Content pyside6_install.log; exit 1 }
+          pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose *> requirements_install.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ Failed to install requirements"
+            Get-Content requirements_install.log
+            echo "Attempting to install requirements individually..."
+            pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 psd-tools==1.9.31 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose *> requirements_fallback.log
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install requirements individually"
+              Get-Content requirements_fallback.log
+              exit 1
+            }
+          }
           echo "Installing PyInstaller..."
           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
           pip list > installed_packages.txt
@@ -283,6 +298,13 @@ jobs:
         with:
           name: requirements-install-log-windows
           path: requirements_install.log
+        if: always()
+
+      - name: Upload requirements fallback log
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-fallback-log-windows
+          path: requirements_fallback.log
         if: always()
 
       - name: Upload PySide6 install log
