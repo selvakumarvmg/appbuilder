@@ -24,6 +24,14 @@ jobs:
           python-version: '3.9.13'
           architecture: 'x64'
 
+      # Cache pip packages
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
       # Clear pip cache
       - name: Clear pip cache
         run: pip cache purge
@@ -32,9 +40,9 @@ jobs:
       # Install dependencies
       - name: Install dependencies
         run: |
+          echo "Starting dependency installation at $(date)"
           python -m pip install --upgrade pip
           pip install --upgrade wheel setuptools
-          pip cache purge
           echo "Inspecting requirements.txt..."
           cat requirements.txt
           echo "Installing requirements..."
@@ -56,6 +64,7 @@ jobs:
           find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
           find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
           cat plugin_check.txt
+          echo "Dependency installation completed at $(date)"
         shell: bash
 
       # Upload install logs
@@ -124,7 +133,7 @@ jobs:
       # Build app with PyInstaller
       - name: Build App with PyInstaller
         run: |
-          echo "===== Building with PyInstaller ====="
+          echo "Starting PyInstaller build at $(date)"
           echo "Checking syntax of app.py..."
           python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
           echo "Finding PySide6 plugins..."
@@ -163,13 +172,11 @@ jobs:
             --hidden-import=PIL.Image \
             --hidden-import=login \
             --hidden-import=icons_rc \
-            --hidden-import=psd_tools \
-            --collect-submodules PySide6 \
-            --collect-submodules psd_tools \
             --runtime-hook=runtime-hook.py \
             app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
           echo "📁 dist/ contents:"
           ls -lh dist
+          echo "PyInstaller build completed at $(date)"
         shell: bash
 
       # Upload PyInstaller log
@@ -243,26 +250,13 @@ jobs:
           python-version: '3.9.13'
           architecture: 'x64'
 
-      # Install Visual Studio Build Tools for C++ (required for numpy, cffi)
-      - name: Install Visual Studio Build Tools
-        run: |
-          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional" --no-progress --yes --force
-          echo "Verifying MSVC installation..."
-          dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
-        shell: powershell
-
-      # Install vcpkg and libxml2, libxslt for psd-tools
-      - name: Install vcpkg and dependencies
-        run: |
-          echo "Installing vcpkg..."
-          git clone https://github.com/microsoft/vcpkg.git
-          cd vcpkg
-          .\bootstrap-vcpkg.bat
-          .\vcpkg.exe install libxml2:x64-windows libxslt:x64-windows
-          echo "VCPKG_ROOT=$env:CD" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "Adding vcpkg to PATH..."
-          echo "$env:CD\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        shell: powershell
+      # Cache pip packages
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/pip/Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
       # Clear pip cache
       - name: Clear pip cache
@@ -272,6 +266,7 @@ jobs:
       # Install dependencies
       - name: Install dependencies
         run: |
+          echo "Starting dependency installation at $(Get-Date)"
           python -m pip install --upgrade pip
           pip install --upgrade wheel setuptools
           echo "Inspecting requirements.txt..."
@@ -293,7 +288,7 @@ jobs:
           )
           foreach ($pkg in $packages) {
             echo "Installing $pkg..."
-            pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
+            pip install $pkg --no-cache-dir --force-reinstall --only-binary :all: --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
             if ($LASTEXITCODE -ne 0 -and $pkg -ne "psd-tools==1.9.31") {
               echo "❌ Failed to install $pkg"
               Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
@@ -329,6 +324,7 @@ jobs:
             echo "❌ PySide6 plugins directory missing"
             exit 1
           }
+          echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
 
       # Upload install logs
@@ -377,7 +373,7 @@ jobs:
       # Build GUI executable
       - name: Build GUI Executable
         run: |
-          echo "===== Building with PyInstaller ====="
+          echo "Starting PyInstaller build at $(Get-Date)"
           echo "Checking syntax of app.py..."
           python -m py_compile app.py
           if ($LASTEXITCODE -ne 0) { echo "❌ Syntax error in app.py"; exit 1 }
@@ -415,12 +411,12 @@ jobs:
             --hidden-import=PIL.Image `
             --hidden-import=login `
             --hidden-import=icons_rc `
-            --collect-submodules PySide6 `
             --runtime-hook=runtime-hook.py `
             app.py *> pyinstaller.log
           if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
           echo "dist/ contents:"
           dir dist/PremediaApp
+          echo "PyInstaller build completed at $(Get-Date)"
         shell: powershell
 
       # Upload PyInstaller log
@@ -457,12 +453,14 @@ jobs:
       # Build Installer with Inno Setup
       - name: Build Installer with Inno Setup
         run: |
+          echo "Starting Inno Setup build at $(Get-Date)"
           echo "Running Inno Setup compiler..."
           iscc installer/installer.iss
           if (-not (Test-Path Output/PremediaApp-Setup.exe)) {
             echo "ERROR: Installer not created!"
             exit 1
           }
+          echo "Inno Setup build completed at $(Get-Date)"
         shell: powershell
 
       # Upload Installer artifact
