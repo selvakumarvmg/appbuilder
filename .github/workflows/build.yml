@@ -282,28 +282,28 @@ jobs:
           try {
             python --version 2>&1 | Out-File -FilePath python_version.log -Encoding utf8
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Python not found"
+              echo "Python not found"
               Get-Content python_version.log
               exit 1
             }
             echo "Python version:"
             Get-Content python_version.log
           } catch {
-            echo "❌ Error running python --version: $_"
+            echo "Error running python --version: $_"
             Get-Content python_version.log
             exit 1
           }
           try {
             python -m pip --version 2>&1 | Out-File -FilePath pip_version.log -Encoding utf8
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ pip not found"
+              echo "pip not found"
               Get-Content pip_version.log
               exit 1
             }
             echo "pip version:"
             Get-Content pip_version.log
           } catch {
-            echo "❌ Error running python -m pip --version: $_"
+            echo "Error running python -m pip --version: $_"
             Get-Content pip_version.log
             exit 1
           }
@@ -323,12 +323,12 @@ jobs:
           try {
             python -m pip install --upgrade pip --verbose 2>&1 | Tee-Object -FilePath $pipUpgradeLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to upgrade pip"
+              echo "Failed to upgrade pip"
               Get-Content $pipUpgradeLog
               exit 1
             }
           } catch {
-            echo "❌ Error during pip upgrade: $_"
+            echo "Error during pip upgrade: $_"
             Get-Content $pipUpgradeLog
             exit 1
           }
@@ -345,13 +345,13 @@ jobs:
               echo "Write permission confirmed"
               Remove-Item $testFile -Force
             } else {
-              echo "❌ Failed to create test file"
+              echo "Failed to create test file"
               dir | Out-File -FilePath dir_contents.log -Encoding utf8
               Get-Content dir_contents.log
               exit 1
             }
           } catch {
-            echo "❌ Error writing test file: $_"
+            echo "Error writing test file: $_"
             dir | Out-File -FilePath dir_contents.log -Encoding utf8
             Get-Content dir_contents.log
             exit 1
@@ -361,12 +361,12 @@ jobs:
           try {
             choco install vcredist2015 --no-progress --yes --force 2>&1 | Tee-Object -FilePath $vcredistLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install Visual C++ Redistributable"
+              echo "Failed to install Visual C++ Redistributable"
               Get-Content $vcredistLog
               exit 1
             }
           } catch {
-            echo "❌ Error installing Visual C++ Redistributable: $_"
+            echo "Error installing Visual C++ Redistributable: $_"
             Get-Content $vcredistLog
             exit 1
           }
@@ -375,12 +375,12 @@ jobs:
           try {
             python -m pip install --upgrade wheel setuptools --verbose 2>&1 | Tee-Object -FilePath $wheelSetuptoolsLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install wheel/setuptools"
+              echo "Failed to install wheel/setuptools"
               Get-Content $wheelSetuptoolsLog
               exit 1
             }
           } catch {
-            echo "❌ Error installing wheel/setuptools: $_"
+            echo "Error installing wheel/setuptools: $_"
             Get-Content $wheelSetuptoolsLog
             exit 1
           }
@@ -394,13 +394,13 @@ jobs:
           try {
             python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install docopt-ng"
+              echo "Failed to install docopt-ng"
               Get-Content $docoptLog
               exit 1
             }
             echo "Successfully installed docopt-ng"
           } catch {
-            echo "❌ Error installing docopt-ng: $_"
+            echo "Error installing docopt-ng: $_"
             Get-Content $docoptLog
             exit 1
           }
@@ -410,7 +410,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "📦 Installing packages from requirements.txt at $(Get-Date)"
+          echo "Installing packages from requirements.txt at $(Get-Date)"
           
           $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
           $installLog = Join-Path (Get-Location) "requirements_install.log"
@@ -420,7 +420,7 @@ jobs:
             echo "requirements.txt contents:"
             Get-Content $requirementsLog
           } else {
-            echo "❌ requirements.txt not found"
+            echo "requirements.txt not found"
             dir | Out-File -FilePath dir_contents.log -Encoding utf8
             Get-Content dir_contents.log
             exit 1
@@ -434,7 +434,7 @@ jobs:
             echo "Installing $pkg $options..." | Out-File -FilePath $installLog -Append -Encoding utf8
             python -m pip install $pkg $options --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install $pkg $options" | Out-File -FilePath $installLog -Append -Encoding utf8
+              echo "Failed to install $pkg $options" | Out-File -FilePath $installLog -Append -Encoding utf8
               Get-Content $installLog
               exit 1
             }
@@ -461,7 +461,7 @@ jobs:
           Install-Package "PySide6==6.9.1"
           Install-Package "PySide6-Essentials==6.9.1"
 
-          echo "✅ All packages installed successfully!"
+          echo "All packages installed successfully!"
           Get-Content $installLog
 
 
@@ -487,7 +487,7 @@ jobs:
                 echo "Platforms directory contents:"
                 Get-Content platforms_dir.log
               } else {
-                echo "❌ PySide6 platforms directory missing: $platformsPath"
+                echo "PySide6 platforms directory missing: $platformsPath"
                 dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents.log -Encoding utf8
                 echo "Listing plugins directory contents:"
                 Get-Content plugins_dir_contents.log
@@ -495,7 +495,7 @@ jobs:
                 $pyside6EssentialsRetryLog = Join-Path (Get-Location) "pyside6_essentials_retry.log"
                 python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6EssentialsRetryLog
                 if ($LASTEXITCODE -ne 0) {
-                  echo "❌ Failed to reinstall PySide6-Essentials"
+                  echo "Failed to reinstall PySide6-Essentials"
                   Get-Content $pyside6EssentialsRetryLog
                   exit 1
                 }
@@ -506,7 +506,7 @@ jobs:
                   echo "Platforms directory contents after reinstall:"
                   Get-Content platforms_dir_retry.log
                 } else {
-                  echo "❌ PySide6 platforms directory still missing after reinstall: $platformsPath"
+                  echo "PySide6 platforms directory still missing after reinstall: $platformsPath"
                   dir $pluginsPath -Recurse | Out-File -FilePath plugins_dir_contents_retry.log -Encoding utf8
                   echo "Listing plugins directory contents after reinstall:"
                   Get-Content plugins_dir_contents_retry.log
@@ -514,7 +514,7 @@ jobs:
                 }
               }
             } else {
-              echo "❌ PySide6 plugins directory missing: $pluginsPath"
+              echo "PySide6 plugins directory missing: $pluginsPath"
               $pysideDir = & python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))"
               dir $pysideDir -Recurse | Out-File -FilePath pyside6_dir_contents.log -Encoding utf8
               echo "Listing PySide6 directory contents:"
@@ -522,7 +522,7 @@ jobs:
               exit 1
             }
           } catch {
-            echo "❌ Error checking PySide6 plugins: $_"
+            echo "Error checking PySide6 plugins: $_"
             Get-Content $pluginsPathLog
             exit 1
           }
@@ -536,7 +536,7 @@ jobs:
           try {
             python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ pip list command failed"
+              echo "pip list command failed"
               if (Test-Path $installPackagesFile) {
                 echo "Partial output in installed_packages.txt:"
                 Get-Content $installPackagesFile
@@ -544,7 +544,7 @@ jobs:
               exit 1
             }
           } catch {
-            echo "❌ Error running pip list: $_"
+            echo "Error running pip list: $_"
             if (Test-Path $installPackagesFile) {
               echo "Partial output in installed_packages.txt:"
               Get-Content $installPackagesFile
@@ -552,7 +552,7 @@ jobs:
             exit 1
           }
           if (-not (Test-Path $installPackagesFile)) {
-            echo "❌ installed_packages.txt not created at $installPackagesFile"
+            echo "installed_packages.txt not created at $installPackagesFile"
             dir | Out-File -FilePath dir_contents.log -Encoding utf8
             echo "Directory contents:"
             Get-Content dir_contents.log
@@ -570,13 +570,13 @@ jobs:
           try {
             python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyInstallerLog
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ PyInstaller installation failed"
+              echo "PyInstaller installation failed"
               Get-Content $pyInstallerLog
               exit 1
             }
             echo "Successfully installed PyInstaller"
           } catch {
-            echo "❌ Error installing PyInstaller: $_"
+            echo "Error installing PyInstaller: $_"
             Get-Content $pyInstallerLog
             exit 1
           }
@@ -590,7 +590,7 @@ jobs:
           try {
             python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ pip list command failed"
+              echo "pip list command failed"
               if (Test-Path $installPackagesFile) {
                 echo "Partial output in installed_packages.txt:"
                 Get-Content $installPackagesFile
@@ -598,7 +598,7 @@ jobs:
               exit 1
             }
           } catch {
-            echo "❌ Error running pip list: $_"
+            echo "Error running pip list: $_"
             if (Test-Path $installPackagesFile) {
               echo "Partial output in installed_packages.txt:"
               Get-Content $installPackagesFile
@@ -606,7 +606,7 @@ jobs:
             exit 1
           }
           if (-not (Test-Path $installPackagesFile)) {
-            echo "❌ installed_packages.txt not created at $installPackagesFile"
+            echo "installed_packages.txt not created at $installPackagesFile"
             dir | Out-File -FilePath dir_contents.log -Encoding utf8
             echo "Directory contents:"
             Get-Content dir_contents.log
@@ -624,7 +624,7 @@ jobs:
           try {
             python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ pip list command failed"
+              echo "pip list command failed"
               if (Test-Path $installPackagesFile) {
                 echo "Partial output in installed_packages.txt:"
                 Get-Content $installPackagesFile
@@ -632,7 +632,7 @@ jobs:
               exit 1
             }
           } catch {
-            echo "❌ Error running pip list: $_"
+            echo "Error running pip list: $_"
             if (Test-Path $installPackagesFile) {
               echo "Partial output in installed_packages.txt:"
               Get-Content $installPackagesFile
@@ -640,7 +640,7 @@ jobs:
             exit 1
           }
           if (-not (Test-Path $installPackagesFile)) {
-            echo "❌ installed_packages.txt not created at $installPackagesFile"
+            echo "installed_packages.txt not created at $installPackagesFile"
             dir | Out-File -FilePath dir_contents.log -Encoding utf8
             echo "Directory contents:"
             Get-Content dir_contents.log
@@ -669,7 +669,7 @@ jobs:
         run: |
           echo "Current directory: $(Get-Location)"
           if (-not (Test-Path installed_packages.txt)) {
-            echo "❌ installed_packages.txt not found"
+            echo "installed_packages.txt not found"
             dir
             exit 1
           }
@@ -708,22 +708,22 @@ jobs:
       # Verify required files
       - name: Verify required files exist
         run: |
-          if (-not (Test-Path app.py)) { echo "❌ app.py missing"; exit 1 }
-          if (-not (Test-Path login.py)) { echo "❌ login.py missing"; exit 1 }
-          if (-not (Test-Path icons/premedia.ico)) { echo "❌ premedia.ico missing"; exit 1 }
-          if (-not (Test-Path icons/photoshop.png)) { echo "❌ photoshop.png missing"; exit 1 }
-          if (-not (Test-Path icons/folder.png)) { echo "❌ folder.png missing"; exit 1 }
-          if (-not (Test-Path icons/premedia.png)) { echo "❌ premedia.png missing"; exit 1 }
-          if (-not (Test-Path icons/vmg-premedia-logo.png)) { echo "❌ vmg-premedia-logo.png missing"; exit 1 }
-          if (-not (Test-Path terms.txt)) { echo "❌ terms.txt missing"; exit 1 }
-          if (-not (Test-Path license.txt)) { echo "❌ license.txt missing"; exit 1 }
-          if (-not (Test-Path login.ui)) { echo "❌ login.ui missing"; exit 1 }
-          if (-not (Test-Path premediaapp.ui)) { echo "❌ premediaapp.ui missing"; exit 1 }
-          if (-not (Test-Path icons.qrc)) { echo "❌ icons.qrc missing"; exit 1 }
-          if (-not (Test-Path icons_rc.py)) { echo "❌ icons_rc.py missing"; exit 1 }
-          if (-not (Test-Path installer/installer.iss)) { echo "❌ installer.iss missing"; exit 1 }
-          if (-not (Test-Path runtime-hook.py)) { echo "❌ runtime-hook.py missing"; exit 1 }
-          if (-not (Test-Path cache/cache.json)) { echo "❌ cache.json missing"; exit 1 }
+          if (-not (Test-Path app.py)) { echo "app.py missing"; exit 1 }
+          if (-not (Test-Path login.py)) { echo "login.py missing"; exit 1 }
+          if (-not (Test-Path icons/premedia.ico)) { echo "premedia.ico missing"; exit 1 }
+          if (-not (Test-Path icons/photoshop.png)) { echo "photoshop.png missing"; exit 1 }
+          if (-not (Test-Path icons/folder.png)) { echo "folder.png missing"; exit 1 }
+          if (-not (Test-Path icons/premedia.png)) { echo "premedia.png missing"; exit 1 }
+          if (-not (Test-Path icons/vmg-premedia-logo.png)) { echo "vmg-premedia-logo.png missing"; exit 1 }
+          if (-not (Test-Path terms.txt)) { echo "terms.txt missing"; exit 1 }
+          if (-not (Test-Path license.txt)) { echo "license.txt missing"; exit 1 }
+          if (-not (Test-Path login.ui)) { echo "login.ui missing"; exit 1 }
+          if (-not (Test-Path premediaapp.ui)) { echo "premediaapp.ui missing"; exit 1 }
+          if (-not (Test-Path icons.qrc)) { echo "icons.qrc missing"; exit 1 }
+          if (-not (Test-Path icons_rc.py)) { echo "icons_rc.py missing"; exit 1 }
+          if (-not (Test-Path installer/installer.iss)) { echo "installer.iss missing"; exit 1 }
+          if (-not (Test-Path runtime-hook.py)) { echo "runtime-hook.py missing"; exit 1 }
+          if (-not (Test-Path cache/cache.json)) { echo "cache.json missing"; exit 1 }
         shell: powershell
 
       - name: Install PySide6 and dependencies (Windows)
@@ -734,11 +734,11 @@ jobs:
           python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 `
             --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6Log
           if ($LASTEXITCODE -ne 0) {
-            echo "❌ Failed to install PySide6"
+            echo "Failed to install PySide6"
             Get-Content $pyside6Log
             exit 1
           }
-          echo "✅ PySide6 installed"
+          echo "PySide6 installed"
         shell: powershell
 
       # Build GUI executable
@@ -747,11 +747,11 @@ jobs:
           echo "Starting PyInstaller build at $(Get-Date)"
           echo "Checking syntax of app.py..."
           python -m py_compile app.py
-          if ($LASTEXITCODE -ne 0) { echo "❌ Syntax error in app.py"; exit 1 }
+          if ($LASTEXITCODE -ne 0) { echo "Syntax error in app.py"; exit 1 }
           $env:PYSIDE6_PLUGINS = "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\Qt\plugins"
           echo "PYSIDE6_PLUGINS=$env:PYSIDE6_PLUGINS"
-          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\platforms")) { echo "❌ Platforms directory missing"; exit 1 }
-          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\imageformats")) { echo "❌ Imageformats directory missing"; exit 1 }
+          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\platforms")) { echo "Platforms directory missing"; exit 1 }
+          if (-not (Test-Path "$env:PYSIDE6_PLUGINS\imageformats")) { echo "Imageformats directory missing"; exit 1 }
           echo "Running PyInstaller..."
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir `
             --name PremediaApp `
