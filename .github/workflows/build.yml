@@ -274,7 +274,7 @@ jobs:
         shell: powershell
 
       # Install dependencies
-            - name: Install dependencies
+      - name: Install dependencies
         run: |
           echo "Starting dependency installation at $(Get-Date)"
           python -m pip install --upgrade pip
