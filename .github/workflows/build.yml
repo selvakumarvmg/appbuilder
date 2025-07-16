@@ -336,18 +336,21 @@ jobs:
               if ($nonFatalPackages -contains $pkg) {
                 echo "⚠️ Failed to install $pkg, continuing..."
                 Get-Content $logfile
+                continue
               } else {
                 echo "❌ Failed to install $pkg"
                 Get-Content $logfile
                 exit 1
               }
             }
+            echo "Successfully installed $pkg"
           }
 
           # Install PyInstaller
           echo "Installing PyInstaller..."
           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
+          echo "Successfully installed PyInstaller"
 
           # Create installed_packages.txt
           echo "Creating installed_packages.txt..."
