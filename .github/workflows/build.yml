@@ -469,29 +469,50 @@ jobs:
           Get-Content $installPackagesFile
         shell: powershell
 
-      - name: Install PyInstaller
+      - name: Install PyInstaller with Debug
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Installing PyInstaller at $(Get-Date)"
+          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          echo "==============================="
+          echo "🔧 [$timestamp] Starting PyInstaller installation"
+          echo "==============================="
+          
           $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
-
-          python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 `
-            | Tee-Object -FilePath $pyInstallerLog
-
-          if (Test-Path "pyinstaller_install.log") {
-            $logContent = Get-Content pyinstaller_install.log
-            if ($logContent -match "Successfully installed pyinstaller") {
-              echo "✅ PyInstaller installed successfully"
-            } else {
-              echo "❌ PyInstaller installation may have failed"
-              Get-Content pyinstaller_install.log
-              exit 1
+          
+          try {
+            echo "📦 Installing PyInstaller==6.14.0..."
+            python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 `
+              | Tee-Object -FilePath $pyInstallerLog
+            $exitCode = $LASTEXITCODE
+            echo "📄 Install finished with exit code: $exitCode"
+          } catch {
+            echo "❌ Exception occurred during installation: $_"
+            if (Test-Path $pyInstallerLog) {
+              echo "📄 Dumping log:"
+              Get-Content $pyInstallerLog
             }
-          } else {
-            echo "❌ Log not found"
             exit 1
           }
+
+          if (-Not (Test-Path $pyInstallerLog)) {
+            echo "❌ Log file not found: $pyInstallerLog"
+            exit 1
+          }
+
+          $logContent = Get-Content $pyInstallerLog -Raw
+          if ($logContent -match "Successfully installed pyinstaller") {
+            echo "✅ PyInstaller installed successfully"
+          } else {
+            echo "⚠️ Install did not report 'Successfully installed pyinstaller'"
+            echo "📄 --- pyinstaller_install.log ---"
+            Get-Content $pyInstallerLog
+            echo "📄 --- end of log ---"
+            exit 1
+          }
+
+          echo "✅ Installation complete"
         shell: powershell
+
 
 
       - name: Create installed packages list
