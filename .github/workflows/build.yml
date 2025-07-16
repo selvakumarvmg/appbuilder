@@ -274,7 +274,7 @@ jobs:
         shell: powershell
 
       # Install dependencies
-      - name: Install dependencies
+            - name: Install dependencies
         run: |
           echo "Starting dependency installation at $(Get-Date)"
           python -m pip install --upgrade pip
@@ -334,8 +334,8 @@ jobs:
 
           echo "Checking PySide6 plugins..."
 
-          $pluginsPath = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
-          $pluginsPath = $pluginsPath.Trim()
+          $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+          $pluginsPath = $pluginsPathRaw.Trim()
 
           echo "🔍 Raw plugins path: '$pluginsPath'"
 
