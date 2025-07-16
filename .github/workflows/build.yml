@@ -110,7 +110,7 @@ jobs:
           test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
           test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
           test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
-          test -f license.txt || (echo "❌ license.txt missing" && exit 1)
+          test -f license.txt || (echo "❌ terms.txt missing" && exit 1)
           test -f login.ui || (echo "❌ login.ui missing" && exit 1)
           test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
           test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
@@ -246,7 +246,9 @@ jobs:
       # Install Visual Studio Build Tools for C++ (required for numpy, cffi)
       - name: Install Visual Studio Build Tools
         run: |
-          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional" --no-progress --yes --force
+          echo "Verifying MSVC installation..."
+          dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
         shell: powershell
 
       # Clear pip cache
@@ -261,31 +263,51 @@ jobs:
           pip install --upgrade wheel setuptools
           echo "Inspecting requirements.txt..."
           Get-Content requirements.txt
-          echo "Installing requirements..."
-          pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose *> requirements_install.log
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ Failed to install requirements"
-            Get-Content requirements_install.log
-            echo "Attempting to install requirements individually..."
-            pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 psd-tools==1.9.31 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose *> requirements_fallback.log
+          echo "Installing requirements individually..."
+          $packages = @(
+            "PySide6==6.9.1",
+            "PySide6-Essentials==6.9.1",
+            "PySide6-Addons==6.9.1",
+            "shiboken6==6.9.1",
+            "requests==2.32.3",
+            "urllib3==2.2.3",
+            "Pillow==10.3.0",
+            "paramiko==3.5.0",
+            "cffi==1.17.1",
+            "numpy==1.26.4",
+            "psd-tools==1.9.31",
+            "tzdata==2024.1"
+          )
+          foreach ($pkg in $packages) {
+            echo "Installing $pkg..."
+            pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install requirements individually"
-              Get-Content requirements_fallback.log
+              echo "❌ Failed to install $pkg"
+              Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
               exit 1
             }
           }
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
+          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ PyInstaller installation failed"
+            Get-Content pyinstaller_install.log
+            exit 1
+          }
           pip list > installed_packages.txt
-          python -m pip show pyinstaller; if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
-          python -m pip show PySide6; if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
+          python -m pip show pyinstaller
+          if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
+          python -m pip show PySide6
+          if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
           echo "Checking PySide6 plugins..."
           python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
           Get-Content plugins_path.txt
           if (Test-Path (Get-Content plugins_path.txt)) {
             dir (Get-Content plugins_path.txt) | Out-String
-            dir "$(Get-Content plugins_path.txt)/platforms" | Out-String; if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 platforms directory missing"; exit 1 }
-            dir "$(Get-Content plugins_path.txt)/imageformats" | Out-String; if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 imageformats directory missing"; exit 1 }
+            dir "$(Get-Content plugins_path.txt)/platforms" | Out-String
+            if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 platforms directory missing"; exit 1 }
+            dir "$(Get-Content plugins_path.txt)/imageformats" | Out-String
+            if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 imageformats directory missing"; exit 1 }
           } else {
             echo "❌ PySide6 plugins directory missing"
             exit 1
@@ -293,25 +315,12 @@ jobs:
         shell: powershell
 
       # Upload install logs
-      - name: Upload requirements install log
+      - name: Upload requirements install logs
         uses: actions/upload-artifact@v4
         with:
-          name: requirements-install-log-windows
-          path: requirements_install.log
-        if: always()
-
-      - name: Upload requirements fallback log
-        uses: actions/upload-artifact@v4
-        with:
-          name: requirements-fallback-log-windows
-          path: requirements_fallback.log
-        if: always()
-
-      - name: Upload PySide6 install log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyside6-install-log-windows
-          path: pyside6_install.log
+          name: requirements-install-logs-windows
+          path: |
+            *.log
         if: always()
 
       - name: Upload PyInstaller install log
@@ -353,7 +362,8 @@ jobs:
         run: |
           echo "===== Building with PyInstaller ====="
           echo "Checking syntax of app.py..."
-          python -m py_compile app.py; if ($LASTEXITCODE -ne 0) { echo "❌ Syntax error in app.py"; exit 1 }
+          python -m py_compile app.py
+          if ($LASTEXITCODE -ne 0) { echo "❌ Syntax error in app.py"; exit 1 }
           $env:PYSIDE6_PLUGINS = "C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\Qt\plugins"
           echo "PYSIDE6_PLUGINS=$env:PYSIDE6_PLUGINS"
           if (-not (Test-Path "$env:PYSIDE6_PLUGINS\platforms")) { echo "❌ Platforms directory missing"; exit 1 }
@@ -392,7 +402,8 @@ jobs:
             --collect-submodules PySide6 `
             --collect-submodules psd_tools `
             --runtime-hook=runtime-hook.py `
-            app.py *> pyinstaller.log; if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
+            app.py *> pyinstaller.log
+          if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
           echo "dist/ contents:"
           dir dist/PremediaApp
         shell: powershell
@@ -424,7 +435,8 @@ jobs:
       # Verify Inno Setup installed
       - name: Verify Inno Setup installed
         run: |
-          where iscc; if ($LASTEXITCODE -ne 0) { echo "ISCC not found!"; exit 1 }
+          where iscc
+          if ($LASTEXITCODE -ne 0) { echo "ISCC not found!"; exit 1 }
         shell: powershell
 
       # Build Installer with Inno Setup
