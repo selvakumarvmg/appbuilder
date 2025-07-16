@@ -565,6 +565,21 @@ jobs:
           if (-not (Test-Path runtime-hook.py)) { echo "❌ runtime-hook.py missing"; exit 1 }
           if (-not (Test-Path cache/cache.json)) { echo "❌ cache.json missing"; exit 1 }
         shell: powershell
+        
+      - name: Install PySide6 and dependencies (Windows)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Installing PySide6 dependencies at $(Get-Date)"
+          $pyside6Log = Join-Path (Get-Location) "pyside6_install.log"
+          python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 `
+            --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6Log
+          if ($LASTEXITCODE -ne 0) {
+            echo "❌ Failed to install PySide6"
+            Get-Content $pyside6Log
+            exit 1
+          }
+          echo "✅ PySide6 installed"
+        shell: powershell
 
       # Build GUI executable
       - name: Build GUI Executable
