@@ -386,25 +386,25 @@ jobs:
           }
         shell: powershell
 
-      - name: Install docopt-ng
-        run: |
-          $ErrorActionPreference = 'Stop'
-          echo "Installing docopt-ng at $(Get-Date)"
-          $docoptLog = Join-Path (Get-Location) "docopt_install.log"
-          try {
-            python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
-            if ($LASTEXITCODE -ne 0) {
-              echo "Failed to install docopt-ng"
-              Get-Content $docoptLog
-              exit 1
-            }
-            echo "Successfully installed docopt-ng"
-          } catch {
-            echo "Error installing docopt-ng: $_"
-            Get-Content $docoptLog
-            exit 1
-          }
-        shell: powershell
+      # - name: Install docopt-ng
+      #   run: |
+      #     $ErrorActionPreference = 'Stop'
+      #     echo "Installing docopt-ng at $(Get-Date)"
+      #     $docoptLog = Join-Path (Get-Location) "docopt_install.log"
+      #     try {
+      #       python -m pip install docopt-ng==0.9.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $docoptLog
+      #       if ($LASTEXITCODE -ne 0) {
+      #         echo "Failed to install docopt-ng"
+      #         Get-Content $docoptLog
+      #         exit 1
+      #       }
+      #       echo "Successfully installed docopt-ng"
+      #     } catch {
+      #       echo "Error installing docopt-ng: $_"
+      #       Get-Content $docoptLog
+      #       exit 1
+      #     }
+      #   shell: powershell
 
       - name: Install requirements safely
         shell: powershell
