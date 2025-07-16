@@ -328,7 +328,7 @@ jobs:
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
-            pip install $pkg --no-cache-dir --force-reinstall --verbose *> $logfile 2>&1
+            pip install $pkg --no-cache-dir --verbose *> $logfile 2>&1
             if ($LASTEXITCODE -ne 0) {
               echo "❌ Failed to install $pkg"
               Get-Content $logfile
@@ -338,9 +338,23 @@ jobs:
           }
           echo "Completed package installation loop"
 
+          # Debug: Inspect PySide6 installation
+          echo "Inspecting PySide6 installation..."
+          $pysidePath = & python -c "import PySide6; print(PySide6.__file__)"
+          echo "PySide6 module path: $pysidePath"
+          $pysideDir = Split-Path $pysidePath -Parent
+          echo "PySide6 directory: $pysideDir"
+          if (Test-Path $pysideDir) {
+            echo "Listing PySide6 directory contents..."
+            dir $pysideDir -Recurse
+          } else {
+            echo "❌ PySide6 directory not found: $pysideDir"
+            exit 1
+          }
+
           # Install PyInstaller
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log 2>&1
+          pip install pyinstaller==6.14.0 --no-cache-dir --verbose *> pyinstaller_install.log 2>&1
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
           echo "Successfully installed PyInstaller"
 
