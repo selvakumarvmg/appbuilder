@@ -407,24 +407,41 @@ jobs:
         shell: powershell
 
       - name: Install requirements
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          echo "📦 Installing packages from requirements.txt at $(Get-Date)"
+          
+          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
           $installLog = Join-Path (Get-Location) "requirements_install.log"
+
+          if (Test-Path requirements.txt) {
+            Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
+            echo "requirements.txt contents:"
+            Get-Content $requirementsLog
+          } else {
+            echo "❌ requirements.txt not found"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            Get-Content dir_contents.log
+            exit 1
+          }
 
           function Install-Package {
             param (
-              [string]$pkg
+              [string]$pkg,
+              [string]$options = ""
             )
-            echo "Installing $pkg..." | Out-File -FilePath $installLog -Append -Encoding utf8
-            python -m pip install $pkg --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            echo "Installing $pkg $options..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install $pkg $options --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
             if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install $pkg" | Out-File -FilePath $installLog -Append -Encoding utf8
+              echo "❌ Failed to install $pkg $options" | Out-File -FilePath $installLog -Append -Encoding utf8
               Get-Content $installLog
               exit 1
             }
           }
 
-          Install-Package "psd-tools==1.9.31 --no-deps"
+          # Install packages (psd-tools first with --no-deps)
+          Install-Package "psd-tools==1.9.31" "--no-deps"
           Install-Package "urllib3==2.2.3"
           Install-Package "tzdata==2024.1"
           Install-Package "pycparser==2.22"
@@ -444,9 +461,9 @@ jobs:
           Install-Package "PySide6==6.9.1"
           Install-Package "PySide6-Essentials==6.9.1"
 
-          echo "✅ All packages installed successfully."
+          echo "✅ All packages installed successfully!"
           Get-Content $installLog
-        shell: powershell
+
 
 
 
