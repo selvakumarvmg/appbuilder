@@ -252,13 +252,68 @@ jobs:
 
       # Install Visual Studio Build Tools for C++ (required for docopt, psd-tools)
       - name: Install Visual Studio Build Tools
-        run: |
-          echo "Installing Visual Studio Build Tools at $(Get-Date)"
-          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
-          echo "Verifying MSVC installation..."
-          dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
-          echo "Visual Studio Build Tools installation completed at $(Get-Date)"
         shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $maxRetries = 3
+          $retryDelay = 30
+
+          function Install-BuildTools {
+            param(
+              [string]$package = "visualstudio2019buildtools",
+              [string]$vsVersion = "2019"
+            )
+
+            for ($i = 1; $i -le $maxRetries; $i++) {
+              Write-Host "⚙️ Attempt $i to install $package..."
+              try {
+                choco install $package --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+                if ($LASTEXITCODE -eq 0) {
+                  Write-Host "✅ Successfully installed $package"
+                  return $true
+                }
+              } catch {
+                Write-Host "⚠️ Failed attempt $i: $_"
+              }
+              Start-Sleep -Seconds $retryDelay
+            }
+
+            Write-Host "❌ Failed to install $package after $maxRetries attempts"
+            return $false
+          }
+
+          $success = Install-BuildTools "visualstudio2019buildtools" "2019"
+          if (-not $success) {
+            Write-Host "🔁 Trying fallback: Visual Studio 2022 Build Tools..."
+            $success = Install-BuildTools "visualstudio2022buildtools" "2022"
+            if (-not $success) {
+              Write-Host "❌ Could not install either VS2019 or VS2022 build tools. Exiting."
+              exit 1
+            }
+          }
+
+          # Check MSVC installation
+          $paths = @(
+            "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC",
+            "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
+          )
+
+          $msvcFound = $false
+          foreach ($path in $paths) {
+            if (Test-Path $path) {
+              Write-Host "✅ MSVC found at: $path"
+              $msvcFound = $true
+              break
+            }
+          }
+
+          if (-not $msvcFound) {
+            Write-Host "❌ MSVC directory not found in expected locations."
+            exit 1
+          }
+
+          Write-Host "✅ Visual Studio Build Tools installation completed at $(Get-Date)"
+
 
       # Cache pip packages
       - name: Cache pip packages
