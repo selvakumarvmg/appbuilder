@@ -474,20 +474,25 @@ jobs:
           $ErrorActionPreference = 'Stop'
           echo "Installing PyInstaller at $(Get-Date)"
           $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
-          try {
-            python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyInstallerLog
-            if ($LASTEXITCODE -ne 0) {
-              echo "PyInstaller installation failed"
-              Get-Content $pyInstallerLog
+
+          python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 `
+            | Tee-Object -FilePath $pyInstallerLog
+
+          if (Test-Path "pyinstaller_install.log") {
+            $logContent = Get-Content pyinstaller_install.log
+            if ($logContent -match "Successfully installed pyinstaller") {
+              echo "✅ PyInstaller installed successfully"
+            } else {
+              echo "❌ PyInstaller installation may have failed"
+              Get-Content pyinstaller_install.log
               exit 1
             }
-            echo "Successfully installed PyInstaller"
-          } catch {
-            echo "Error installing PyInstaller: $_"
-            Get-Content $pyInstallerLog
+          } else {
+            echo "❌ Log not found"
             exit 1
           }
         shell: powershell
+
 
       - name: Create installed packages list
         run: |
@@ -523,39 +528,6 @@ jobs:
           Get-Content $installPackagesFile
         shell: powershell
 
-      - name: Create installed packages list
-        run: |
-          $ErrorActionPreference = 'Stop'
-          echo "Creating installed_packages.txt at $(Get-Date)"
-          $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
-          try {
-            python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
-            if ($LASTEXITCODE -ne 0) {
-              echo "pip list command failed"
-              if (Test-Path $installPackagesFile) {
-                echo "Partial output in installed_packages.txt:"
-                Get-Content $installPackagesFile
-              }
-              exit 1
-            }
-          } catch {
-            echo "Error running pip list: $_"
-            if (Test-Path $installPackagesFile) {
-              echo "Partial output in installed_packages.txt:"
-              Get-Content $installPackagesFile
-            }
-            exit 1
-          }
-          if (-not (Test-Path $installPackagesFile)) {
-            echo "installed_packages.txt not created at $installPackagesFile"
-            dir | Out-File -FilePath dir_contents.log -Encoding utf8
-            echo "Directory contents:"
-            Get-Content dir_contents.log
-            exit 1
-          }
-          echo "Contents of installed_packages.txt:"
-          Get-Content $installPackagesFile
-        shell: powershell
 
       - name: Upload all install logs
         uses: actions/upload-artifact@v4
