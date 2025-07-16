@@ -22,26 +22,26 @@ jobs:
         python-version: '3.9.13'
         architecture: 'x64'
 
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: ${{ runner.os }}-pip-
+    - name: Clear pip cache
+      run: |
+        pip cache purge
+      shell: bash
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0
+        pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0 --no-cache-dir
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         cat plugins_path.txt
         ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
+      shell: bash
 
     - name: Show installed packages
       run: cat installed_packages.txt
+      shell: bash
 
     - name: Verify required files
       run: |
@@ -61,6 +61,7 @@ jobs:
         test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
         test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
         test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
+      shell: bash
 
     - name: Build App with PyInstaller
       run: |
@@ -72,6 +73,7 @@ jobs:
         python -m PyInstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
         echo "📁 dist/ contents:"
         ls -lh dist
+      shell: bash
 
     - name: Upload PyInstaller log
       uses: actions/upload-artifact@v4
@@ -84,6 +86,7 @@ jobs:
       run: |
         codesign --deep --force --verbose --sign - dist/PremediaApp.app
       if: ${{ env.APPLE_CERTIFICATE == '' }}
+      shell: bash
 
     - name: Sign App with Developer ID
       run: |
@@ -91,11 +94,13 @@ jobs:
       if: ${{ env.APPLE_CERTIFICATE != '' }}
       env:
         APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      shell: bash
 
     - name: Inspect built .app
       run: |
         du -sh dist/PremediaApp.app
         find dist/PremediaApp.app
+      shell: bash
 
     - name: Build DMG
       run: |
@@ -104,6 +109,7 @@ jobs:
         dmgbuild -s installer/dmg-settings.py \
                  -D app_path="dmg-build/PremediaApp.app" \
                  "PremediaApp" PremediaApp.dmg
+      shell: bash
 
     - name: Upload DMG Artifact
       uses: actions/upload-artifact@v4
@@ -126,20 +132,19 @@ jobs:
         python-version: '3.9.13'
         architecture: 'x64'
 
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~\AppData\Local\pip\Cache
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: ${{ runner.os }}-pip-
+    - name: Clear pip cache
+      run: |
+        pip cache purge
+      shell: cmd
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller>=6.14.0,<7.0.0
+        pip install pyinstaller>=6.14.0,<7.0.0 --no-cache-dir
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+        set PATH=%PATH%;C:\hostedtoolcache\windows\Python\3.9.13\x64\Scripts
         where pyinstaller || (echo "❌ pyinstaller command not found" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         type plugins_path.txt
