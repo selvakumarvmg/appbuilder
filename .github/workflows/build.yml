@@ -295,6 +295,11 @@ jobs:
           python -m pip install --upgrade pip *> pip_upgrade.log 2>&1
           if ($LASTEXITCODE -ne 0) { echo "❌ Failed to upgrade pip"; Get-Content pip_upgrade.log; exit 1 }
 
+          # Install Visual C++ Redistributable
+          echo "Installing Visual C++ Redistributable..."
+          choco install vcredist2015 *> vcredist_install.log 2>&1
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install Visual C++ Redistributable"; Get-Content vcredist_install.log; exit 1 }
+
           # Install wheel and setuptools
           echo "Installing wheel and setuptools..."
           pip install --upgrade wheel setuptools *> wheel_setuptools.log 2>&1
@@ -313,22 +318,21 @@ jobs:
           # Install packages
           echo "Installing packages..."
           $packages = @(
-            "PySide6==6.9.1",
-            "PySide6-Essentials==6.9.1",
-            "PySide6-Addons==6.9.1",
-            "shiboken6==6.9.1",
+            "PySide6==6.7.3",
+            "PySide6-Essentials==6.7.3",
+            "PySide6-Addons==6.7.3",
+            "shiboken6==6.7.3",
             "requests==2.32.3",
             "urllib3==2.2.3",
             "Pillow==10.3.0",
             "paramiko==3.5.0",
             "cffi==1.17.1",
-            "numpy==1.26.4",
-            "tzdata==2024.1"
+            "numpy==1.26.4"
           )
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
-            pip install $pkg --no-cache-dir --verbose *> $logfile 2>&1
+            pip install $pkg --verbose *> $logfile 2>&1
             if ($LASTEXITCODE -ne 0) {
               echo "❌ Failed to install $pkg"
               Get-Content $logfile
@@ -346,15 +350,37 @@ jobs:
           echo "PySide6 directory: $pysideDir"
           if (Test-Path $pysideDir) {
             echo "Listing PySide6 directory contents..."
-            dir $pysideDir -Recurse
+            dir $pysideDir -Recurse *> pyside6_dir_contents.log 2>&1
+            Get-Content pyside6_dir_contents.log
           } else {
             echo "❌ PySide6 directory not found: $pysideDir"
             exit 1
           }
 
+          # Check PySide6 plugins
+          echo "Checking PySide6 plugins..."
+          $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+          $pluginsPath = $pluginsPathRaw.Trim()
+          echo "Raw plugins path: '$pluginsPath'"
+          if (Test-Path $pluginsPath) {
+            echo "Found plugins directory: $pluginsPath"
+            dir $pluginsPath
+            $platformsPath = Join-Path $pluginsPath "platforms"
+            $imageformatsPath = Join-Path $pluginsPath "imageformats"
+            if (-not (Test-Path $platformsPath)) { echo "❌ PySide6 platforms directory missing: $platformsPath"; exit 1 }
+            if (-not (Test-Path $imageformatsPath)) { echo "❌ PySide6 imageformats directory missing: $imageformatsPath"; exit 1 }
+            dir $platformsPath
+            dir $imageformatsPath
+          } else {
+            echo "❌ PySide6 plugins directory missing: $pluginsPath"
+            echo "Listing PySide6 directory to diagnose..."
+            dir $pysideDir -Recurse
+            exit 1
+          }
+
           # Install PyInstaller
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --verbose *> pyinstaller_install.log 2>&1
+          pip install pyinstaller==6.14.0 --verbose *> pyinstaller_install.log 2>&1
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
           echo "Successfully installed PyInstaller"
 
@@ -379,25 +405,6 @@ jobs:
           echo "Verifying PySide6..."
           python -m pip show PySide6
           if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
-
-          # Check PySide6 plugins
-          echo "Checking PySide6 plugins..."
-          $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
-          $pluginsPath = $pluginsPathRaw.Trim()
-          echo "Raw plugins path: '$pluginsPath'"
-          if (Test-Path $pluginsPath) {
-            echo "Found plugins directory: $pluginsPath"
-            dir $pluginsPath
-            $platformsPath = Join-Path $pluginsPath "platforms"
-            $imageformatsPath = Join-Path $pluginsPath "imageformats"
-            if (-not (Test-Path $platformsPath)) { echo "❌ PySide6 platforms directory missing: $platformsPath"; exit 1 }
-            if (-not (Test-Path $imageformatsPath)) { echo "❌ PySide6 imageformats directory missing: $imageformatsPath"; exit 1 }
-            dir $platformsPath
-            dir $imageformatsPath
-          } else {
-            echo "❌ PySide6 plugins directory missing: $pluginsPath"
-            exit 1
-          }
 
           echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
