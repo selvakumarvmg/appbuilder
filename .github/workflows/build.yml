@@ -436,28 +436,69 @@ jobs:
             Get-Content $psdToolsLog
             exit 1
           }
-          echo "Installing remaining requirements..."
-          $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
+          echo "Installing individual requirements..."
+          $installLog = Join-Path (Get-Location) "requirements_install.log"
           try {
-            python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 requests==2.32.3 urllib3==2.2.3 Pillow==10.3.0 paramiko==3.5.0 cffi==1.17.1 numpy==1.26.4 tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
-            if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to install remaining requirements"
-              Get-Content $requirementsInstallLog
-              exit 1
-            }
-            echo "Reinstalling PySide6-Essentials to ensure plugins..."
-            $pyside6EssentialsLog = Join-Path (Get-Location) "pyside6_essentials_install.log"
-            python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyside6EssentialsLog
-            if ($LASTEXITCODE -ne 0) {
-              echo "❌ Failed to reinstall PySide6-Essentials"
-              Get-Content $pyside6EssentialsLog
-              exit 1
-            }
+            echo "Installing urllib3==2.2.3..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install urllib3==2.2.3 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install urllib3" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing tzdata==2024.1..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install tzdata==2024.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install tzdata" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing pycparser==2.22..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install pycparser==2.22 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install pycparser" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing charset-normalizer==3.4.2..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install charset-normalizer==3.4.2 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install charset-normalizer" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing idna==3.10..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install idna==3.10 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install idna" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing certifi==2025.7.14..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install certifi==2025.7.14 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install certifi" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing bcrypt==4.3.0..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install bcrypt==4.3.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install bcrypt" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing pynacl==1.5.0..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install PyNaCl==1.5.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install pynacl" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing cryptography==45.0.5..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install cryptography==45.0.5 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install cryptography" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing numpy==1.26.4..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install numpy==1.26.4 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install numpy" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing Pillow==10.3.0..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install Pillow==10.3.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install Pillow" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing cffi==1.17.1..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install cffi==1.17.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install cffi" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing requests==2.32.3..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install requests==2.32.3 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install requests" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing paramiko==3.5.0..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install paramiko==3.5.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install paramiko" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing shiboken6==6.9.1..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install shiboken6" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing PySide6-Addons==6.9.1..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install PySide6-Addons==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install PySide6-Addons" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Installing PySide6==6.9.1..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install PySide6==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install PySide6" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
+            echo "Reinstalling PySide6-Essentials to ensure plugins..." | Out-File -FilePath $installLog -Append -Encoding utf8
+            python -m pip install PySide6-Essentials==6.9.1 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $installLog -Append
+            if ($LASTEXITCODE -ne 0) { echo "❌ Failed to reinstall PySide6-Essentials" | Out-File -FilePath $installLog -Append -Encoding utf8; exit 1 }
           } catch {
-            echo "❌ Error installing remaining requirements: $_"
-            Get-Content $requirementsInstallLog
+            echo "❌ Error installing requirements: $_" | Out-File -FilePath $installLog -Append -Encoding utf8
+            Get-Content $installLog
             exit 1
           }
+          Get-Content $installLog
         shell: powershell
 
       - name: Verify PySide6 plugins
