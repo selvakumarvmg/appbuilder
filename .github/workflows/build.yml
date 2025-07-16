@@ -252,29 +252,13 @@ jobs:
 
       # Install Visual Studio Build Tools for C++ (required for docopt, psd-tools)
       - name: Install Visual Studio Build Tools
-        shell: powershell
         run: |
-          $ErrorActionPreference = "Stop"
-          $maxRetries = 3
-          $retryDelay = 30
-
-          for ($i = 1; $i -le $maxRetries; $i++) {
-            Write-Host "Attempt $i to install Visual Studio Build Tools..."
-            try {
-              choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
-              if ($LASTEXITCODE -eq 0) {
-                Write-Host "Successfully installed Visual Studio Build Tools"
-                break
-              }
-            } catch {
-              Write-Host ("Failed attempt $i: " + $_.Exception.Message)
-            }
-            Start-Sleep -Seconds $retryDelay
-          }
-
-
-
-
+          echo "Installing Visual Studio Build Tools at $(Get-Date)"
+          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+          echo "Verifying MSVC installation..."
+          dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
+          echo "Visual Studio Build Tools installation completed at $(Get-Date)"
+        shell: powershell
 
       # Cache pip packages
       - name: Cache pip packages
