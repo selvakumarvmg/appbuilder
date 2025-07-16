@@ -323,11 +323,10 @@ jobs:
             "paramiko==3.5.0",
             "cffi==1.17.1",
             "numpy==1.26.4",
-            "docopt==0.6.2",
             "psd-tools==1.9.31",
             "tzdata==2024.1"
           )
-          $nonFatalPackages = @("docopt==0.6.2", "psd-tools==1.9.31")
+          $nonFatalPackages = @("psd-tools==1.9.31")
           foreach ($pkg in $packages) {
             $logfile = "$($pkg.Replace('==','-').Replace('.','_'))_install.log"
             echo "Installing $pkg..."
@@ -337,14 +336,14 @@ jobs:
                 echo "⚠️ Failed to install $pkg, continuing..."
                 Get-Content $logfile
                 continue
-              } else {
-                echo "❌ Failed to install $pkg"
-                Get-Content $logfile
-                exit 1
               }
+              echo "❌ Failed to install $pkg"
+              Get-Content $logfile
+              exit 1
             }
             echo "Successfully installed $pkg"
           }
+          echo "Completed package installation loop"
 
           # Install PyInstaller
           echo "Installing PyInstaller..."
