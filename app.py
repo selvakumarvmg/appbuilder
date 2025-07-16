@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
-from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
 from login import Ui_Dialog
 import sys
@@ -17,16 +17,43 @@ import urllib3
 import json
 from urllib.parse import urlparse, parse_qs, quote
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone 
 from zoneinfo import ZoneInfo
 from PIL import Image
 import subprocess
 from queue import Queue
 import threading
 import time
+<<<<<<< Updated upstream
 if platform.system() != "Windows":
     import fcntl
 
+=======
+import re
+import io
+import hashlib
+
+if platform.system() != "Windows":
+    import fcntl
+import numpy as np
+try:
+    from psd_tools import PSDImage
+except ImportError:
+    PSDImage = None
+try:
+    import rawpy
+except ImportError:
+    rawpy = None
+try:
+    import tifffile
+except ImportError:
+    tifffile = None
+
+SUPPORTED_EXTENSIONS = [
+    "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
+    "psd", "psb", "cr2", "nef", "arw", "dng", "raf", "pef", "srw"
+]
+>>>>>>> Stashed changes
 
 # Global stop queue for signaling
 FILE_WATCHER_STOP_QUEUE = Queue()
@@ -123,6 +150,11 @@ NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_SHARE = ""
+<<<<<<< Updated upstream
+=======
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+>>>>>>> Stashed changes
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 
 # === Global State ===
@@ -255,8 +287,10 @@ def get_default_cache():
         "info_resp": {},
         "user_data": {},
         "data": "",
-        "downloaded_files": [],
-        "uploaded_files": [],
+        "downloaded_files": {},  # Initialize as dict
+        "uploaded_files": [],    # Initialize as list
+        "downloaded_files_with_metadata": {},  # Initialize as dict
+        "uploaded_files_with_metadata": {},    # Initialize as dict
         "timer_responses": {},
         "saved_username": "",
         "saved_password": "",
@@ -525,7 +559,10 @@ def connect_to_nas():
         logger.warning("NAS functionality disabled")
         app_signals.append_log.emit("[API Scan] NAS functionality disabled")
         return None
-    max_retries = 3
+
+    max_retries = 2  # reduce retries
+    delay = 2
+
     for attempt in range(max_retries):
         try:
             transport = paramiko.Transport((NAS_IP, 22))
@@ -538,18 +575,290 @@ def connect_to_nas():
         except paramiko.AuthenticationException as e:
             logger.error(f"NAS authentication failed: {e}")
             app_signals.append_log.emit(f"[API Scan] Failed: NAS authentication error - {str(e)}")
+            # Don't retry on auth error — likely invalid credentials
             return None
         except paramiko.SSHException as e:
             logger.error(f"NAS SSH error (attempt {attempt + 1}): {e}")
             app_signals.append_log.emit(f"[API Scan] Failed: NAS SSH error (attempt {attempt + 1}) - {str(e)}")
-            if attempt == max_retries - 1:
-                return None
-            time.sleep(2)  # Wait before retrying
         except Exception as e:
             logger.error(f"Failed to connect to NAS (attempt {attempt + 1}): {e}")
             app_signals.append_log.emit(f"[API Scan] Failed: NAS connection error (attempt {attempt + 1}) - {str(e)}")
-            return None
+
+        # Exponential backoff
+        time.sleep(delay)
+        delay *= 2
+
     return None
+
+def check_nas_write_permission(sftp, nas_path):
+    """Verify and set write permission for NAS directory and file."""
+    try:
+        nas_parent = str(Path(nas_path).parent)
+        logger.debug(f"Checking NAS directory permissions: {nas_parent}")
+        app_signals.append_log.emit(f"[Transfer] Checking NAS directory permissions: {nas_parent}")
+        try:
+            stat = sftp.stat(nas_parent)
+            mode = stat.st_mode & 0o777
+            logger.debug(f"Directory {nas_parent} permissions: {oct(mode)}")
+            app_signals.append_log.emit(f"[Transfer] Directory {nas_parent} permissions: {oct(mode)}")
+            if mode != 0o770:
+                sftp.chmod(nas_parent, 0o770)
+                logger.info(f"Set permissions to 770 for {nas_parent}")
+                app_signals.append_log.emit(f"[Transfer] Set permissions to 770 for {nas_parent}")
+        except FileNotFoundError:
+            sftp.makedirs(nas_parent, mode=0o770)
+            logger.info(f"Created directory {nas_parent} with permissions 770")
+            app_signals.append_log.emit(f"[Transfer] Created directory {nas_parent} with permissions 770")
+        
+        # Test write access
+        temp_file = f"{nas_parent}/.test_write_{int(time.time())}.tmp"
+        sftp.open(temp_file, 'w').close()
+        sftp.remove(temp_file)
+        
+        # Handle existing file
+        try:
+            stat = sftp.stat(nas_path)
+            mode = stat.st_mode & 0o777
+            logger.debug(f"File {nas_path} exists with permissions: {oct(mode)}")
+            app_signals.append_log.emit(f"[Transfer] File {nas_path} exists with permissions: {oct(mode)}")
+            try:
+                sftp.chmod(nas_path, 0o660)
+                logger.info(f"Set permissions to 660 for existing file {nas_path}")
+                app_signals.append_log.emit(f"[Transfer] Set permissions to 660 for existing file {nas_path}")
+            except Exception:
+                sftp.remove(nas_path)
+                logger.info(f"Removed existing file {nas_path} due to permission issue")
+                app_signals.append_log.emit(f"[Transfer] Removed existing file {nas_path} due to permission issue")
+        except FileNotFoundError:
+            pass  # File doesn't exist, which is fine
+        
+        logger.info(f"Write permission confirmed for {nas_parent}")
+        app_signals.append_log.emit(f"[Transfer] Write permission confirmed for {nas_parent}")
+        return True
+    except Exception as e:
+        logger.error(f"Write permission check failed for {nas_path}: {e}")
+        app_signals.append_log.emit(f"[Transfer] Write permission check failed for {nas_path}: {e}")
+        return False
+
+
+
+# ===================== image convertion logic =====================
+
+def sanitize_filename(filename):
+    return re.sub(r'[^\w\-.]', '_', filename)
+
+def get_file_hash(file_path):
+    """Calculate SHA256 hash of a file for integrity check."""
+    sha256 = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    except Exception as e:
+        logger.error(f"Failed to compute hash for {file_path}: {e}")
+        return None
+
+def get_file_hash(file_path):
+    """Calculate SHA256 hash of a file for integrity check."""
+    sha256 = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    except Exception as e:
+        logger.error(f"Failed to compute hash for {file_path}: {e}")
+        return None
+
+
+def check_nas_write_permission(sftp, nas_path):
+    """Verify and set write permission for NAS directory and file."""
+    try:
+        nas_parent = str(Path(nas_path).parent)
+        logger.debug(f"Checking NAS directory permissions: {nas_parent}")
+        app_signals.append_log.emit(f"[Transfer] Checking NAS directory permissions: {nas_parent}")
+        try:
+            stat = sftp.stat(nas_parent)
+            mode = stat.st_mode & 0o777
+            logger.debug(f"Directory {nas_parent} permissions: {oct(mode)}")
+            app_signals.append_log.emit(f"[Transfer] Directory {nas_parent} permissions: {oct(mode)}")
+            if mode != 0o777:
+                sftp.chmod(nas_parent, 0o777)
+                logger.info(f"Set permissions to 777 for {nas_parent}")
+                app_signals.append_log.emit(f"[Transfer] Set permissions to 777 for {nas_parent}")
+        except FileNotFoundError:
+            sftp.makedirs(nas_parent, mode=0o777)
+            logger.info(f"Created directory {nas_parent} with permissions 777")
+            app_signals.append_log.emit(f"[Transfer] Created directory {nas_parent} with permissions 777")
+        
+        # Test write access
+        temp_file = f"{nas_parent}/.test_write_{int(time.time())}.tmp"
+        sftp.open(temp_file, 'w').close()
+        sftp.remove(temp_file)
+        
+        # Handle existing file
+        try:
+            stat = sftp.stat(nas_path)
+            mode = stat.st_mode & 0o777
+            logger.debug(f"File {nas_path} exists with permissions: {oct(mode)}")
+            app_signals.append_log.emit(f"[Transfer] File {nas_path} exists with permissions: {oct(mode)}")
+            try:
+                sftp.chmod(nas_path, 0o777)
+                logger.info(f"Set permissions to 777 for existing file {nas_path}")
+                app_signals.append_log.emit(f"[Transfer] Set permissions to 777 for existing file {nas_path}")
+            except Exception:
+                sftp.remove(nas_path)
+                logger.info(f"Removed existing file {nas_path} due to permission issue")
+                app_signals.append_log.emit(f"[Transfer] Removed existing file {nas_path} due to permission issue")
+        except FileNotFoundError:
+            pass  # File doesn't exist, which is fine
+        
+        logger.info(f"Write permission confirmed for {nas_parent}")
+        app_signals.append_log.emit(f"[Transfer] Write permission confirmed for {nas_parent}")
+        return True
+    except Exception as e:
+        logger.error(f"Write permission check failed for {nas_path}: {e}")
+        app_signals.append_log.emit(f"[Transfer] Write permission check failed for {nas_path}: {e}")
+        return False
+
+def process_image_in_memory(image_data, ext, full_file_path):
+    """Convert image data to JPEG in memory."""
+    try:
+        stream = io.BytesIO(image_data)
+        pil_image = None
+        ext = ext.lower()
+
+        if ext in ['jpg', 'jpeg', 'png']:
+            pil_image = Image.open(stream)
+        elif ext == 'gif':
+            pil_image = Image.open(stream)
+            pil_image = next(ImageSequence.Iterator(pil_image))
+        elif ext in ['tif', 'tiff']:
+            with tifffile.TiffFile(stream) as tif:
+                page = tif.pages[0]
+                arr = page.asarray()
+                photometric = getattr(page.photometric, 'name', 'unknown').lower()
+                logger.debug(f"TIFF photometric: {photometric}, shape: {arr.shape}")
+                if photometric in ['rgb', 'ycbcr']:
+                    if arr.ndim == 3 and arr.shape[2] >= 3:
+                        arr = arr[:, :, :3]
+                    pil_image = Image.fromarray(arr.astype(np.uint8))
+                elif photometric == 'cmyk':
+                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
+                elif photometric == 'minisblack' or arr.ndim == 2:
+                    arr = np.stack((arr,) * 3, axis=-1)
+                    pil_image = Image.fromarray(arr.astype(np.uint8))
+                else:
+                    logger.warning(f"Unsupported TIFF photometric: {photometric}")
+                    return None
+        elif ext in ['psd', 'psb']:
+            try:
+                psd = PSDImage.open(stream)
+                pil_image = psd.composite()
+                if pil_image is None:
+                    raise ValueError("PSD composite is None")
+            except Exception as e:
+                logger.warning(f"psd-tools failed for {full_file_path}: {e}")
+                try:
+                    stream.seek(0)
+                    pil_image = Image.open(stream)
+                    logger.debug(f"Pillow fallback opened PSD with mode {pil_image.mode}")
+                except Exception as fallback_error:
+                    logger.error(f"Both psd-tools and Pillow failed for PSD: {fallback_error}")
+                    return None
+        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+            with rawpy.imread(stream) as raw:
+                rgb = raw.postprocess()
+                pil_image = Image.fromarray(rgb)
+        else:
+            pil_image = Image.open(stream)
+
+        if pil_image.mode == "CMYK":
+            pil_image = pil_image.convert("RGB")
+        elif pil_image.mode in ["RGBA", "LA"]:
+            background = Image.new("RGB", pil_image.size, (255, 255, 255))
+            background.paste(pil_image, mask=pil_image.split()[-1])
+            pil_image = background
+        elif pil_image.mode in ["LAB", "HSV", "YCbCr", "P", "L", "I", "1"]:
+            pil_image = pil_image.convert("RGB")
+        elif pil_image.mode != "RGB":
+            pil_image = pil_image.convert("RGB")
+
+        jpeg_buffer = io.BytesIO()
+        pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+        jpeg_buffer.seek(0)
+        return jpeg_buffer
+    except Exception as e:
+        logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {e}")
+        return None
+
+def process_single_file(full_file_path):
+    """Convert a single file to JPEG and move original to backup."""
+    path = Path(full_file_path)
+    if not path.is_file():
+        logger.error(f"File does not exist: {full_file_path}")
+        return None, None
+
+    base_directory = path.parent
+    original_file_name = path.name
+    file_name = sanitize_filename(original_file_name)
+    ext = path.suffix.lower().lstrip(".")
+
+    if ext not in SUPPORTED_EXTENSIONS:
+        logger.debug(f"Unsupported file extension: {ext}")
+        error_dir = base_directory / "invalid_files"
+        error_dir.mkdir(exist_ok=True)
+        error_path = error_dir / original_file_name
+        path.rename(error_path)
+        logger.warning(f"File moved to invalid folder: {error_path}")
+        return None, None
+
+    output_file_name = ".".join(file_name.split(".")[:-1]) + ".jpg"
+    local_output_path = base_directory / output_file_name
+
+    if local_output_path.exists():
+        logger.info(f"Skipping: Output JPEG exists: {local_output_path}")
+        return str(local_output_path), str(path)
+
+    if ext in ["jpg", "jpeg"]:
+        sanitized_path = base_directory / file_name
+        if path != sanitized_path:
+            path.rename(sanitized_path)
+        logger.debug(f"JPEG moved/renamed to {sanitized_path}")
+        return str(sanitized_path), str(sanitized_path)
+
+    with open(path, "rb") as f:
+        image_data = f.read()
+
+    start_time = time.time()
+    jpeg_buffer = process_image_in_memory(image_data, ext, str(path))
+    elapsed = time.time() - start_time
+    logger.info(f"Conversion time: {elapsed:.2f} seconds")
+
+    if jpeg_buffer is None:
+        error_dir = base_directory / "invalid_files"
+        error_dir.mkdir(exist_ok=True)
+        error_path = error_dir / original_file_name
+        path.rename(error_path)
+        logger.warning(f"File moved to invalid folder: {error_path}")
+        return None, None
+
+    if local_output_path.exists():
+        local_output_path.unlink()
+
+    with open(local_output_path, "wb") as f:
+        f.write(jpeg_buffer.getvalue())
+    os.chmod(local_output_path, 0o777)
+    logger.debug(f"Converted JPEG written to {local_output_path}")
+
+    backup_path = base_directory / original_file_name
+    path.rename(backup_path)
+    logger.debug(f"Original file renamed to {backup_path}")
+
+    return str(local_output_path), str(backup_path)
+
+# ===================== image covertion logic =====================
 
 class FileConversionWorker(QObject):
     finished = Signal(str, str, str)
@@ -601,6 +910,7 @@ class FileConversionWorker(QObject):
             self.error.emit(str(e), Path(self.src_path).name)
 
 from PySide6.QtWidgets import QProgressDialog
+<<<<<<< Updated upstream
 # class FileWatcherWorker(QObject):
 #     status_update = Signal(str)
 #     log_update = Signal(str)
@@ -1273,20 +1583,52 @@ from PySide6.QtWidgets import QProgressDialog
 
 
 
+=======
+>>>>>>> Stashed changes
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
     progress_update = Signal(str, str, int)
+<<<<<<< Updated upstream
     request_reauth = Signal()  # Assuming this signal is defined elsewhere
+=======
+    request_reauth = Signal()
+    task_list_update = Signal(list)
+    cleanup_signal = Signal()
+>>>>>>> Stashed changes
 
     _instance = None
+    _instance_thread = None
+    _is_running = False
+
+    @classmethod
+    def get_instance(cls, parent=None):
+        """Return the singleton instance of FileWatcherWorker."""
+        if cls._instance is None:
+            logger.debug(f"Creating new FileWatcherWorker instance with parent={parent}")
+            cls._instance = cls(parent=parent)
+            cls._instance_thread = QThread.currentThread()
+            logger.info(f"FileWatcherWorker instance created in thread {cls._instance_thread}")
+        elif parent is not None and cls._instance.parent() != parent:
+            logger.warning(f"Existing instance has different parent; ignoring new parent={parent}")
+            cls._instance.log_update.emit(f"[FileWatcher] Warning: Existing instance has different parent; ignoring new parent={parent}")
+        return cls._instance
 
     def __init__(self, parent=None):
+<<<<<<< Updated upstream
         if FileWatcherWorker._instance is not None:
             raise RuntimeError("FileWatcherWorker is a singleton, use get_instance()")
+=======
+        if self._instance is not None and self._instance is not self:
+            logger.warning(f"FileWatcherWorker already initialized in thread {self._instance_thread}, use get_instance()")
+            self.log_update.emit(f"[FileWatcher] Warning: Already initialized in thread {self._instance_thread}, use get_instance()")
+            raise RuntimeError("FileWatcherWorker is a singleton; use FileWatcherWorker.get_instance()")
+>>>>>>> Stashed changes
         super().__init__(parent)
         FileWatcherWorker._instance = self
+        FileWatcherWorker._instance_thread = QThread.currentThread()
         self.processed_tasks = set()
+<<<<<<< Updated upstream
         self.progress_dialog = None
         global FILE_WATCHER_RUNNING
         FILE_WATCHER_RUNNING = True
@@ -1399,18 +1741,255 @@ class FileWatcherWorker(QObject):
 
     def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
         """Initiate file transfer with progress updates."""
+=======
+        self.running = True
+        self.last_api_hit_time = None
+        self.next_api_hit_time = None
+        self.api_poll_interval = 5000
+        self.config = {
+            "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
+            "max_processed_tasks": 1000,
+            "task_retention_hours": 24,
+            "supported_image_extensions": (".psd", ".png", ".bmp", ".tiff", ".jpeg"),
+        }
+        logger.info("FileWatcherWorker initialized")
+        self.log_update.emit("[FileWatcher] Initialized")
+        self.log_update.emit(f"[FileWatcher] Application started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.run)
+        self.cleanup_signal.connect(self.cleanup)
+        if not self.timer.isActive():
+            self.timer.start(self.api_poll_interval)
+            logger.debug("FileWatcherWorker timer started with 5-second interval")
+            self.log_update.emit("[FileWatcher] Timer started with 5-second interval")
+
+    def _prepare_download_path(self, item):
+        """Prepare the local destination path for download using file_path."""
+        file_path = item.get("file_path", "").lstrip("/")
+        if not file_path:
+            raise ValueError("Empty file_path in item")
+        dest_path = BASE_TARGET_DIR / file_path
+        logger.debug(f"Preparing download path: file_path={file_path}, dest_path={dest_path}")
         try:
-            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
-            self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
+            dest_path.parent.mkdir(parents=True, exist_ok=True, mode=0o777)
+            os.chmod(dest_path.parent, 0o777)
+            logger.debug(f"Created directory {dest_path.parent} with permissions 777")
+            self.log_update.emit(f"[Transfer] Created directory {dest_path.parent} with permissions 777")
         except Exception as e:
-            logger.error(f"Progress dialog error for {action_type}: {e}")
-            self.log_update.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
+            logger.error(f"Failed to create directory {dest_path.parent}: {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed to create directory {dest_path.parent}: {str(e)}")
+            raise
+        resolved_dest_path = str(dest_path.resolve())
+        logger.debug(f"Prepared local path: {resolved_dest_path}")
+        self.log_update.emit(f"[Transfer] Prepared local path: {resolved_dest_path}")
+        return resolved_dest_path
+
+    def _download_from_nas(self, src_path, dest_path, item):
+        nas_connection = connect_to_nas()
+        if not nas_connection:
+            raise Exception(f"NAS connection failed to {NAS_IP}")
+        transport, sftp = nas_connection
+        try:
+            nas_path = item.get('file_path', src_path)
+            logger.debug(f"Checking NAS file at: {nas_path}")
+            self.log_update.emit(f"[Transfer] Checking NAS file at: {nas_path}")
+            sftp.stat(nas_path)
+            logger.debug(f"Found NAS file at: {nas_path}")
+            self.log_update.emit(f"[Transfer] Found NAS file at: {nas_path}")
+            sftp.chdir('/')
+            logger.debug(f"Attempting NAS download: {nas_path} to {dest_path}")
+            self.log_update.emit(f"[Transfer] Attempting NAS download: {nas_path} to {dest_path}")
+            file_attr = sftp.stat(nas_path)
+            logger.debug(f"File permissions: {oct(file_attr.st_mode)}")
+            self.log_update.emit(f"[Transfer] File permissions: {oct(file_attr.st_mode)}")
+            if not (file_attr.st_mode & 0o400):
+                raise PermissionError(f"File {nas_path} is not readable")
+            dest_dir = os.path.dirname(dest_path)
+            if not os.access(dest_dir, os.W_OK | os.X_OK):
+                raise PermissionError(f"No write permission for destination directory: {dest_dir}")
+            sftp.get(nas_path, dest_path)
+            os.chmod(dest_path, 0o666)
+        except Exception as e:
+            logger.error(f"NAS download failed for {nas_path}: {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed: NAS download error for {nas_path}: {str(e)}")
+            raise
+        finally:
+            transport.close()
+
+    def _upload_to_nas(self, src_path, dest_path, item):
+        if not Path(src_path).exists():
+            raise FileNotFoundError(f"Source file does not exist: {src_path}")
+        nas_connection = connect_to_nas()
+        if not nas_connection:
+            raise Exception(f"NAS connection failed to {NAS_IP}")
+        transport, sftp = nas_connection
+>>>>>>> Stashed changes
+        try:
+            dest_path = item.get('file_path', dest_path)
+            dest_dir = "/".join(dest_path.split("/")[:-1])
+            try:
+                sftp.stat(dest_dir)
+                self.log_update.emit(f"[Transfer] NAS parent directory exists: {dest_dir}")
+            except FileNotFoundError:
+                self.log_update.emit(f"[Transfer] Creating NAS parent directory: {dest_dir}")
+                sftp.makedirs(dest_dir, mode=0o777)
+            try:
+                sftp.chmod(dest_dir, 0o777)
+                self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
+            except Exception as e:
+                self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
+            try:
+                file_attr = sftp.stat(dest_path)
+                if file_attr:
+                    sftp.chmod(dest_path, 0o777)
+                    self.log_update.emit(f"[Transfer] Set permissions to 777 for existing file: {dest_path}")
+            except FileNotFoundError:
+                self.log_update.emit(f"[Transfer] No existing file at {dest_path}, proceeding with upload")
+            temp_test_file = f"{dest_dir}/test_permissions_{int(time.time())}.tmp"
+            try:
+                sftp.putfo(io.BytesIO(b"test"), temp_test_file)
+                sftp.remove(temp_test_file)
+            except Exception as e:
+                raise PermissionError(f"No write permission for NAS directory {dest_dir}: {str(e)}")
+            if src_path.lower().endswith('.jpg'):
+                dest_path = dest_path.rsplit('.', 1)[0] + '.jpg'
+            logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
+            self.log_update.emit(f"[Transfer] Uploading {src_path} to NAS path {dest_path}")
+            sftp.put(src_path, dest_path)
+            sftp.chmod(dest_path, 0o777)
+            self.log_update.emit(f"[Transfer] Set permissions to 777 for uploaded file: {dest_path}")
+        except Exception as e:
+            logger.error(f"NAS upload failed for {dest_path}: {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed: NAS upload error for {dest_path}: {str(e)}")
+            raise
+        finally:
+            transport.close()
+
+    def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas):
+        cache = load_cache()
+        cache.setdefault("downloaded_files", {})
+        cache.setdefault("downloaded_files_with_metadata", {})
+        cache.setdefault("uploaded_files", [])
+        cache.setdefault("uploaded_files_with_metadata", {})
+        cache.setdefault("timer_responses", {})
+        local_path = src_path if action_type.lower() == "upload" else dest_path
+        try:
+            if action_type.lower() == "download":
+                if task_id not in cache["downloaded_files"]:
+                    cache["downloaded_files"][task_id] = local_path
+                    cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
+                    timer_response = start_timer_api(src_path, cache.get('token', ''))
+                    if timer_response:
+                        cache["timer_responses"][local_path] = timer_response
+                    app_signals.update_file_list.emit(local_path, f"{action_type} Completed", action_type.lower(), 100, is_nas)
+                    logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+                    self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+            elif action_type.lower() == "upload":
+                if dest_path not in cache["uploaded_files"]:
+                    cache["uploaded_files"].append(dest_path)
+                    cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
+                    timer_response = cache.get("timer_responses", {}).get(local_path)
+                    if timer_response:
+                        end_timer_api(src_path, timer_response, cache.get('token', ''))
+                    app_signals.update_file_list.emit(local_path, f"{action_type} Completed", action_type.lower(), 100, is_nas)
+                    logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+                    self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+            save_cache(cache)
+            app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+        except Exception as e:
+            logger.error(f"Failed to update cache and signals for {action_type} (Task {task_id}): {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} (Task {task_id}): {str(e)}")
+            raise
+
+    def open_with_photoshop(self, file_path):
+        """Dynamically find Adobe Photoshop path and open the specified file."""
+        try:
+            system = platform.system()
+            photoshop_path = None
+
+            if system == "Windows":
+                search_dirs = [
+                    Path("C:/Program Files/Adobe"),
+                    Path("C:/Program Files (x86)/Adobe")
+                ]
+                for base_dir in search_dirs:
+                    if not base_dir.exists():
+                        continue
+                    photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                    if photoshop_exes:
+                        photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                        photoshop_path = str(photoshop_exes[0])
+                        break
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
+            elif system == "Darwin":
+                try:
+                    result = subprocess.run(
+                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
+                        capture_output=True, text=True, check=True
+                    )
+                    if result.stdout.strip():
+                        photoshop_path = result.stdout.strip().split("\n")[0]
+                except subprocess.CalledProcessError:
+                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
+                    if photoshop_apps:
+                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                        photoshop_path = str(photoshop_apps[0])
+                if not photoshop_path:
+                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+
+            elif system == "Linux":
+                try:
+                    subprocess.run(["wine", "--version"], capture_output=True, check=True)
+                    wine_dirs = [
+                        Path.home() / ".wine/drive_c/Program Files/Adobe",
+                        Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+                    ]
+                    for base_dir in wine_dirs:
+                        if not base_dir.exists():
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            break
+                    if not photoshop_path:
+                        raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                except subprocess.CalledProcessError:
+                    raise FileNotFoundError("Wine is not installed or not functioning")
+
+            else:
+                logger.warning(f"Unsupported platform for Photoshop: {system}")
+                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
+                app_signals.update_status.emit(f"Unsupported platform: {system}")
+                return
+
+            if system == "Darwin":
+                subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+            else:
+                subprocess.run([photoshop_path, file_path], check=True)
+
+            logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
+            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+            app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+
+        except Exception as e:
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+<<<<<<< Updated upstream
         """Perform file transfer (download or upload) with progress updates."""
+=======
+        task_id = str(item.get('id', ''))
+>>>>>>> Stashed changes
         try:
-            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 10)
+            original_filename = Path(src_path).name
+            self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
             if action_type.lower() == "download":
+<<<<<<< Updated upstream
                 # For downloads, maintain original filename and directory structure under local base path
                 original_filename = Path(src_path).name
                 if is_nas_src and item.get('file_path'):
@@ -1473,21 +2052,94 @@ class FileWatcherWorker(QObject):
                     except Exception as e:
                         transport.close()
                         raise Exception(f"NAS upload failed for {dest_path}: {str(e)}")
+=======
+                dest_path = self._prepare_download_path(item)
+                cache = load_cache()
+                cache.setdefault("downloaded_files", {})
+                if task_id in cache["downloaded_files"]:
+                    logger.warning(f"File already downloaded: {dest_path}")
+                    self.log_update.emit(f"[Transfer] Skipped: File already downloaded: {dest_path}")
+                    app_signals.update_file_list.emit(dest_path, f"{action_type} Skipped: Already exists", action_type.lower(), 100, is_nas_src)
+                    return
+                if is_nas_src:
+                    self._download_from_nas(src_path, dest_path, item)
+                    if os.path.exists(dest_path):
+                        self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
+                        app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
+                        try:
+                            self.open_with_photoshop(dest_path)
+                        except Exception as e:
+                            logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
+                            self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
+                        self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
+                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+                        app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+                        local_jpg, _ = self.process_single_file(dest_path)
+                        if local_jpg:
+                            app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
+                        self.processed_tasks.add(f"{task_id}:{action_type}")
+                    else:
+                        raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
                 else:
-                    with open(src_path, 'rb') as f:
-                        response = HTTP_SESSION.post(
-                            f"{BASE_DOMAIN}/api/ir_production/upload",
-                            files={'file': f},
-                            headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-                            verify=False,
-                            timeout=30
-                        )
-                        response.raise_for_status()
-                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
-                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-                self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
-                app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_dest)
+                    self._download_from_http(src_path, dest_path)
+                    if os.path.exists(dest_path):
+                        self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
+                        app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
+                        try:
+                            self.open_with_photoshop(dest_path)
+                        except Exception as e:
+                            logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
+                            self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
+                        self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
+                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+                        app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+                        local_jpg, _ = self.process_single_file(dest_path)
+                        if local_jpg:
+                            app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
+                        self.processed_tasks.add(f"{task_id}:{action_type}")
+                    else:
+                        raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
+            elif action_type.lower() == "upload":
+                dest_path = item.get('file_path', dest_path)
+                cache = load_cache()
+                cache.setdefault("uploaded_files", [])
+                if not os.path.exists(src_path):
+                    logger.error(f"Source file does not exist for upload: {src_path}")
+                    self.log_update.emit(f"[Transfer] Failed: Source file does not exist for upload: {src_path}")
+                    if is_nas_dest:
+                        try:
+                            temp_dest = self._prepare_download_path(item)
+                            self._download_from_nas(dest_path, temp_dest, item)
+                            if os.path.exists(temp_dest):
+                                src_path = temp_dest
+                                local_jpg, _ = self.process_single_file(src_path)
+                                if local_jpg:
+                                    src_path = local_jpg
+                                    self.log_update.emit(f"[Transfer] Converted to JPG for upload: {src_path}")
+                                else:
+                                    raise FileNotFoundError(f"Conversion failed for {temp_dest}")
+                            else:
+                                raise FileNotFoundError(f"Fallback download failed for {temp_dest}")
+                        except Exception as e:
+                            logger.error(f"Fallback download failed for upload task {task_id}: {str(e)}")
+                            self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
+                            raise
+                if dest_path in cache["uploaded_files"]:
+                    logger.warning(f"File already uploaded: {dest_path}")
+                    self.log_update.emit(f"[Transfer] Skipped: File already uploaded: {dest_path}")
+                    app_signals.update_file_list.emit(src_path, f"{action_type} Skipped: Already uploaded", action_type.lower(), 100, is_nas_dest)
+                    return
+                if is_nas_dest:
+                    self._upload_to_nas(src_path, dest_path, item)
+                    self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
+>>>>>>> Stashed changes
+                else:
+                    self._upload_to_http(src_path)
+                    self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
+                self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+                self.processed_tasks.add(f"{task_id}:{action_type}")
         except Exception as e:
+<<<<<<< Updated upstream
             logger.error(f"File {action_type} error: {e}")
             self.log_update.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
             app_signals.update_file_list.emit(str(dest_path), f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
@@ -1501,6 +2153,25 @@ class FileWatcherWorker(QObject):
             self.timer.stop()
             return
 
+=======
+            logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
+            app_signals.update_file_list.emit(dest_path if action_type.lower() == "download" else src_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src or is_nas_dest)
+            self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+            raise
+
+    def run(self):
+        if not self.running:
+            logger.info("File watcher stopped")
+            self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
+            self.cleanup()
+            return
+        if self._is_running:
+            logger.debug("File watcher already running, skipping this cycle")
+            self.log_update.emit("[FileWatcher] Skipped: Already running")
+            return
+        self._is_running = True
+>>>>>>> Stashed changes
         try:
             logger.debug("Starting file watcher run")
             self.log_update.emit("[API Scan] Starting file watcher run")
@@ -1511,8 +2182,11 @@ class FileWatcherWorker(QObject):
                 self.status_update.emit("Connectivity check failed, will retry")
                 self.log_update.emit("[API Scan] Connectivity check failed")
                 return
+<<<<<<< Updated upstream
 
             # Load cache once
+=======
+>>>>>>> Stashed changes
             cache = load_cache()
             user_id = cache.get('user_id', '')
             token = cache.get('token', '')
@@ -1522,6 +2196,7 @@ class FileWatcherWorker(QObject):
                 self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
                 self.request_reauth.emit()
                 return
+<<<<<<< Updated upstream
 
             # Initialize cache structures if they don't exist
             if not isinstance(cache.get("downloaded_files"), dict):
@@ -1547,6 +2222,18 @@ class FileWatcherWorker(QObject):
             )
 
             # Fetch tasks from API
+=======
+            self.status_update.emit("Checking for file tasks...")
+            self.log_update.emit("[API Scan] Starting file task check")
+            app_signals.append_log.emit("[API Scan] Initiating file task check")
+            self.last_api_hit_time = datetime.now(timezone.utc)
+            self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
+            app_signals.update_timer_status.emit(
+                f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Interval: {self.api_poll_interval/1000:.1f}s"
+            )
+>>>>>>> Stashed changes
             headers = {"Authorization": f"Bearer {token}"}
             max_retries = 3
             tasks = []
@@ -1562,7 +2249,11 @@ class FileWatcherWorker(QObject):
                     
                     if response.status_code == 401:
                         logger.warning("Unauthorized: Token may be invalid")
+<<<<<<< Updated upstream
                         self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
+=======
+                        self.log_update.emit("[API Scan] Unauthorized: Token invalid")
+>>>>>>> Stashed changes
                         self.status_update.emit("Unauthorized: Token invalid")
                         self.request_reauth.emit()
                         return
@@ -1586,6 +2277,7 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
                         return
+<<<<<<< Updated upstream
 
             # Process tasks
             updates = []
@@ -1738,6 +2430,158 @@ class FileWatcherWorker(QObject):
                 for update in updates:
                     app_signals.update_file_list.emit(*update)
 
+=======
+            download_tasks = [
+                {
+                    "task_id": str(item.get('id', '')),
+                    "action_type": item.get('request_type', '').lower(),
+                    "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                    "file_path": item.get('file_path', ''),
+                    "status": "Queued",
+                    "thumbnail": item.get('thumbnail', ''),
+                    "job_id": item.get('job_id', ''),
+                    "project_id": item.get('project_id', ''),
+                    "task_type": "download"
+                } for item in tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+            ]
+            upload_tasks = [
+                {
+                    "task_id": str(item.get('id', '')),
+                    "action_type": item.get('request_type', '').lower(),
+                    "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                    "file_path": item.get('file_path', ''),
+                    "status": "Queued",
+                    "thumbnail": item.get('thumbnail', ''),
+                    "job_id": item.get('job_id', ''),
+                    "project_id": item.get('project_id', ''),
+                    "task_type": "upload"
+                } for item in tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "upload"
+            ]
+            self.task_list_update.emit(download_tasks + upload_tasks)
+            self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
+            updates = []
+            self._clean_processed_tasks()
+            max_download_retries = 3
+            for item in tasks:
+                try:
+                    if not isinstance(item, dict):
+                        logger.error(f"Invalid task item type: {type(item)}, item: {item}")
+                        self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
+                        updates.append(("", f"Invalid task: {type(item)}", "unknown", 0, False))
+                        continue
+                    task_id = str(item.get('id', ''))
+                    file_path = item.get('file_path', '')
+                    file_name = item.get('file_name', Path(file_path).name)
+                    action_type = item.get('request_type', '').lower()
+                    task_key = f"{task_id}:{action_type}"
+                    if task_key in self.processed_tasks:
+                        logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
+                        self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
+                        updates.append((file_path, f"{action_type} Skipped: Already processed", action_type, 100, not ('http' in file_path.lower())))
+                        continue
+                    is_online = 'http' in file_path.lower()
+                    local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
+                    logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
+                    self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
+                    if action_type == "download":
+                        self.status_update.emit(f"Downloading {file_name}")
+                        self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
+                        app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
+                        app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                        for attempt in range(max_download_retries):
+                            try:
+                                self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
+                                if os.path.exists(local_path):
+                                    self.processed_tasks.add(task_key)
+                                    updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
+                                    break
+                                else:
+                                    logger.warning(f"Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
+                                    self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
+                                    updates.append((local_path, f"Download Failed: File not found", action_type, 0, not is_online))
+                            except Exception as e:
+                                logger.error(f"Download failed for {local_path} (Task {task_id}): {str(e)}")
+                                self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
+                                updates.append((local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online))
+                                if attempt < max_download_retries - 1:
+                                    delay = 2 ** attempt
+                                    logger.debug(f"Retrying download after {delay}s")
+                                    self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
+                                    time.sleep(delay)
+                                else:
+                                    logger.error(f"Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
+                                    self.log_update.emit(f"[API Scan] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
+                                    break
+                    elif action_type == "upload":
+                        self.status_update.emit(f"Uploading {file_name}")
+                        self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
+                        app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
+                        app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                        client_name = item.get("client_name", "").strip().replace(" ", "_") or None
+                        project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
+                        if not client_name or not project_name:
+                            try:
+                                parts = Path(file_path).parts
+                                if len(parts) >= 3:
+                                    client_name = client_name or parts[1]
+                                    project_name = project_name or parts[2]
+                                else:
+                                    client_name = client_name or "default_client"
+                                    project_name = project_name or "default_project"
+                            except Exception as e:
+                                self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
+                                client_name = client_name or "default_client"
+                                project_name = project_name or "default_project"
+                        original_nas_path = item.get('file_path', file_path)
+                        if original_nas_path in cache["uploaded_files"]:
+                            logger.warning(f"Original file already uploaded: {original_nas_path}")
+                            self.log_update.emit(f"[Transfer] Skipped: Original file already uploaded: {original_nas_path}")
+                            updates.append((local_path, f"Upload Skipped: Already uploaded", action_type, 100, not is_online))
+                        else:
+                            self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
+                            updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
+                        jpg_path = local_path
+                        if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
+                            jpg_name = Path(local_path).stem + ".jpg"
+                            jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
+                            try:
+                                os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                                os.chmod(jpg_folder, 0o777)
+                            except OSError as e:
+                                self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
+                                updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
+                                continue
+                            jpg_path = str(jpg_folder / jpg_name)
+                            local_jpg, _ = self.process_single_file(local_path)
+                            if local_jpg:
+                                jpg_path = local_jpg
+                                self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
+                                app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
+                                jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}.jpg"
+                                if jpg_nas_path not in cache["uploaded_files"]:
+                                    self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
+                                    updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
+                                else:
+                                    logger.warning(f"JPG file already uploaded: {jpg_nas_path}")
+                                    self.log_update.emit(f"[Transfer] Skipped: JPG file already uploaded: {jpg_nas_path}")
+                                    updates.append((jpg_path, f"Upload Skipped: Already uploaded", action_type, 100, not is_online))
+                            else:
+                                self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
+                                updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
+                        self.processed_tasks.add(task_key)
+                    else:
+                        logger.error(f"Invalid action_type for task {task_id}: {action_type}")
+                        self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
+                        updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not is_online))
+                except Exception as e:
+                    logger.error(f"Error processing task {task_id}: {str(e)}")
+                    self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
+                    updates.append((file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in file_path.lower())))
+                    continue
+            if updates:
+                for update in updates:
+                    app_signals.update_file_list.emit(*update)
+>>>>>>> Stashed changes
             self.status_update.emit("File tasks check completed")
             self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
             app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
@@ -1747,6 +2591,70 @@ class FileWatcherWorker(QObject):
             self.status_update.emit(f"Error processing tasks: {str(e)}")
             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+        finally:
+            self._is_running = False
+
+    def check_connectivity(self):
+        try:
+            logger.debug(f"Checking API connectivity (attempt 1): {DOWNLOAD_UPLOAD_API}")
+            self.log_update.emit(f"[API Scan] Checking API connectivity (attempt 1): {DOWNLOAD_UPLOAD_API}")
+            response = HTTP_SESSION.get(f"{DOWNLOAD_UPLOAD_API}?user_id=200", verify=False, timeout=10)
+            app_signals.api_call_status.emit(DOWNLOAD_UPLOAD_API, f"Status: {response.status_code}, Response: {response.text[:500]}...", response.status_code)
+            self.log_update.emit(f"[API Scan] API Call: {DOWNLOAD_UPLOAD_API} | Status: Status: {response.status_code}, Response: {response.text[:500]}...")
+            response.raise_for_status()
+            self.log_update.emit("[API Scan] API connectivity check passed")
+            return True
+        except RequestException as e:
+            logger.error(f"API connectivity check failed: {str(e)}")
+            self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
+            return False
+
+    def show_progress(self, message, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        task_id = str(item.get('id', ''))
+        original_filename = Path(src_path).name
+        try:
+            self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
+            self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}%", dest_path, 100)
+        except Exception as e:
+            logger.error(f"Progress error for {action_type} (Task {task_id}): {str(e)}")
+            self.log_update.emit(f"[App] Progress update: {action_type} Failed (Task {task_id}): {original_filename}%")
+            raise
+
+    def _download_from_http(self, src_path, dest_path):
+        raise NotImplementedError("HTTP download not implemented")
+
+    def _upload_to_http(self, src_path):
+        raise NotImplementedError("HTTP upload not implemented")
+
+    def _clean_processed_tasks(self):
+        current_time = time.time()
+        retention_seconds = self.config["task_retention_hours"] * 3600
+        self.processed_tasks = {task for task in self.processed_tasks if (current_time - float(task.split(":")[0])) < retention_seconds}
+        if len(self.processed_tasks) > self.config["max_processed_tasks"]:
+            self.processed_tasks = set(list(self.processed_tasks)[-self.config["max_processed_tasks"]:])
+
+    def cleanup(self):
+        self.running = False
+        self.timer.stop()
+        logger.info("FileWatcherWorker cleaned up")
+        self.log_update.emit("[FileWatcher] Cleaned up")
+
+    def stop(self):
+        self.running = False
+        self.timer.stop()
+        logger.info("FileWatcherWorker stopped")
+        self.log_update.emit("[FileWatcher] Stopped")
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2738,10 +3646,26 @@ class LoginDialog(QDialog):
             app_signals.append_log.emit(f"[Login] Failed to disconnect update_status signal: {str(e)}")
         super().closeEvent(event)
   
+<<<<<<< Updated upstream
+=======
+
+
+def check_single_instance():
+    try:
+        with PidFile(piddir='/tmp', pidname='premedia_app.pid'):
+            logger.info(f"Acquired lock for PID {os.getpid()}")
+            return True
+    except PidFileError:
+        logger.error(f"Another instance of PremediaApp is running (PID file exists)")
+        print("Another instance of PremediaApp is already running")
+        sys.exit(1)
+
+>>>>>>> Stashed changes
 class PremediaApp(QApplication):
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
             super().__init__()
+            # check_single_instance()
             self.app = QApplication.instance() or QApplication(sys.argv)
             self.app.setQuitOnLastWindowClosed(False)
             self.app.setWindowIcon(load_icon(ICON_PATH, "application"))

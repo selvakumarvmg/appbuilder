@@ -65,11 +65,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="PremediaApp",
-    debug=False,
+    debug=True,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,
     icon=icon_file,
 )
 
