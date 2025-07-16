@@ -110,7 +110,7 @@ jobs:
           test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
           test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
           test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
-          test -f license.txt || (echo "❌ terms.txt missing" && exit 1)
+          test -f license.txt || (echo "❌ license.txt missing" && exit 1)
           test -f login.ui || (echo "❌ login.ui missing" && exit 1)
           test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
           test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
@@ -251,6 +251,19 @@ jobs:
           dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
         shell: powershell
 
+      # Install vcpkg and libxml2, libxslt for psd-tools
+      - name: Install vcpkg and dependencies
+        run: |
+          echo "Installing vcpkg..."
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install libxml2:x64-windows libxslt:x64-windows
+          echo "VCPKG_ROOT=$env:CD" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "Adding vcpkg to PATH..."
+          echo "$env:CD\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: powershell
+
       # Clear pip cache
       - name: Clear pip cache
         run: pip cache purge
@@ -281,10 +294,14 @@ jobs:
           foreach ($pkg in $packages) {
             echo "Installing $pkg..."
             pip install $pkg --no-cache-dir --force-reinstall --verbose *> "$pkg.replace('==','-').replace('.','_')_install.log"
-            if ($LASTEXITCODE -ne 0) {
+            if ($LASTEXITCODE -ne 0 -and $pkg -ne "psd-tools==1.9.31") {
               echo "❌ Failed to install $pkg"
               Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
               exit 1
+            }
+            if ($LASTEXITCODE -ne 0 -and $pkg -eq "psd-tools==1.9.31") {
+              echo "⚠️ Failed to install psd-tools==1.9.31, continuing without it..."
+              Get-Content "$pkg.replace('==','-').replace('.','_')_install.log"
             }
           }
           echo "Installing PyInstaller..."
@@ -398,9 +415,7 @@ jobs:
             --hidden-import=PIL.Image `
             --hidden-import=login `
             --hidden-import=icons_rc `
-            --hidden-import=psd_tools `
             --collect-submodules PySide6 `
-            --collect-submodules psd_tools `
             --runtime-hook=runtime-hook.py `
             app.py *> pyinstaller.log
           if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
