@@ -279,11 +279,20 @@ jobs:
           echo "Starting dependency installation at $(Get-Date)"
           echo "Current directory: $(Get-Location)"
           
+          # Verify Python and pip
+          echo "Checking Python and pip versions..."
+          python --version
+          if ($LASTEXITCODE -ne 0) { echo "❌ Python not found"; exit 1 }
+          python -m pip --version
+          if ($LASTEXITCODE -ne 0) { echo "❌ pip not found"; exit 1 }
+
           # Upgrade pip and install wheel/setuptools
-          python -m pip install --upgrade pip
-          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to upgrade pip"; exit 1 }
-          pip install --upgrade wheel setuptools
-          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install wheel/setuptools"; exit 1 }
+          echo "Upgrading pip..."
+          python -m pip install --upgrade pip *> pip_upgrade.log 2>&1
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to upgrade pip"; Get-Content pip_upgrade.log; exit 1 }
+          echo "Installing wheel and setuptools..."
+          pip install --upgrade wheel setuptools *> wheel_setuptools.log 2>&1
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install wheel/setuptools"; Get-Content wheel_setuptools.log; exit 1 }
 
           # Inspect requirements.txt
           echo "Inspecting requirements.txt..."
@@ -291,6 +300,7 @@ jobs:
             Get-Content requirements.txt
           } else {
             echo "❌ requirements.txt not found"
+            dir
             exit 1
           }
 
@@ -340,23 +350,23 @@ jobs:
 
           # Create installed_packages.txt
           echo "Creating installed_packages.txt..."
+          pip list
+          if ($LASTEXITCODE -ne 0) { echo "❌ pip list failed"; exit 1 }
           pip list > installed_packages.txt
-          if ($LASTEXITCODE -ne 0) {
-            echo "❌ pip list command failed"
-            exit 1
-          }
+          if ($LASTEXITCODE -ne 0) { echo "❌ Failed to write installed_packages.txt"; exit 1 }
           if (-not (Test-Path installed_packages.txt)) {
-            echo "❌ Failed to create installed_packages.txt"
-            echo "Current directory contents:"
+            echo "❌ installed_packages.txt not found after creation"
             dir
             exit 1
           }
-          echo "Successfully created installed_packages.txt"
+          echo "Contents of installed_packages.txt:"
           Get-Content installed_packages.txt
 
           # Verify PyInstaller and PySide6
+          echo "Verifying PyInstaller..."
           python -m pip show pyinstaller
           if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller not installed"; exit 1 }
+          echo "Verifying PySide6..."
           python -m pip show PySide6
           if ($LASTEXITCODE -ne 0) { echo "❌ PySide6 not installed"; exit 1 }
 
@@ -367,7 +377,7 @@ jobs:
           echo "🔍 Raw plugins path: '$pluginsPath'"
           if (Test-Path $pluginsPath) {
             echo "✔️ Found plugins directory: $pluginsPath"
-            dir $pluginsPath | Out-String
+            dir $pluginsPath
             $platformsPath = Join-Path $pluginsPath "platforms"
             $imageformatsPath = Join-Path $pluginsPath "imageformats"
             if (-not (Test-Path $platformsPath)) {
@@ -378,8 +388,8 @@ jobs:
               echo "❌ PySide6 imageformats directory missing: $imageformatsPath"
               exit 1
             }
-            dir $platformsPath | Out-String
-            dir $imageformatsPath | Out-String
+            dir $platformsPath
+            dir $imageformatsPath
           } else {
             echo "❌ PySide6 plugins directory missing: $pluginsPath"
             exit 1
