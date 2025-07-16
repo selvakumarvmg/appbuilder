@@ -274,281 +274,39 @@ jobs:
         shell: powershell
 
       # Install dependencies
-      - name: Install dependencies
+      - name: Verify Python and pip
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "Starting dependency installation at $(Get-Date)"
+          echo "Verifying Python and pip at $(Get-Date)"
           echo "Current directory: $(Get-Location)"
-          
-          # Debug: Output script content
-          echo "Dumping script content for debugging..."
-          Get-Content $PSCommandPath | Out-File -FilePath script_content.log -Encoding utf8
-
-          # Debug: Log environment variables
-          echo "Dumping environment variables..."
-          Get-ChildItem Env: | Out-File -FilePath env_vars.log -Encoding utf8
-
-          # Debug: Check disk space
-          echo "Checking disk space..."
-          Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DeviceID -eq 'D:' } | Select-Object DeviceID, @{Name="FreeSpace(GB)";Expression={[math]::Round($_.FreeSpace/1GB,2)}} | Out-File -FilePath disk_space.log -Encoding utf8
-          Get-Content disk_space.log
-
-          # Debug: Verify write permissions
-          echo "Testing write permissions in $(Get-Location)..."
-          $testFile = Join-Path (Get-Location) "test_write.txt"
           try {
-              echo "Test content" | Out-File -FilePath $testFile -Encoding utf8 -ErrorAction Stop
-              if (Test-Path $testFile) {
-                  echo "Write permission confirmed"
-                  Remove-Item $testFile -Force
-              } else {
-                  echo "❌ Failed to create test file"
-                  dir
-                  exit 1
-              }
-          } catch {
-              echo "❌ Error writing test file: $_"
-              dir
-              exit 1
-          }
-
-          # Verify Python and pip
-          echo "Checking Python and pip versions..."
-          try {
-              python --version 2>&1 | Out-File -FilePath python_version.log -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ Python not found"
-                  Get-Content python_version.log
-                  exit 1 
-              }
-              echo "Python version:"
+            python --version 2>&1 | Out-File -FilePath python_version.log -Encoding utf8
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Python not found"
               Get-Content python_version.log
-          } catch {
-              echo "❌ Error running python --version: $_"
               exit 1
+            }
+            echo "Python version:"
+            Get-Content python_version.log
+          } catch {
+            echo "❌ Error running python --version: $_"
+            Get-Content python_version.log
+            exit 1
           }
-
           try {
-              python -m pip --version 2>&1 | Out-File -FilePath pip_version.log -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ pip not found"
-                  Get-Content pip_version.log
-                  exit 1 
-              }
-              echo "pip version:"
+            python -m pip --version 2>&1 | Out-File -FilePath pip_version.log -Encoding utf8
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ pip not found"
               Get-Content pip_version.log
+              exit 1
+            }
+            echo "pip version:"
+            Get-Content pip_version.log
           } catch {
-              echo "❌ Error running python -m pip --version: $_"
-              exit 1
+            echo "❌ Error running python -m pip --version: $_"
+            Get-Content pip_version.log
+            exit 1
           }
-
-          # Debug: Log Python and pip paths
-          echo "Checking Python and pip paths..."
-          $pythonPath = (Get-Command python).Source
-          $pipPath = & python -m pip --version | Select-String -Pattern 'from\s+([^\s]+)' | ForEach-Object { $_.Matches.Groups[1].Value }
-          echo "Python executable: $pythonPath" | Out-File -FilePath paths.log -Encoding utf8 -Append
-          echo "pip location: $pipPath" | Out-File -FilePath paths.log -Encoding utf8 -Append
-          Get-Content paths.log
-
-          # Upgrade pip
-          echo "Upgrading pip..."
-          $pipUpgradeLog = Join-Path (Get-Location) "pip_upgrade.log"
-          try {
-              python -m pip install --upgrade pip --verbose 2>&1 | Tee-Object -FilePath $pipUpgradeLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ Failed to upgrade pip"
-                  Get-Content $pipUpgradeLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error during pip upgrade: $_"
-              Get-Content $pipUpgradeLog
-              exit 1
-          }
-
-          # Install Visual C++ Redistributable
-          echo "Installing Visual C++ Redistributable..."
-          $vcredistLog = Join-Path (Get-Location) "vcredist_install.log"
-          try {
-              choco install vcredist2015 --no-progress --yes --force 2>&1 | Tee-Object -FilePath $vcredistLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ Failed to install Visual C++ Redistributable"
-                  Get-Content $vcredistLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error installing Visual C++ Redistributable: $_"
-              Get-Content $vcredistLog
-              exit 1
-          }
-
-          # Install wheel and setuptools
-          echo "Installing wheel and setuptools..."
-          $wheelSetuptoolsLog = Join-Path (Get-Location) "wheel_setuptools.log"
-          try {
-              python -m pip install --upgrade wheel setuptools --verbose 2>&1 | Tee-Object -FilePath $wheelSetuptoolsLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ Failed to install wheel/setuptools"
-                  Get-Content $wheelSetuptoolsLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error installing wheel/setuptools: $_"
-              Get-Content $wheelSetuptoolsLog
-              exit 1
-          }
-
-          # Inspect requirements.txt
-          echo "Inspecting requirements.txt..."
-          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
-          if (Test-Path requirements.txt) {
-              Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
-              echo "requirements.txt contents:"
-              Get-Content $requirementsLog
-          } else {
-              echo "❌ requirements.txt not found"
-              dir | Out-File -FilePath dir_contents.log -Encoding utf8
-              Get-Content dir_contents.log
-              exit 1
-          }
-
-          # Install packages from requirements.txt (to align with macOS job)
-          echo "Installing packages from requirements.txt..."
-          $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
-          try {
-              python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ Failed to install requirements"
-                  Get-Content $requirementsInstallLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error installing requirements: $_"
-              Get-Content $requirementsInstallLog
-              exit 1
-          }
-
-          # Install PyInstaller
-          echo "Installing PyInstaller..."
-          $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
-          try {
-              python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyInstallerLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ PyInstaller installation failed"
-                  Get-Content $pyInstallerLog
-                  exit 1 
-              }
-              echo "Successfully installed PyInstaller"
-          } catch {
-              echo "❌ Error installing PyInstaller: $_"
-              Get-Content $pyInstallerLog
-              exit 1
-          }
-
-          # Create installed_packages.txt with extreme debugging
-          echo "Creating installed_packages.txt..."
-          $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
-          echo "Running pip list to $installPackagesFile..."
-          try {
-              python -m pip list --verbose 2>&1 | Tee-Object -FilePath $installPackagesFile -Encoding utf8
-              if ($LASTEXITCODE -ne 0) {
-                  echo "❌ pip list command failed"
-                  if (Test-Path $installPackagesFile) { 
-                      echo "Partial output in installed_packages.txt:"
-                      Get-Content $installPackagesFile 
-                  }
-                  exit 1
-              }
-          } catch {
-              echo "❌ Error running pip list: $_"
-              if (Test-Path $installPackagesFile) { 
-                  echo "Partial output in installed_packages.txt:"
-                  Get-Content $installPackagesFile 
-              }
-              exit 1
-          }
-          if (-not (Test-Path $installPackagesFile)) {
-              echo "❌ installed_packages.txt not created at $installPackagesFile"
-              dir | Out-File -FilePath dir_contents.log -Encoding utf8
-              echo "Directory contents:"
-              Get-Content dir_contents.log
-              exit 1
-          }
-          echo "Contents of installed_packages.txt:"
-          Get-Content $installPackagesFile
-
-          # Verify PyInstaller and PySide6
-          echo "Verifying PyInstaller..."
-          $pyInstallerShowLog = Join-Path (Get-Location) "pyinstaller_show.log"
-          try {
-              python -m pip show pyinstaller 2>&1 | Out-File -FilePath $pyInstallerShowLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ PyInstaller not installed"
-                  Get-Content $pyInstallerShowLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error verifying PyInstaller: $_"
-              Get-Content $pyInstallerShowLog
-              exit 1
-          }
-
-          echo "Verifying PySide6..."
-          $pySide6ShowLog = Join-Path (Get-Location) "pyside6_show.log"
-          try {
-              python -m pip show PySide6 2>&1 | Out-File -FilePath $pySide6ShowLog -Encoding utf8
-              if ($LASTEXITCODE -ne 0) { 
-                  echo "❌ PySide6 not installed"
-                  Get-Content $pySide6ShowLog
-                  exit 1 
-              }
-          } catch {
-              echo "❌ Error verifying PySide6: $_"
-              Get-Content $pySide6ShowLog
-              exit 1
-          }
-
-          # Debug: Check PySide6 plugins
-          echo "Checking PySide6 plugins..."
-          $pluginsPathLog = Join-Path (Get-Location) "plugins_path.log"
-          try {
-              $pluginsPathRaw = & python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))" 2>&1
-              $pluginsPathRaw | Out-File -FilePath $pluginsPathLog -Encoding utf8
-              $pluginsPath = $pluginsPathRaw.Trim()
-              echo "Raw plugins path: '$pluginsPath'"
-              if (Test-Path $pluginsPath) {
-                  echo "Found plugins directory: $pluginsPath"
-                  dir $pluginsPath | Out-File -FilePath plugins_dir.log -Encoding utf8
-                  $platformsPath = Join-Path $pluginsPath "platforms"
-                  $imageformatsPath = Join-Path $pluginsPath "imageformats"
-                  if (-not (Test-Path $platformsPath)) { 
-                      echo "❌ PySide6 platforms directory missing: $platformsPath"
-                      exit 1 
-                  }
-                  if (-not (Test-Path $imageformatsPath)) { 
-                      echo "❌ PySide6 imageformats directory missing: $imageformatsPath"
-                      exit 1 
-                  }
-                  dir $platformsPath | Out-File -FilePath platforms_dir.log -Encoding utf8
-                  dir $imageformatsPath | Out-File -FilePath imageformats_dir.log -Encoding utf8
-                  echo "Platforms directory contents:"
-                  Get-Content platforms_dir.log
-                  echo "Imageformats directory contents:"
-                  Get-Content imageformats_dir.log
-              } else {
-                  echo "❌ PySide6 plugins directory missing: $pluginsPath"
-                  dir $pysideDir -Recurse | Out-File -FilePath pyside6_dir_contents.log -Encoding utf8
-                  echo "Listing PySide6 directory to diagnose..."
-                  Get-Content pyside6_dir_contents.log
-                  exit 1
-              }
-          } catch {
-              echo "❌ Error checking PySide6 plugins: $_"
-              Get-Content $pluginsPathLog
-              exit 1
-          }
-
-          echo "Dependency installation completed at $(Get-Date)"
         shell: powershell
         env:
           pythonLocation: C:\hostedtoolcache\windows\Python\3.9.13\x64
@@ -556,6 +314,167 @@ jobs:
           Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
           Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
           Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+
+      - name: Upgrade pip
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Upgrading pip at $(Get-Date)"
+          $pipUpgradeLog = Join-Path (Get-Location) "pip_upgrade.log"
+          try {
+            python -m pip install --upgrade pip --verbose 2>&1 | Tee-Object -FilePath $pipUpgradeLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to upgrade pip"
+              Get-Content $pipUpgradeLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error during pip upgrade: $_"
+            Get-Content $pipUpgradeLog
+            exit 1
+          }
+        shell: powershell
+
+      - name: Install Visual C++ Redistributable and wheel/setuptools
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Checking write permissions in $(Get-Location) at $(Get-Date)"
+          $testFile = Join-Path (Get-Location) "test_write.txt"
+          try {
+            echo "Test content" | Out-File -FilePath $testFile -Encoding utf8 -ErrorAction Stop
+            if (Test-Path $testFile) {
+              echo "Write permission confirmed"
+              Remove-Item $testFile -Force
+            } else {
+              echo "❌ Failed to create test file"
+              dir | Out-File -FilePath dir_contents.log -Encoding utf8
+              Get-Content dir_contents.log
+              exit 1
+            }
+          } catch {
+            echo "❌ Error writing test file: $_"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            Get-Content dir_contents.log
+            exit 1
+          }
+          echo "Installing Visual C++ Redistributable..."
+          $vcredistLog = Join-Path (Get-Location) "vcredist_install.log"
+          try {
+            choco install vcredist2015 --no-progress --yes --force 2>&1 | Tee-Object -FilePath $vcredistLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install Visual C++ Redistributable"
+              Get-Content $vcredistLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error installing Visual C++ Redistributable: $_"
+            Get-Content $vcredistLog
+            exit 1
+          }
+          echo "Installing wheel and setuptools..."
+          $wheelSetuptoolsLog = Join-Path (Get-Location) "wheel_setuptools.log"
+          try {
+            python -m pip install --upgrade wheel setuptools --verbose 2>&1 | Tee-Object -FilePath $wheelSetuptoolsLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install wheel/setuptools"
+              Get-Content $wheelSetuptoolsLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error installing wheel/setuptools: $_"
+            Get-Content $wheelSetuptoolsLog
+            exit 1
+          }
+        shell: powershell
+
+      - name: Install requirements and PyInstaller
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Installing packages at $(Get-Date)"
+          echo "Inspecting requirements.txt..."
+          $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
+          if (Test-Path requirements.txt) {
+            Get-Content requirements.txt | Out-File -FilePath $requirementsLog -Encoding utf8
+            echo "requirements.txt contents:"
+            Get-Content $requirementsLog
+          } else {
+            echo "❌ requirements.txt not found"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            Get-Content dir_contents.log
+            exit 1
+          }
+          echo "Installing packages from requirements.txt..."
+          $requirementsInstallLog = Join-Path (Get-Location) "requirements_install.log"
+          try {
+            python -m pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $requirementsInstallLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ Failed to install requirements"
+              Get-Content $requirementsInstallLog
+              exit 1
+            }
+          } catch {
+            echo "❌ Error installing requirements: $_"
+            Get-Content $requirementsInstallLog
+            exit 1
+          }
+          echo "Installing PyInstaller..."
+          $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
+          try {
+            python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 | Tee-Object -FilePath $pyInstallerLog
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ PyInstaller installation failed"
+              Get-Content $pyInstallerLog
+              exit 1
+            }
+            echo "Successfully installed PyInstaller"
+          } catch {
+            echo "❌ Error installing PyInstaller: $_"
+            Get-Content $pyInstallerLog
+            exit 1
+          }
+        shell: powershell
+
+      - name: Create installed packages list
+        run: |
+          $ErrorActionPreference = 'Stop'
+          echo "Creating installed_packages.txt at $(Get-Date)"
+          $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
+          try {
+            python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
+            if ($LASTEXITCODE -ne 0) {
+              echo "❌ pip list command failed"
+              if (Test-Path $installPackagesFile) {
+                echo "Partial output in installed_packages.txt:"
+                Get-Content $installPackagesFile
+              }
+              exit 1
+            }
+          } catch {
+            echo "❌ Error running pip list: $_"
+            if (Test-Path $installPackagesFile) {
+              echo "Partial output in installed_packages.txt:"
+              Get-Content $installPackagesFile
+            }
+            exit 1
+          }
+          if (-not (Test-Path $installPackagesFile)) {
+            echo "❌ installed_packages.txt not created at $installPackagesFile"
+            dir | Out-File -FilePath dir_contents.log -Encoding utf8
+            echo "Directory contents:"
+            Get-Content dir_contents.log
+            exit 1
+          }
+          echo "Contents of installed_packages.txt:"
+          Get-Content $installPackagesFile
+        shell: powershell
+
+      - name: Upload all install logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-windows
+          path: |
+            *.log
+            installed_packages.txt
+        if: always()
 
 
 
