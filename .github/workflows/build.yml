@@ -478,14 +478,18 @@ jobs:
           echo "==============================="
           
           $pyInstallerLog = Join-Path (Get-Location) "pyinstaller_install.log"
-          
+
           try {
             echo "📦 Installing PyInstaller==6.14.0..."
             python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose 2>&1 `
               | Tee-Object -FilePath $pyInstallerLog
             $exitCode = $LASTEXITCODE
-            echo "📄 Install finished with exit code: $exitCode"
-          } catch {
+
+            if ($exitCode -ne 0) {
+              throw "PyInstaller installation failed with exit code $exitCode"
+            }
+          }
+          catch {
             echo "❌ Exception occurred during installation: $_"
             if (Test-Path $pyInstallerLog) {
               echo "📄 Dumping log:"
@@ -512,6 +516,7 @@ jobs:
 
           echo "✅ Installation complete"
         shell: powershell
+
 
 
 
