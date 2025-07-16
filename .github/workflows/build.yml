@@ -564,7 +564,6 @@ jobs:
 
 
 
-      # Build GUI executable
       - name: Build GUI Executable
         run: |
           echo "Finding PySide6 plugins..."
@@ -606,14 +605,17 @@ jobs:
             --hidden-import=docopt_ng `
             --runtime-hook=runtime-hook.py `
             app.py > pyinstaller.log 2>&1
+
           if ($LASTEXITCODE -ne 0) {
             echo "❌ PyInstaller build failed!"
-            Get-Content pyinstaller.log
+            echo "Showing last 100 lines of pyinstaller.log:"
+            Get-Content pyinstaller.log -Tail 100
             exit 1
           }
           echo "✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
         shell: powershell
+
 
 
       # Upload PyInstaller log
