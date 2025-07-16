@@ -35,6 +35,9 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0
         pip list > installed_packages.txt
+        python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
+        cat plugins_path.txt
+        ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
 
     - name: Show installed packages
       run: cat installed_packages.txt
@@ -60,6 +63,11 @@ jobs:
 
     - name: Build App with PyInstaller
       run: |
+        python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'plugins'); print(plugins_path)" > plugins_path.txt
+        export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+        ls -ld "$PYSIDE6_PLUGINS/platforms" || export PYSIDE6_PLUGINS=/Library/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages/PySide6/plugins
+        ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory missing" && exit 1)
+        ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
         pyinstaller --log-level=DEBUG app.spec > pyinstaller.log 2>&1
         echo "📁 dist/ contents:"
         ls -lh dist
@@ -130,6 +138,9 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller>=6.14.0,<7.0.0
         pip list > installed_packages.txt
+        python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
+        type plugins_path.txt
+        dir type plugins_path.txt || echo "❌ PySide6 plugins directory missing"
       shell: cmd
 
     - name: Show installed packages
@@ -161,7 +172,13 @@ jobs:
         echo ===== Building with PyInstaller =====
         python -c "import PySide6; print(PySide6.__file__)" > pyside6_path.txt
         set /p PYSIDE6_PATH=<pyside6_path.txt
+        echo PYSIDE6_PATH=%PYSIDE6_PATH%
         set PYSIDE6_PLUGINS=%PYSIDE6_PATH%\..\PySide6\plugins
+        echo PYSIDE6_PLUGINS=%PYSIDE6_PLUGINS%
+        if not exist "%PYSIDE6_PLUGINS%\platforms" (
+          echo "❌ Platforms directory missing, using fallback path"
+          set PYSIDE6_PLUGINS=C:\hostedtoolcache\windows\Python\3.9.13\x64\Lib\site-packages\PySide6\plugins
+        )
         dir "%PYSIDE6_PLUGINS%\platforms" || (echo "❌ Platforms directory missing" && exit 1)
         dir "%PYSIDE6_PLUGINS%\imageformats" || (echo "❌ Imageformats directory missing" && exit 1)
         pyinstaller --noconfirm --windowed --onedir ^
