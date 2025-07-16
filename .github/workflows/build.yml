@@ -31,13 +31,21 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller>=6.14.0,<7.0.0 dmgbuild>=1.0.0,<2.0.0 --no-cache-dir
+        echo "Installing PyInstaller..."
+        pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
         python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
         cat plugins_path.txt
         ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory missing"
       shell: bash
+
+    - name: Upload PyInstaller install log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-install-log-macos
+        path: pyinstaller_install.log
+      if: always()
 
     - name: Show installed packages
       run: cat installed_packages.txt
@@ -141,7 +149,8 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller>=6.14.0,<7.0.0 --no-cache-dir
+        echo "Installing PyInstaller..."
+        pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && type pyinstaller_install.log && exit 1)
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
         set PATH=%PATH%;C:\hostedtoolcache\windows\Python\3.9.13\x64\Scripts
@@ -150,6 +159,13 @@ jobs:
         type plugins_path.txt
         dir type plugins_path.txt || echo "❌ PySide6 plugins directory missing"
       shell: cmd
+
+    - name: Upload PyInstaller install log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyinstaller-install-log-windows
+        path: pyinstaller_install.log
+      if: always()
 
     - name: Show installed packages
       run: type installed_packages.txt
