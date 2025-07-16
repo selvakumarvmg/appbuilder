@@ -33,12 +33,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --upgrade wheel setuptools
           pip cache purge
           echo "Inspecting requirements.txt..."
           cat requirements.txt
           echo "Installing requirements..."
           pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
-          echo "Installing PySide6..."
+          echo "Installing PySide6 and dependencies..."
           pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
           echo "Installing PyInstaller..."
           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
@@ -162,7 +163,9 @@ jobs:
             --hidden-import=PIL.Image \
             --hidden-import=login \
             --hidden-import=icons_rc \
+            --hidden-import=psd_tools \
             --collect-submodules PySide6 \
+            --collect-submodules psd_tools \
             --runtime-hook=runtime-hook.py \
             app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
           echo "📁 dist/ contents:"
@@ -249,11 +252,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --upgrade wheel setuptools
           echo "Inspecting requirements.txt..."
           Get-Content requirements.txt
           echo "Installing requirements..."
           pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose *> requirements_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install requirements"; Get-Content requirements_install.log; exit 1 }
-          echo "Installing PySide6..."
+          echo "Installing PySide6 and dependencies..."
           pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose *> pyside6_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ Failed to install PySide6"; Get-Content pyside6_install.log; exit 1 }
           echo "Installing PyInstaller..."
           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose *> pyinstaller_install.log; if ($LASTEXITCODE -ne 0) { echo "❌ PyInstaller installation failed"; Get-Content pyinstaller_install.log; exit 1 }
@@ -362,7 +366,9 @@ jobs:
             --hidden-import=PIL.Image `
             --hidden-import=login `
             --hidden-import=icons_rc `
+            --hidden-import=psd_tools `
             --collect-submodules PySide6 `
+            --collect-submodules psd_tools `
             --runtime-hook=runtime-hook.py `
             app.py *> pyinstaller.log; if ($LASTEXITCODE -ne 0) { echo "PyInstaller failed"; Get-Content pyinstaller.log; exit 1 }
           echo "dist/ contents:"
