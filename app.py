@@ -144,11 +144,8 @@ NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_SHARE = ""
-<<<<<<< Updated upstream
-=======
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
->>>>>>> Stashed changes
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 
 # === Global State ===
@@ -904,692 +901,13 @@ class FileConversionWorker(QObject):
             self.error.emit(str(e), Path(self.src_path).name)
 
 from PySide6.QtWidgets import QProgressDialog
-<<<<<<< Updated upstream
-# class FileWatcherWorker(QObject):
-#     status_update = Signal(str)
-#     log_update = Signal(str)
-#     progress_update = Signal(str, str, int)
-
-#     _instance = None
-
-#     def __init__(self, parent=None):
-#         if FileWatcherWorker._instance is not None:
-#             logger.warning("FileWatcherWorker already instantiated, skipping new instance")
-#             return
-#         super().__init__(parent)
-#         FileWatcherWorker._instance = self
-#         self.processed_tasks = set()
-#         self.progress_dialog = None
-
-#     @staticmethod
-#     def get_instance(parent=None):
-#         """Return the singleton instance of FileWatcherWorker."""
-#         if FileWatcherWorker._instance is None:
-#             FileWatcherWorker._instance = FileWatcherWorker(parent)
-#         return FileWatcherWorker._instance
-
-#     def check_connectivity(self):
-#         cache = load_cache()
-#         user_id = cache.get('user_id', '')
-#         token = cache.get('token', '')
-#         if not user_id or not token:
-#             logger.error("No user_id or token found in cache for connectivity check")
-#             self.log_update.emit("[API Scan] Failed: No user_id or token found in cache for connectivity check")
-#             return False
-
-#         api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-#         headers = {"Authorization": f"Bearer {token}"}
-#         try:
-#             logger.debug(f"Checking API connectivity: {api_url}")
-#             self.log_update.emit(f"[API Scan] Checking API connectivity: {api_url}")
-#             response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=10)
-#             app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-#             if response.status_code != 200:
-#                 logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
-#                 self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
-#                 return False
-#             self.log_update.emit("[API Scan] API connectivity check passed")
-#         except Exception as e:
-#             logger.warning(f"API connectivity check failed: {str(e)}")
-#             self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
-#             return False
-
-#         if NAS_AVAILABLE:
-#             nas_connection = connect_to_nas()
-#             if not nas_connection:
-#                 logger.warning("NAS connectivity check failed, continuing without NAS")
-#                 self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
-#                 return True
-#             transport, sftp = nas_connection
-#             try:
-#                 sftp.stat("/irdev")  # Verify share exists
-#                 self.log_update.emit("[API Scan] NAS share /irdev accessible")
-#             except Exception as e:
-#                 logger.warning(f"NAS share check failed: {str(e)}")
-#                 self.log_update.emit(f"[API Scan] NAS share check failed: {str(e)}")
-#                 transport.close()
-#                 return True
-#             transport.close()
-#         return True
-
-#     def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-#         try:
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
-#             self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
-#         except Exception as e:
-#             logger.error(f"Progress dialog error for {action_type}: {e}")
-#             self.log_update.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
-
-#     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-#         try:
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 10)
-#             if action_type.lower() == "download":
-#                 if is_nas_src:
-#                     nas_connection = connect_to_nas()
-#                     if not nas_connection:
-#                         raise Exception(f"NAS connection failed to {NAS_IP}")
-#                     transport, sftp = nas_connection
-#                     try:
-#                         # Use NAS_SHARE for path
-#                         nas_base_path = "/irdev"
-#                         if not src_path.startswith("/"):
-#                             src_path = f"{nas_base_path}/{src_path}"
-#                         logger.debug(f"Attempting NAS download: {src_path} to {dest_path}")
-#                         self.log_update.emit(f"[Transfer] Attempting NAS download: {src_path} to {dest_path}")
-#                         sftp.stat(src_path)  # Check if file exists
-#                         sftp.get(src_path, dest_path)
-#                         transport.close()
-#                     except Exception as e:
-#                         transport.close()
-#                         raise Exception(f"NAS download failed for {src_path}: {str(e)}")
-#                 else:
-#                     response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
-#                     response.raise_for_status()
-#                     with open(dest_path, 'wb') as f:
-#                         f.write(response.content)
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
-#                 app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
-#                 app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-#             elif action_type.lower() == "upload":
-#                 if is_nas_dest:
-#                     nas_connection = connect_to_nas()
-#                     if not nas_connection:
-#                         raise Exception(f"NAS connection failed to {NAS_IP}")
-#                     transport, sftp = nas_connection
-#                     try:
-#                         nas_base_path = "/irdev"
-#                         if not dest_path.startswith("/"):
-#                             dest_path = f"{nas_base_path}/{dest_path}"
-#                         sftp.put(src_path, dest_path)
-#                         transport.close()
-#                     except Exception as e:
-#                         transport.close()
-#                         raise Exception(f"NAS upload failed for {dest_path}: {str(e)}")
-#                 else:
-#                     with open(src_path, 'rb') as f:
-#                         response = HTTP_SESSION.post(
-#                             f"{BASE_DOMAIN}/api/ir_production/upload",
-#                             files={'file': f},
-#                             headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-#                             verify=False,
-#                             timeout=30
-#                         )
-#                         response.raise_for_status()
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
-#                 app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
-#                 app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_dest)
-#         except Exception as e:
-#             logger.error(f"File {action_type} error: {e}")
-#             self.log_update.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
-#             app_signals.update_file_list.emit(dest_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
-
-#     def run(self):
-#         global FILE_WATCHER_RUNNING, LAST_API_HIT_TIME, NEXT_API_HIT_TIME
-#         if not FILE_WATCHER_RUNNING:
-#             logger.info("File watcher stopped due to FILE_WATCHER_RUNNING being False")
-#             self.status_update.emit("File watcher stopped")
-#             self.log_update.emit("[API Scan] File watcher stopped due to FILE_WATCHER_RUNNING being False")
-#             return
-#         try:
-#             logger.debug("Starting file watcher run")
-#             self.log_update.emit("[API Scan] Starting file watcher run")
-#             if not self.check_connectivity():
-#                 logger.warning("Connectivity check failed, will retry on next run")
-#                 self.status_update.emit("Connectivity check failed, will retry")
-#                 self.log_update.emit("[API Scan] Connectivity check failed")
-#                 return
-
-#             self.status_update.emit("Checking for file tasks...")
-#             self.log_update.emit("[API Scan] Starting file task check")
-#             app_signals.append_log.emit("[API Scan] Initiating file task check")
-#             LAST_API_HIT_TIME = datetime.now(ZoneInfo("UTC"))
-#             NEXT_API_HIT_TIME = LAST_API_HIT_TIME + timedelta(milliseconds=API_POLL_INTERVAL)
-#             app_signals.update_timer_status.emit(
-#                 f"Last API hit: {LAST_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-#                 f"Next API hit: {NEXT_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-#                 f"Interval: {API_POLL_INTERVAL/1000:.1f}s"
-#             )
-#             cache = load_cache()
-#             logger.debug(f"Cache contents before processing: {json.dumps(cache, indent=2)}")
-#             self.log_update.emit(f"[API Scan] Cache contents: {json.dumps(cache, indent=2)}")
-
-#             user_id = cache.get('user_id', '')
-#             token = cache.get('token', '')
-#             if not user_id or not token:
-#                 logger.error("No user_id or token found in cache, stopping file watcher")
-#                 self.status_update.emit("No user_id or token found in cache")
-#                 self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
-#                 FILE_WATCHER_RUNNING = False
-#                 return
-#             headers = {"Authorization": f"Bearer {token}"}
-#             max_retries = 3
-#             tasks = []
-#             for attempt in range(max_retries):
-#                 try:
-#                     api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-#                     logger.debug(f"Hitting API: {api_url}")
-#                     app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
-#                     response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
-#                     logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
-#                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
-#                     app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-#                     if response.status_code == 401:
-#                         logger.warning("Unauthorized: Token may be invalid, stopping file watcher")
-#                         self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
-#                         FILE_WATCHER_RUNNING = False
-#                         return
-#                     response.raise_for_status()
-#                     response_data = response.json()
-#                     logger.debug(f"Raw API response: {json.dumps(response_data, indent=2)}")
-#                     self.log_update.emit(f"[API Scan] Raw API response: {json.dumps(response_data[:5], indent=2)}")
-#                     tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
-#                     if not isinstance(tasks, list):
-#                         logger.error(f"API returned non-list tasks: {type(tasks)}, data: {tasks}")
-#                         self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
-#                         return
-#                     for i, task in enumerate(tasks):
-#                         if not isinstance(task, dict):
-#                             logger.error(f"Invalid task at index {i}: {type(task)}, data: {task}")
-#                             self.log_update.emit(f"[API Scan] Failed: Invalid task at index {i}: {type(task)}")
-#                             continue
-#                         if not task.get('id') or not task.get('file_path'):
-#                             logger.error(f"Invalid task at index {i}: Missing id or file_path, task: {task}")
-#                             self.log_update.emit(f"[API Scan] Failed: Invalid task at index {i}: Missing id or file_path")
-#                             continue
-#                     logger.debug(f"Tasks retrieved: {json.dumps(tasks, indent=2)}")
-#                     self.log_update.emit(f"[API Scan] Tasks retrieved: {json.dumps(tasks[:5], indent=2)}")
-#                     self.log_update.emit(f"[API Scan] Retrieved {len(tasks)} tasks")
-#                     app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
-#                     break
-#                 except RequestException as e:
-#                     logger.error(f"Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}")
-#                     self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
-#                     if attempt == max_retries - 1:
-#                         logger.warning("Max retries reached for task fetch, will retry on next run")
-#                         self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
-#                         self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
-#                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
-#                         return
-
-#             # Validate cache
-#             cache = load_cache()
-#             if not isinstance(cache.get("downloaded_files", {}), dict):
-#                 logger.warning("Invalid downloaded_files in cache, resetting to dict")
-#                 self.log_update.emit("[API Scan] Invalid downloaded_files in cache, resetting to dict")
-#                 cache["downloaded_files"] = {}
-#                 save_cache(cache)
-#             if not isinstance(cache.get("downloaded_files_with_metadata", {}), dict):
-#                 logger.warning("Invalid downloaded_files_with_metadata in cache, resetting to dict")
-#                 self.log_update.emit("[API Scan] Invalid downloaded_files_with_metadata in cache, resetting to dict")
-#                 cache["downloaded_files_with_metadata"] = {}
-#                 save_cache(cache)
-#             if not isinstance(cache.get("uploaded_files", []), list):
-#                 logger.warning("Invalid uploaded_files in cache, resetting to list")
-#                 self.log_update.emit("[API Scan] Invalid uploaded_files in cache, resetting to list")
-#                 cache["uploaded_files"] = []
-#                 save_cache(cache)
-
-#             for item in tasks[:5]:
-#                 if not isinstance(item, dict):
-#                     logger.error(f"Invalid task item type: {type(item)}, item: {item}")
-#                     self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
-#                     continue
-#                 task_key = f"{item.get('file_path', '')}:{item.get('request_type', '')}"
-#                 task_id = str(item.get('id', ''))  # Ensure task_id is string
-#                 logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}")
-#                 self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}")
-#                 if task_key in self.processed_tasks or (task_id and task_id in cache.get('downloaded_files_with_metadata', {})):
-#                     logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
-#                     self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
-#                     continue
-#                 file_path = item.get('file_path', '')
-#                 file_name = item.get('file_name', Path(file_path).name)
-#                 action_type = item.get('request_type', '').lower()
-#                 is_online = 'http' in file_path.lower()
-#                 local_path = str(BASE_TARGET_DIR / file_name)
-
-#                 if action_type == "download":
-#                     self.status_update.emit(f"Downloading {file_name}")
-#                     self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
-#                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-#                     self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
-#                     cache = load_cache()
-#                     if "downloaded_files_with_metadata" not in cache:
-#                         cache["downloaded_files_with_metadata"] = {}
-#                     if "downloaded_files" not in cache:
-#                         cache["downloaded_files"] = {}
-#                     if task_id:
-#                         cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-#                         cache["downloaded_files"][task_id] = local_path
-#                     timer_response = start_timer_api(file_path, cache["token"])
-#                     if timer_response:
-#                         cache["timer_responses"][local_path] = timer_response
-#                     save_cache(cache)
-#                     self.processed_tasks.add(task_key)
-                    
-#                 elif action_type == "upload" and Path(local_path).exists():
-#                     self.status_update.emit(f"Uploading {file_name}")
-#                     self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
-#                     app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-#                     self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
-#                     cache = load_cache()
-#                     cache["uploaded_files"].append(file_path)
-#                     timer_response = cache.get("timer_responses", {}).get(local_path)
-#                     if timer_response:
-#                         end_timer_api(file_path, timer_response, cache["token"])
-#                     save_cache(cache)
-#                     self.processed_tasks.add(task_key)
-#                 self.status_update.emit("File tasks check completed")
-#                 self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks[:5])} tasks")
-#                 app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks[:5])} tasks")
-                
-#                     if not is_online and self.parent():
-#                         self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
-
-#         except Exception as e:
-#             logger.error(f"Error processing tasks: {e}")
-#             self.status_update.emit(f"Error processing tasks: {str(e)}")
-#             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
-#             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-
-
-# class FileWatcherWorker(QObject):
-#     status_update = Signal(str)
-#     log_update = Signal(str)
-#     progress_update = Signal(str, str, int)
-
-#     _instance = None
-
-#     def __init__(self, parent=None):
-#         if FileWatcherWorker._instance is not None:
-#             raise RuntimeError("FileWatcherWorker is a singleton, use get_instance()")
-#         super().__init__(parent)
-#         FileWatcherWorker._instance = self
-#         self.processed_tasks = set()
-#         self.progress_dialog = None
-#         global FILE_WATCHER_RUNNING
-#         FILE_WATCHER_RUNNING = True
-#         logger.info("FileWatcherWorker initialized")
-#         self.log_update.emit("[FileWatcher] Initialized")
-
-#     @staticmethod
-#     def get_instance(parent=None):
-#         """Return the singleton instance of FileWatcherWorker."""
-#         if FileWatcherWorker._instance is None:
-#             FileWatcherWorker._instance = FileWatcherWorker(parent)
-#         return FileWatcherWorker._instance
-
-#     def check_connectivity(self):
-#         """Check API and NAS connectivity."""
-#         cache = load_cache()
-#         user_id = cache.get('user_id', '')
-#         token = cache.get('token', '')
-#         if not user_id or not token:
-#             logger.error("No user_id or token found in cache for connectivity check")
-#             self.log_update.emit("[API Scan] Failed: No user_id or token found in cache for connectivity check")
-#             return False
-
-#         # Check API connectivity
-#         api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-#         headers = {"Authorization": f"Bearer {token}"}
-#         try:
-#             logger.debug(f"Checking API connectivity: {api_url}")
-#             self.log_update.emit(f"[API Scan] Checking API connectivity: {api_url}")
-#             response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=10)
-#             app_signals.api_call_status.emit(
-#                 api_url,
-#                 f"Status: {response.status_code}, Response: {response.text[:500]}...",
-#                 response.status_code
-#             )
-#             if response.status_code != 200:
-#                 logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
-#                 self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
-#                 return False
-#             self.log_update.emit("[API Scan] API connectivity check passed")
-#         except RequestException as e:
-#             logger.warning(f"API connectivity check failed: {str(e)}")
-#             self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
-#             return False
-
-#         # Check NAS connectivity if available
-#         if NAS_AVAILABLE:
-#             nas_connection = connect_to_nas()
-#             if not nas_connection:
-#                 logger.warning("NAS connectivity check failed, continuing without NAS")
-#                 self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
-#                 return True
-#             transport, sftp = nas_connection
-#             try:
-#                 sftp.stat("/irdev")  # Verify share exists
-#                 self.log_update.emit("[API Scan] NAS share /irdev accessible")
-#                 transport.close()
-#             except Exception as e:
-#                 logger.warning(f"NAS share check failed: {str(e)}")
-#                 self.log_update.emit(f"[API Scan] NAS share check failed: {str(e)}")
-#                 transport.close()
-#                 return True
-#         return True
-
-#     def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-#         """Initiate file transfer with progress updates."""
-#         try:
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 0)
-#             self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
-#         except Exception as e:
-#             logger.error(f"Progress dialog error for {action_type}: {e}")
-#             self.log_update.emit(f"[Progress] Failed: {action_type} progress error - {str(e)}")
-
-
-#     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-#         """Perform file transfer (download or upload) with progress updates."""
-#         try:
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 10)
-#             if action_type.lower() == "download":
-#                 # For downloads, maintain original filename and directory structure under local base path
-#                 original_filename = Path(src_path).name
-#                 relative_path = Path(src_path).relative_to(Path(src_path).anchor) if is_nas_src else Path(src_path).name
-#                 local_base_path = Path.home() / "Downloads"  # Define local base path
-#                 dest_path = local_base_path / relative_path
-#                 Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-
-#                 if is_nas_src:
-#                     nas_connection = connect_to_nas()
-#                     if not nas_connection:
-#                         raise Exception(f"NAS connection failed to {NAS_IP}")
-#                     transport, sftp = nas_connection
-#                     try:
-#                         # Use nas_path if provided, otherwise fall back to file_path
-#                         nas_path = item.get('file_path', None)
-#                         src_path = nas_path if nas_path else src_path
-#                         logger.debug(f"Attempting NAS download: {src_path} to {dest_path}")
-#                         self.log_update.emit(f"[Transfer] Attempting NAS download: {src_path} to {dest_path}")
-#                         sftp.stat(src_path)  # Check if file exists
-#                         sftp.get(src_path, str(dest_path))
-#                         transport.close()
-#                     except Exception as e:
-#                         transport.close()
-#                         raise Exception(f"NAS download failed for {src_path}: {str(e)}")
-#                 else:
-#                     response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
-#                     response.raise_for_status()
-#                     with open(dest_path, 'wb') as f:
-#                         f.write(response.content)
-#                 self.progress_update.emit(f"{action_type}: {original_filename}", str(dest_path), 50)
-#                 app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-#                 self.progress_update.emit(f"{action_type}: {original_filename}", str(dest_path), 100)
-#                 app_signals.update_file_list.emit(str(dest_path), f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-#             elif action_type.lower() == "upload":
-#                 if not Path(src_path).exists():
-#                     raise FileNotFoundError(f"Source file does not exist: {src_path}")
-#                 if is_nas_dest:
-#                     nas_connection = connect_to_nas()
-#                     if not nas_connection:
-#                         raise Exception(f"NAS connection failed to {NAS_IP}")
-#                     transport, sftp = nas_connection
-#                     try:
-#                         # Use nas_path if provided, otherwise fall back to file_path
-#                         nas_path = item.get('nas_path', None)
-#                         dest_path = nas_path if nas_path else dest_path
-#                         logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
-#                         self.log_update.emit(f"[Transfer] Attempting NAS upload: {src_path} to {dest_path}")
-#                         # Create parent directories on NAS if they don't exist
-#                         parent_path = "/".join(dest_path.split("/")[:-1])
-#                         try:
-#                             sftp.stat(parent_path)
-#                         except FileNotFoundError:
-#                             sftp.makedirs(parent_path)
-#                         sftp.put(src_path, dest_path)
-#                         transport.close()
-#                     except Exception as e:
-#                         transport.close()
-#                         raise Exception(f"NAS upload failed for {dest_path}: {str(e)}")
-#                 else:
-#                     with open(src_path, 'rb') as f:
-#                         response = HTTP_SESSION.post(
-#                             f"{BASE_DOMAIN}/api/ir_production/upload",
-#                             files={'file': f},
-#                             headers={"Authorization": f"Bearer {load_cache().get('token', '')}"},
-#                             verify=False,
-#                             timeout=30
-#                         )
-#                         response.raise_for_status()
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 50)
-#                 app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-#                 self.progress_update.emit(f"{action_type}: {Path(src_path).name}", dest_path, 100)
-#                 app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_dest)
-#         except Exception as e:
-#             logger.error(f"File {action_type} error: {e}")
-#             self.log_update.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
-#             app_signals.update_file_list.emit(str(dest_path), f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
-#             self.progress_update.emit(f"{action_type}: {Path(src_path).name}", str(dest_path), 0)
-
-#     def run(self):
-#         global FILE_WATCHER_RUNNING, LAST_API_HIT_TIME, NEXT_API_HIT_TIME
-#         if not FILE_WATCHER_RUNNING:
-#             logger.info("File watcher stopped due to FILE_WATCHER_RUNNING being False")
-#             self.log_update.emit("[FileWatcher] Stopped: FILE_WATCHER_RUNNING is False")
-#             return
-
-#         try:
-#             logger.debug("Starting file watcher run")
-#             self.log_update.emit("[API Scan] Starting file watcher run")
-
-#             # Check connectivity
-#             if not self.check_connectivity():
-#                 logger.warning("Connectivity check failed, will retry on next run")
-#                 self.status_update.emit("Connectivity check failed, will retry")
-#                 self.log_update.emit("[API Scan] Connectivity check failed")
-#                 return
-
-#             # Load cache once
-#             cache = load_cache()
-#             user_id = cache.get('user_id', '')
-#             token = cache.get('token', '')
-#             if not user_id or not token:
-#                 logger.error("No user_id or token found in cache")
-#                 self.status_update.emit("No user_id or token found in cache")
-#                 self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
-#                 self.request_reauth.emit()  # Signal to show login dialog
-#                 return
-
-#             # Update timers
-#             self.status_update.emit("Checking for file tasks...")
-#             self.log_update.emit("[API Scan] Starting file task check")
-#             app_signals.append_log.emit("[API Scan] Initiating file task check")
-#             LAST_API_HIT_TIME = datetime.now(ZoneInfo("UTC"))
-#             NEXT_API_HIT_TIME = LAST_API_HIT_TIME + timedelta(milliseconds=API_POLL_INTERVAL)
-#             app_signals.update_timer_status.emit(
-#                 f"Last API hit: {LAST_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-#                 f"Next API hit: {NEXT_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-#                 f"Interval: {API_POLL_INTERVAL/1000:.1f}s"
-#             )
-
-#             # Fetch tasks from API
-#             headers = {"Authorization": f"Bearer {token}"}
-#             max_retries = 3
-#             tasks = []
-#             api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-#             for attempt in range(max_retries):
-#                 try:
-#                     logger.debug(f"Hitting API: {api_url}")
-#                     app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
-#                     response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
-#                     logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
-#                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
-#                     app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-                    
-#                     if response.status_code == 401:
-#                         logger.warning("Unauthorized: Token may be invalid")
-#                         self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
-#                         self.status_update.emit("Unauthorized: Token invalid")
-#                         self.request_reauth.emit()  # Signal to show login dialog
-#                         return
-                    
-#                     response.raise_for_status()
-#                     response_data = response.json()
-#                     tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
-#                     if not isinstance(tasks, list):
-#                         logger.error(f"API returned non-list tasks: {type(tasks)}, data: {tasks}")
-#                         self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
-#                         return
-#                     logger.debug(f"Retrieved {len(tasks)} tasks")
-#                     app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
-#                     break
-#                 except RequestException as e:
-#                     logger.error(f"Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}")
-#                     self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
-#                     if attempt == max_retries - 1:
-#                         logger.warning("Max retries reached for task fetch, will retry on next run")
-#                         self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
-#                         self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
-#                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
-#                         return
-
-#             # Validate cache structures
-#             for key, default_type, default_value in [
-#                 ("downloaded_files", dict, {}),
-#                 ("downloaded_files_with_metadata", dict, {}),
-#                 ("uploaded_files", list, []),
-#                 ("uploaded_files_with_metadata", dict, {}),
-#             ]:
-#                 if not isinstance(cache.get(key, default_value), default_type):
-#                     logger.warning(f"Invalid {key} in cache, resetting to {default_type.__name__}")
-#                     self.log_update.emit(f"[API Scan] Invalid {key} in cache, resetting to {default_type.__name__}")
-#                     cache[key] = default_value
-#             save_cache(cache)
-
-#             # Process tasks
-#             updates = []
-#             for item in tasks:
-#                 if not isinstance(item, dict):
-#                     logger.error(f"Invalid task item type: {type(item)}, item: {item}")
-#                     self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
-#                     continue
-#                 task_id = str(item.get('id', ''))
-#                 file_path = item.get('file_path', '')
-#                 file_name = item.get('file_name', Path(file_path).name)
-#                 action_type = item.get('request_type', '').lower()
-#                 nas_path = item.get('nas_path', None)
-                
-#                 # Skip download if file exists and nas_path is provided
-#                 if action_type == "download" and nas_path and Path(BASE_TARGET_DIR / file_name).exists():
-#                     logger.warning(f"Task {task_id} has nas_path and local file exists; skipping download")
-#                     self.log_update.emit(f"[API Scan] Task {task_id} has nas_path and local file exists; skipping download")
-#                     self.processed_tasks.add(f"{task_id}:{action_type}")
-#                     updates.append((str(BASE_TARGET_DIR / file_name), "Download Skipped: File exists", action_type, 100, True))
-#                     continue
-                
-#                 task_key = f"{task_id}:{action_type}"
-#                 logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
-#                 self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
-                
-#                 if task_key in self.processed_tasks:
-#                     logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
-#                     self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
-#                     continue
-                
-#                 is_online = 'http' in file_path.lower()
-#                 local_path = str(BASE_TARGET_DIR / (Path(nas_path).name if nas_path and action_type == "upload" else file_name))
-
-#                 if action_type == "download":
-#                     self.status_update.emit(f"Downloading {file_name}")
-#                     self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
-#                     app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-#                     self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
-                    
-#                     cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-#                     cache["downloaded_files"][task_id] = local_path
-#                     timer_response = start_timer_api(file_path, token)
-#                     if timer_response:
-#                         cache.setdefault("timer_responses", {})[local_path] = timer_response
-#                     save_cache(cache)
-                    
-#                     self.processed_tasks.add(task_key)
-#                     updates.append((local_path, "Download Completed", action_type, 100, not is_online))
-#                     if not is_online and self.parent():
-#                         self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
-                
-#                 elif action_type == "upload":
-#                     self.status_update.emit(f"Uploading {file_name}")
-#                     self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
-#                     app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-                    
-#                     cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-#                     if local_path not in cache["uploaded_files"]:
-#                         cache["uploaded_files"].append(local_path)
-#                     save_cache(cache)
-                    
-#                     if Path(local_path).exists():
-#                         self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
-#                         timer_response = cache.get("timer_responses", {}).get(local_path)
-#                         if timer_response:
-#                             end_timer_api(file_path, timer_response, token)
-#                         updates.append((local_path, "Upload Completed", action_type, 100, not is_online))
-#                     else:
-#                         self.log_update.emit(f"[API Scan] Upload skipped: {local_path} does not exist")
-#                         updates.append((local_path, "Upload Failed: File not found", action_type, 0, not is_online))
-                    
-#                     self.processed_tasks.add(task_key)
-                
-#                 else:
-#                     logger.error(f"Invalid action_type for task {task_id}: {action_type}")
-#                     self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-#                     continue
-
-#             # Batch emit updates
-#             if updates:
-#                 for update in updates:
-#                     app_signals.update_file_list.emit(*update)
-
-#             self.status_update.emit("File tasks check completed")
-#             self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
-#             app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
-        
-#         except Exception as e:
-#             logger.error(f"Error in file watcher run: {e}")
-#             self.status_update.emit(f"Error processing tasks: {str(e)}")
-#             self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
-#             app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-
-
-
-
-=======
->>>>>>> Stashed changes
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
     progress_update = Signal(str, str, int)
-<<<<<<< Updated upstream
-    request_reauth = Signal()  # Assuming this signal is defined elsewhere
-=======
     request_reauth = Signal()
     task_list_update = Signal(list)
     cleanup_signal = Signal()
->>>>>>> Stashed changes
 
     _instance = None
     _instance_thread = None
@@ -1609,133 +927,14 @@ class FileWatcherWorker(QObject):
         return cls._instance
 
     def __init__(self, parent=None):
-<<<<<<< Updated upstream
-        if FileWatcherWorker._instance is not None:
-            raise RuntimeError("FileWatcherWorker is a singleton, use get_instance()")
-=======
         if self._instance is not None and self._instance is not self:
             logger.warning(f"FileWatcherWorker already initialized in thread {self._instance_thread}, use get_instance()")
             self.log_update.emit(f"[FileWatcher] Warning: Already initialized in thread {self._instance_thread}, use get_instance()")
             raise RuntimeError("FileWatcherWorker is a singleton; use FileWatcherWorker.get_instance()")
->>>>>>> Stashed changes
         super().__init__(parent)
         FileWatcherWorker._instance = self
         FileWatcherWorker._instance_thread = QThread.currentThread()
         self.processed_tasks = set()
-<<<<<<< Updated upstream
-        self.progress_dialog = None
-        global FILE_WATCHER_RUNNING
-        FILE_WATCHER_RUNNING = True
-        logger.info("FileWatcherWorker initialized")
-        self.log_update.emit("[FileWatcher] Initialized")
-
-        # Set up QTimer to run every 5 seconds
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.run)
-        self.timer.start(5000)  # 5000 ms = 5 seconds
-        logger.debug("FileWatcherWorker timer started with 5-second interval")
-        self.log_update.emit("[FileWatcher] Timer started with 5-second interval")
-
-    @staticmethod
-    def get_instance(parent=None):
-        """Return the singleton instance of FileWatcherWorker."""
-        if FileWatcherWorker._instance is None:
-            FileWatcherWorker._instance = FileWatcherWorker(parent)
-        return FileWatcherWorker._instance
-
-    def stop(self):
-        """Stop the file watcher timer."""
-        global FILE_WATCHER_RUNNING
-        FILE_WATCHER_RUNNING = False
-        self.timer.stop()
-        logger.info("FileWatcherWorker timer stopped")
-        self.log_update.emit("[FileWatcher] Timer stopped")
-
-    def check_connectivity(self):
-        """Check API and NAS connectivity."""
-        cache = load_cache()
-        user_id = cache.get('user_id', '')
-        token = cache.get('token', '')
-        if not user_id or not token:
-            logger.error("No user_id or token found in cache for connectivity check")
-            self.log_update.emit("[API Scan] Failed: No user_id or token found in cache for connectivity check")
-            return False
-
-        # Check API connectivity
-        api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-        headers = {"Authorization": f"Bearer {token}"}
-        try:
-            logger.debug(f"Checking API connectivity: {api_url}")
-            self.log_update.emit(f"[API Scan] Checking API connectivity: {api_url}")
-            response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=10)
-            app_signals.api_call_status.emit(
-                api_url,
-                f"Status: {response.status_code}, Response: {response.text[:500]}...",
-                response.status_code
-            )
-            if response.status_code != 200:
-                logger.warning(f"API connectivity check failed: {response.status_code} - {response.text}")
-                self.log_update.emit(f"[API Scan] API connectivity check failed: {response.status_code} - {response.text}")
-                return False
-            self.log_update.emit("[API Scan] API connectivity check passed")
-        except RequestException as e:
-            logger.warning(f"API connectivity check failed: {str(e)}")
-            self.log_update.emit(f"[API Scan] API connectivity check failed: {str(e)}")
-            return False
-
-        # Check NAS connectivity if available
-        if NAS_AVAILABLE:
-            nas_connection = connect_to_nas()
-            if not nas_connection:
-                logger.warning("NAS connectivity check failed, continuing without NAS")
-                self.log_update.emit("[API Scan] NAS connectivity check failed, continuing without NAS")
-                return True
-            transport, sftp = nas_connection
-            nas_share_path = "/mnt/nas"  # Updated to match log path
-            try:
-                sftp.stat(nas_share_path)
-                self.log_update.emit(f"[API Scan] NAS share {nas_share_path} accessible")
-                transport.close()
-            except Exception as e:
-                logger.warning(f"NAS share check failed for {nas_share_path}: {str(e)}")
-                self.log_update.emit(f"[API Scan] NAS share check failed for {nas_share_path}: {str(e)}")
-                transport.close()
-                return True
-        return True
-
-    def open_with_photoshop(self, file_path):
-        """Open the specified file with Adobe Photoshop."""
-        try:
-            system = platform.system()
-            file_path = str(Path(file_path).resolve())  # Ensure absolute path
-            if system == "Darwin":  # macOS
-                cmd = ["open", "-a", "Adobe Photoshop", file_path]
-            elif system == "Windows":
-                # Adjust path to Photoshop executable as needed
-                photoshop_path = "C:\\Program Files\\Adobe\\Adobe Photoshop\\Photoshop.exe"
-                cmd = [photoshop_path, file_path]
-            else:
-                logger.warning(f"Unsupported platform {system} for opening Photoshop")
-                self.log_update.emit(f"[Photoshop] Unsupported platform {system} for opening Photoshop")
-                return
-
-            logger.debug(f"Opening file with Photoshop: {file_path}")
-            self.log_update.emit(f"[Photoshop] Opening file: {file_path}")
-            subprocess.run(cmd, check=True, shell=False)
-            self.log_update.emit(f"[Photoshop] Successfully opened {file_path} with Photoshop")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to open Photoshop for {file_path}: {str(e)}")
-            self.log_update.emit(f"[Photoshop] Failed to open {file_path}: {str(e)}")
-        except FileNotFoundError:
-            logger.error(f"Photoshop executable not found or file {file_path} does not exist")
-            self.log_update.emit(f"[Photoshop] Photoshop executable not found or file {file_path} does not exist")
-        except Exception as e:
-            logger.error(f"Unexpected error opening Photoshop for {file_path}: {str(e)}")
-            self.log_update.emit(f"[Photoshop] Unexpected error opening {file_path}: {str(e)}")
-
-    def show_progress(self, title, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-        """Initiate file transfer with progress updates."""
-=======
         self.running = True
         self.last_api_hit_time = None
         self.next_api_hit_time = None
@@ -1817,7 +1016,6 @@ class FileWatcherWorker(QObject):
         if not nas_connection:
             raise Exception(f"NAS connection failed to {NAS_IP}")
         transport, sftp = nas_connection
->>>>>>> Stashed changes
         try:
             dest_path = item.get('file_path', dest_path)
             dest_dir = "/".join(dest_path.split("/")[:-1])
@@ -1974,79 +1172,11 @@ class FileWatcherWorker(QObject):
             app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-<<<<<<< Updated upstream
-        """Perform file transfer (download or upload) with progress updates."""
-=======
         task_id = str(item.get('id', ''))
->>>>>>> Stashed changes
         try:
             original_filename = Path(src_path).name
             self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
             if action_type.lower() == "download":
-<<<<<<< Updated upstream
-                # For downloads, maintain original filename and directory structure under local base path
-                original_filename = Path(src_path).name
-                if is_nas_src and item.get('file_path'):
-                    relative_path = Path(item['file_path']).relative_to(Path(item['file_path']).anchor)
-                else:
-                    relative_path = Path(src_path).name
-                local_base_path = BASE_TARGET_DIR
-                dest_path = local_base_path / relative_path
-                Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-
-                if is_nas_src:
-                    nas_connection = connect_to_nas()
-                    if not nas_connection:
-                        raise Exception(f"NAS connection failed to {NAS_IP}")
-                    transport, sftp = nas_connection
-                    try:
-                        nas_path = item.get('file_path', src_path)
-                        src_path = nas_path
-                        logger.debug(f"Checking NAS file existence: {src_path}")
-                        self.log_update.emit(f"[Transfer] Checking NAS file existence: {src_path}")
-                        sftp.stat(src_path)  # Verify file exists
-                        logger.debug(f"Attempting NAS download: {src_path} to {dest_path}")
-                        self.log_update.emit(f"[Transfer] Attempting NAS download: {src_path} to {dest_path}")
-                        sftp.get(src_path, str(dest_path))
-                        transport.close()
-                        # Open the downloaded file with Photoshop if it's a NAS download
-                        self.open_with_photoshop(dest_path)
-                    except Exception as e:
-                        transport.close()
-                        raise Exception(f"NAS download failed for {src_path}: {str(e)}")
-                else:
-                    response = HTTP_SESSION.get(src_path, verify=False, timeout=30)
-                    response.raise_for_status()
-                    with open(dest_path, 'wb') as f:
-                        f.write(response.content)
-                self.progress_update.emit(f"{action_type}: {original_filename}", str(dest_path), 50)
-                app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
-                self.progress_update.emit(f"{action_type}: {original_filename}", str(dest_path), 100)
-                app_signals.update_file_list.emit(str(dest_path), f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-            elif action_type.lower() == "upload":
-                if not Path(src_path).exists():
-                    raise FileNotFoundError(f"Source file does not exist: {src_path}")
-                if is_nas_dest:
-                    nas_connection = connect_to_nas()
-                    if not nas_connection:
-                        raise Exception(f"NAS connection failed to {NAS_IP}")
-                    transport, sftp = nas_connection
-                    try:
-                        nas_path = item.get('nas_path', None)
-                        dest_path = nas_path if nas_path else dest_path
-                        logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
-                        self.log_update.emit(f"[Transfer] Attempting NAS upload: {src_path} to {dest_path}")
-                        parent_path = "/".join(dest_path.split("/")[:-1])
-                        try:
-                            sftp.stat(parent_path)
-                        except FileNotFoundError:
-                            sftp.makedirs(parent_path)
-                        sftp.put(src_path, dest_path)
-                        transport.close()
-                    except Exception as e:
-                        transport.close()
-                        raise Exception(f"NAS upload failed for {dest_path}: {str(e)}")
-=======
                 dest_path = self._prepare_download_path(item)
                 cache = load_cache()
                 cache.setdefault("downloaded_files", {})
@@ -2126,28 +1256,12 @@ class FileWatcherWorker(QObject):
                 if is_nas_dest:
                     self._upload_to_nas(src_path, dest_path, item)
                     self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
->>>>>>> Stashed changes
                 else:
                     self._upload_to_http(src_path)
                     self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                 self.processed_tasks.add(f"{task_id}:{action_type}")
         except Exception as e:
-<<<<<<< Updated upstream
-            logger.error(f"File {action_type} error: {e}")
-            self.log_update.emit(f"[Transfer] Failed: {action_type} error - {str(e)}")
-            app_signals.update_file_list.emit(str(dest_path), f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src)
-            self.progress_update.emit(f"{action_type}: {Path(src_path).name}", str(dest_path), 0)
-
-    def run(self):
-        global FILE_WATCHER_RUNNING, LAST_API_HIT_TIME, NEXT_API_HIT_TIME
-        if not FILE_WATCHER_RUNNING:
-            logger.info("File watcher stopped due to FILE_WATCHER_RUNNING being False")
-            self.log_update.emit("[FileWatcher] Stopped: FILE_WATCHER_RUNNING is False")
-            self.timer.stop()
-            return
-
-=======
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
             app_signals.update_file_list.emit(dest_path if action_type.lower() == "download" else src_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src or is_nas_dest)
@@ -2165,22 +1279,14 @@ class FileWatcherWorker(QObject):
             self.log_update.emit("[FileWatcher] Skipped: Already running")
             return
         self._is_running = True
->>>>>>> Stashed changes
         try:
             logger.debug("Starting file watcher run")
             self.log_update.emit("[API Scan] Starting file watcher run")
-
-            # Check connectivity
             if not self.check_connectivity():
                 logger.warning("Connectivity check failed, will retry on next run")
                 self.status_update.emit("Connectivity check failed, will retry")
                 self.log_update.emit("[API Scan] Connectivity check failed")
                 return
-<<<<<<< Updated upstream
-
-            # Load cache once
-=======
->>>>>>> Stashed changes
             cache = load_cache()
             user_id = cache.get('user_id', '')
             token = cache.get('token', '')
@@ -2190,33 +1296,6 @@ class FileWatcherWorker(QObject):
                 self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
                 self.request_reauth.emit()
                 return
-<<<<<<< Updated upstream
-
-            # Initialize cache structures if they don't exist
-            if not isinstance(cache.get("downloaded_files"), dict):
-                cache["downloaded_files"] = {}
-            if not isinstance(cache.get("downloaded_files_with_metadata"), dict):
-                cache["downloaded_files_with_metadata"] = {}
-            if not isinstance(cache.get("uploaded_files"), list):
-                cache["uploaded_files"] = []
-            if not isinstance(cache.get("uploaded_files_with_metadata"), dict):
-                cache["uploaded_files_with_metadata"] = {}
-            save_cache(cache)
-
-            # Update timers
-            self.status_update.emit("Checking for file tasks...")
-            self.log_update.emit("[API Scan] Starting file task check")
-            app_signals.append_log.emit("[API Scan] Initiating file task check")
-            LAST_API_HIT_TIME = datetime.now(ZoneInfo("UTC"))
-            NEXT_API_HIT_TIME = LAST_API_HIT_TIME + timedelta(milliseconds=API_POLL_INTERVAL)
-            app_signals.update_timer_status.emit(
-                f"Last API hit: {LAST_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                f"Next API hit: {NEXT_API_HIT_TIME.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                f"Interval: {API_POLL_INTERVAL/1000:.1f}s"
-            )
-
-            # Fetch tasks from API
-=======
             self.status_update.emit("Checking for file tasks...")
             self.log_update.emit("[API Scan] Starting file task check")
             app_signals.append_log.emit("[API Scan] Initiating file task check")
@@ -2227,7 +1306,6 @@ class FileWatcherWorker(QObject):
                 f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
                 f"Interval: {self.api_poll_interval/1000:.1f}s"
             )
->>>>>>> Stashed changes
             headers = {"Authorization": f"Bearer {token}"}
             max_retries = 3
             tasks = []
@@ -2240,18 +1318,12 @@ class FileWatcherWorker(QObject):
                     logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
                     app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-                    
                     if response.status_code == 401:
                         logger.warning("Unauthorized: Token may be invalid")
-<<<<<<< Updated upstream
-                        self.log_update.emit("[API Scan] Unauthorized: Token may be invalid")
-=======
                         self.log_update.emit("[API Scan] Unauthorized: Token invalid")
->>>>>>> Stashed changes
                         self.status_update.emit("Unauthorized: Token invalid")
                         self.request_reauth.emit()
                         return
-                    
                     response.raise_for_status()
                     response_data = response.json()
                     tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
@@ -2271,160 +1343,6 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
                         return
-<<<<<<< Updated upstream
-
-            # Process tasks
-            updates = []
-            for item in tasks:
-                if not isinstance(item, dict):
-                    logger.error(f"Invalid task item type: {type(item)}, item: {item}")
-                    self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
-                    continue
-                task_id = str(item.get('id', ''))
-                file_path = item.get('file_path', '')
-                file_name = item.get('file_name', Path(file_path).name)
-                action_type = item.get('request_type', '').lower()
-                nas_path = item.get('nas_path', None)
-                
-                task_key = f"{task_id}:{action_type}"
-                if task_key in self.processed_tasks:
-                    logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
-                    self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
-                    continue
-                
-                is_online = 'http' in file_path.lower()
-                local_base_path = BASE_TARGET_DIR
-                local_path = str(local_base_path / (Path(file_path).name if file_path and action_type == "upload" else file_name))
-                if action_type == "download" and file_path:
-                    local_path = str(local_base_path / file_path.lstrip("/"))
-                
-                # Skip download if file exists and file_path is provided
-                if action_type == "download" and Path(local_path).exists():
-                    logger.warning(f"Task {task_id} has local file {local_path} already; skipping download")
-                    self.log_update.emit(f"[API Scan] Task {task_id} has local file {local_path} already; skipping download")
-                    self.processed_tasks.add(task_key)
-                    updates.append((local_path, "Download Skipped: File exists", action_type, 100, not is_online))
-                    continue
-                
-                logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
-                self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, nas_path={nas_path}")
-                
-                            # ✅ FIXED PATH for upload
-                if action_type == "upload":
-                    file_path = item.get("file_path", "").lstrip("/")
-                    file_name = Path(file_path).name.replace(".psd", ".jpg")
-
-                    # ✅ Use dynamic path exactly like in download
-                    local_path = str(Path(BASE_TARGET_DIR) / file_path).replace(".psd", ".jpg")
-
-                    # Extract client and project names safely
-                    client_name = item.get("client_name", "").strip().replace(" ", "_")
-                    project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_")
-
-                    # Fallback parsing from nas_path if missing
-                    if not client_name or client_name.lower() == "unknown" or not project_name or project_name.lower() == "unknown":
-                        try:
-                            parts = Path(nas_path).parts
-                            if len(parts) >= 3:
-                                project_name = project_name or parts[-2]
-                                client_name = client_name or parts[-3]
-                        except Exception as e:
-                            self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
-
-                    # Final fallback
-                    if not client_name:
-                        client_name = "default_client"
-                    if not project_name:
-                        project_name = "default_project"
-
-                    # Final upload path
-                    # local_path = str(Path(BASE_TARGET_DIR) / client_name / project_name / file_name)
-
-                
-                if action_type == "download":
-                    self.status_update.emit(f"Downloading {file_name}")
-                    self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
-                    app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-                    self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
-                    
-                    cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-                    cache["downloaded_files"][task_id] = local_path
-                    timer_response = start_timer_api(file_path, token)
-                    if timer_response:
-                        cache.setdefault("timer_responses", {})[local_path] = timer_response
-                    save_cache(cache)
-                    
-                    self.processed_tasks.add(task_key)
-                    updates.append((local_path, "Download Completed", action_type, 100, not is_online))
-                    if not is_online and self.parent():
-                        self.parent().convert_to_jpg_and_psd(local_path, str(Path(local_path).parent))
-                
-                elif action_type == "upload":
-                    self.status_update.emit(f"Uploading {file_name}")
-                    self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
-                    app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-                    
-                    cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-                    if local_path not in cache["uploaded_files"]:
-                        cache["uploaded_files"].append(local_path)
-                    save_cache(cache)
-                    
-                    if Path(local_path).exists():
-                                # ✅ PSD to JPG conversion
-                        if local_path.endswith(".psd"):
-                            try:
-                                from psd_tools import PSDImage
-                                from PIL import Image
-                                import numpy as np
-
-                                psd = PSDImage.open(local_path)
-                                composite = psd.composite()
-
-                                # Step 1: Construct new JPG path
-                                jpg_name = Path(local_path).stem
-                                jpg_folder = Path(BASE_TARGET_DIR) / client_name / project_name
-                                jpg_folder.mkdir(parents=True, exist_ok=True)
-
-                                jpg_path = jpg_folder / jpg_name
-                                composite.convert("RGB").save(jpg_path, format="JPEG", quality=95)
-                                # ✅ Debug print
-                                print(f"[DEBUG] PSD converted to JPG at: {jpg_path}")
-                                # ✅ Step 2: Update file info for upload
-                                local_path = str(jpg_path)
-                                file_name = jpg_name
-                                file_path = f"/{client_name}/{project_name}/{jpg_name}"  # ← FIXED PATH
-
-                                self.log_update.emit(f"[Upload] Converted PSD to JPG: {jpg_path}")
-                            except Exception as e:
-                                self.log_update.emit(f"[Upload] Failed to convert PSD to JPG: {str(e)}")
-                                updates.append((local_path, f"Upload Failed: JPG conversion error - {e}", action_type, 0, not is_online))
-                                continue  # Skip to next task
-                        self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
-                        if Path(local_path).exists():
-                            self.log_update.emit(f"[DEBUG] File exists, proceeding to upload: {local_path}")
-                        else:
-                            self.log_update.emit(f"[ERROR] File does NOT exist: {local_path}")
-                        timer_response = cache.get("timer_responses", {}).get(local_path)
-                        if timer_response:
-                            end_timer_api(file_path, timer_response, token)
-                        updates.append((local_path, "Upload Completed", action_type, 100, not is_online))
-                    else:
-                        self.log_update.emit(f"[API Scan] Upload skipped: {local_path} does not exist")
-                        updates.append((local_path, "Upload Failed: File not found", action_type, 0, not is_online))
-                    
-                    self.processed_tasks.add(task_key)
-                
-                else:
-                    logger.error(f"Invalid action_type for task {task_id}: {action_type}")
-                    self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-                    continue
-
-            # Batch emit updates
-            if updates:
-                for update in updates:
-                    app_signals.update_file_list.emit(*update)
-
-=======
             download_tasks = [
                 {
                     "task_id": str(item.get('id', '')),
@@ -2575,11 +1493,9 @@ class FileWatcherWorker(QObject):
             if updates:
                 for update in updates:
                     app_signals.update_file_list.emit(*update)
->>>>>>> Stashed changes
             self.status_update.emit("File tasks check completed")
             self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
             app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
-        
         except Exception as e:
             logger.error(f"Error in file watcher run: {e}")
             self.status_update.emit(f"Error processing tasks: {str(e)}")
@@ -2638,8 +1554,6 @@ class FileWatcherWorker(QObject):
         self.timer.stop()
         logger.info("FileWatcherWorker stopped")
         self.log_update.emit("[FileWatcher] Stopped")
-
-
 
 
 
@@ -3640,8 +2554,6 @@ class LoginDialog(QDialog):
             app_signals.append_log.emit(f"[Login] Failed to disconnect update_status signal: {str(e)}")
         super().closeEvent(event)
   
-<<<<<<< Updated upstream
-=======
 
 
 def check_single_instance():
@@ -3654,7 +2566,6 @@ def check_single_instance():
         print("Another instance of PremediaApp is already running")
         sys.exit(1)
 
->>>>>>> Stashed changes
 class PremediaApp(QApplication):
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
