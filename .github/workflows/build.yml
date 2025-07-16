@@ -33,14 +33,21 @@ jobs:
         pip cache purge
         echo "Installing requirements..."
         pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
+        echo "Installing PySide6..."
+        pip install PySide6==6.9.1 --no-cache-dir --force-reinstall --verbose --find-links https://files.pythonhosted.org/packages/ > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
         echo "Installing PyInstaller..."
         pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
         pip list > installed_packages.txt
         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
         python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
-        python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'plugins', 'platforms'))" > plugins_path.txt
+        echo "Checking PySide6 plugins..."
+        python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'plugins'); print(plugins_path)" > plugins_path.txt
         cat plugins_path.txt
-        ls -ld "$(cat plugins_path.txt)" || echo "❌ PySide6 plugins directory not found"
+        ls -ld "$(cat plugins_path.txt)/platforms" || echo "❌ PySide6 platforms directory not found"
+        ls -ld "$(cat plugins_path.txt)/imageformats" || echo "❌ PySide6 imageformats directory not found"
+        find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
+        find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
+        cat plugin_check.txt
       shell: bash
 
     - name: Upload requirements install log
@@ -50,11 +57,25 @@ jobs:
         path: requirements_install.log
       if: always()
 
+    - name: Upload PySide6 install log
+      uses: actions/upload-artifact@v4
+      with:
+        name: pyside6-install-log-macos
+        path: pyside6_install.log
+      if: always()
+
     - name: Upload PyInstaller install log
       uses: actions/upload-artifact@v4
       with:
         name: pyinstaller-install-log-macos
         path: pyinstaller_install.log
+      if: always()
+
+    - name: Upload plugin check log
+      uses: actions/upload-artifact@v4
+      with:
+        name: plugin-check-log-macos
+        path: plugin_check.txt
       if: always()
 
     - name: Show installed packages
@@ -92,13 +113,16 @@ jobs:
         echo PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS
         ls -ld "$PYSIDE6_PLUGINS/platforms" || echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms"
         echo Searching for platforms directory...
-        find /Users/runner/hostedtoolcache/Python -name qcocoa.dylib 2>/dev/null > platforms_path.txt
-        find /Library/Frameworks/Python.framework -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
-        find /usr/local -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
-        find /opt -name qcocoa.dylib 2>/dev/null >> platforms_path.txt
+        echo "Python sys.path:" > platforms_path.txt
+        python -c "import sys; print('\n'.join(sys.path))" >> platforms_path.txt
+        echo "PySide6 location:" >> platforms_path.txt
+        python -m pip show PySide6 >> platforms_path.txt
+        echo "Searching for qcocoa.dylib..." >> platforms_path.txt
+        find / -name qcocoa.dylib 2>/dev/null >> platforms_path.txt || echo "No qcocoa.dylib found in full search" >> platforms_path.txt
+        find / -name qicns.dylib 2>/dev/null >> platforms_path.txt || echo "No qicns.dylib found in full search" >> platforms_path.txt
         cat platforms_path.txt
-        if [ -s platforms_path.txt ]; then
-          export PYSIDE6_PLUGINS=$(dirname $(dirname $(cat platforms_path.txt | head -n 1)))
+        if [ -s platforms_path.txt ] && grep -q "qcocoa.dylib" platforms_path.txt; then
+          export PYSIDE6_PLUGINS=$(dirname $(grep "qcocoa.dylib" platforms_path.txt | head -n 1))
           echo "Found plugins at: $PYSIDE6_PLUGINS"
         else
           echo "❌ Could not find qcocoa.dylib"
