@@ -1,5 +1,5 @@
-docopt>=0.6.0
-psd-tools==1.9.31
+docopt==0.6.0
+psd-tools==1.9.30
 bcrypt==4.3.0
 certifi==2025.7.14
 cffi==1.17.1
