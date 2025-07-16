@@ -406,11 +406,11 @@ jobs:
           }
         shell: powershell
 
-      - name: Install requirements
+      - name: Install requirements safely
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          echo "📦 Installing packages from requirements.txt at $(Get-Date)"
+          echo "Installing packages from requirements.txt at $(Get-Date)"
 
           $requirementsLog = Join-Path (Get-Location) "requirements_content.log"
           $installLog = Join-Path (Get-Location) "requirements_install.log"
@@ -420,18 +420,16 @@ jobs:
             echo "requirements.txt contents:"
             Get-Content "$requirementsLog"
           } else {
-            echo "❌ requirements.txt not found"
+            echo "requirements.txt not found"
             dir | Out-File -FilePath "dir_contents.log" -Encoding utf8
             Get-Content "dir_contents.log"
             exit 1
           }
 
-          echo "📦 Installing all packages with pip --prefer-binary..."
-
-          # Downgrade pip for compatibility
+          # Downgrade pip for Python 3.9 compatibility
           python -m pip install --upgrade "pip<25.0"
 
-          # Install all packages with binary preference
+          # Install all requirements using a single pip call with binary preference
           python -m pip install `
             --no-cache-dir `
             --prefer-binary `
@@ -441,12 +439,12 @@ jobs:
             --verbose 2>&1 | Tee-Object -FilePath "$installLog" -Append
 
           if ($LASTEXITCODE -ne 0) {
-            echo "❌ Package installation failed. See log below:"
+            echo "Package installation failed. See log:"
             Get-Content "$installLog"
             exit 1
           }
 
-          echo "✅ All packages installed successfully!"
+          echo "All packages installed successfully!"
           Get-Content "$installLog"
 
 
