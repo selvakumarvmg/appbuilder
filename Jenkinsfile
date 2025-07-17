@@ -1,37 +1,45 @@
 pipeline {
-  agent any
-  stages {
-    stage('Setup') {
-      steps {
-        echo 'Installing dependencies...'
-        bat 'python -m pip install -r requirements.txt'
-      }
+    agent {
+        label 'windows'  // Make sure this matches your Windows agent label
     }
 
-    stage('Build App') {
-      steps {
-        echo 'Running PyInstaller...'
-        bat 'pyinstaller %PYINSTALLER_SPEC%'
-      }
+    environment {
+        PYTHON = 'C:\\Python312\\python.exe'
+        INNO_SETUP_PATH = 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe'
     }
 
-    stage('Create Installer') {
-      steps {
-        echo 'Building installer with Inno Setup...'
-        bat '"%INNOSETUP_EXE%" installer.iss'
-      }
+    stages {
+        stage('Checkout') {
+            steps {
+                git credentialsId: 'github', url: 'https://github.com/selvakumarvmg/appbuilder.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                bat "${env.PYTHON} -m pip install -r requirements.txt"
+            }
+        }
+
+        stage('Build with PyInstaller') {
+            steps {
+                bat "${env.PYTHON} -m PyInstaller app.spec"
+            }
+        }
+
+        stage('Build Installer with Inno Setup') {
+            steps {
+                bat "\"${env.INNO_SETUP_PATH}\" installer.iss"
+            }
+        }
     }
 
-    stage('Archive Build') {
-      steps {
-        archiveArtifacts(artifacts: 'dist/**/*.*', allowEmptyArchive: true)
-      }
+    post {
+        success {
+            echo "Build completed successfully!"
+        }
+        failure {
+            echo "Build failed!"
+        }
     }
-
-  }
-  environment {
-    PYINSTALLER_SPEC = 'app.spec'
-    INNOSETUP_EXE = 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe'
-    PATH = "C:\\ProgramData\\chocolatey\\bin;${env.PATH}"
-  }
 }
