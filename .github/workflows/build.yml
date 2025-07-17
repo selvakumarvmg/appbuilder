@@ -616,8 +616,8 @@ jobs:
 
           echo "Running PyInstaller at $(Get-Date)"
 
-          # Run PyInstaller and capture output
-          $proc = Start-Process -FilePath python -ArgumentList "-m", "PyInstaller" + $args `
+          # Corrected: combine arrays safely
+          $proc = Start-Process -FilePath python -ArgumentList @("-m", "PyInstaller") + $args `
             -RedirectStandardOutput $pyinstallerLog `
             -RedirectStandardError $pyinstallerLog `
             -NoNewWindow -PassThru
@@ -632,6 +632,7 @@ jobs:
 
           echo "`n✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
+
 
 
 
