@@ -564,30 +564,11 @@ jobs:
 
 
 
-      - name: Build GUI Executable
-        shell: powershell
+      - name: 🏗️ Build with PyInstaller
         run: |
           echo "Running PyInstaller with .spec at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-          $pyinstallerLog = "pyinstaller.log"
-
-          # Run PyInstaller with spec file and capture log
-          & python -m PyInstaller "app.spec" *>&1 | Tee-Object -FilePath $pyinstallerLog
-
-          if ($LASTEXITCODE -ne 0) {
-            echo "`n❌ PyInstaller build failed with exit code $LASTEXITCODE"
-            echo "`n📄 Full build log:"
-            Get-Content $pyinstallerLog -Raw
-            exit $LASTEXITCODE
-          }
-
-          echo "`n✅ PyInstaller build completed successfully."
-          dir dist/PremediaApp
-
-
-
-
-
-
+          & python -m PyInstaller app.spec --noconfirm --log-level=DEBUG | Tee-Object -FilePath "$env:GITHUB_WORKSPACE/pyinstaller_output.log"
+        shell: pwsh
 
 
       # Upload PyInstaller log
