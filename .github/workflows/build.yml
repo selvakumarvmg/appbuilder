@@ -615,17 +615,24 @@ jobs:
           )
 
           echo "Running PyInstaller at $(Get-Date)"
-          & python -m PyInstaller @args *>&1 | Tee-Object -FilePath $pyinstallerLog
 
-          if ($LASTEXITCODE -ne 0) {
-            echo "`n❌ PyInstaller build failed!"
+          # Run PyInstaller and capture output
+          $proc = Start-Process -FilePath python -ArgumentList "-m", "PyInstaller" + $args `
+            -RedirectStandardOutput $pyinstallerLog `
+            -RedirectStandardError $pyinstallerLog `
+            -NoNewWindow -PassThru
+          $proc.WaitForExit()
+
+          if ($proc.ExitCode -ne 0) {
+            echo "`n❌ PyInstaller build failed with exit code $($proc.ExitCode)"
             echo "`n📄 Full build log:"
             Get-Content $pyinstallerLog -Raw
-            exit 1
+            exit $proc.ExitCode
           }
 
           echo "`n✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
+
 
 
 
