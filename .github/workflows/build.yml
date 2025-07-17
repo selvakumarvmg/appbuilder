@@ -567,71 +567,22 @@ jobs:
       - name: Build GUI Executable
         shell: powershell
         run: |
-          echo "Finding PySide6 plugins..."
-          $pluginsPath = python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
-          if (-not (Test-Path $pluginsPath)) {
-            $pluginsPath = python -c "import PySide6.QtCore; print(PySide6.QtCore.QLibraryInfo.path(PySide6.QtCore.QLibraryInfo.PluginsPath))"
-          }
-          echo "PySide6 plugins path: $pluginsPath"
-
+          echo "Running PyInstaller with .spec at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
           $pyinstallerLog = "pyinstaller.log"
 
-          $args = @(
-            "--log-level=DEBUG",
-            "--noconfirm",
-            "--windowed",
-            "--onedir",
-            "--name=PremediaApp",
-            "--icon=icons/premedia.ico",
-            "--add-data=cache/cache.json;cache",
-            "--add-data=icons/premedia.ico;icons",
-            "--add-data=icons/photoshop.png;icons",
-            "--add-data=icons/folder.png;icons",
-            "--add-data=icons/premedia.png;icons",
-            "--add-data=icons/vmg-premedia-logo.png;icons",
-            "--add-data=terms.txt;.",
-            "--add-data=license.txt;.",
-            "--add-data=login.ui;.",
-            "--add-data=premediaapp.ui;.",
-            "--add-data=icons.qrc;.",
-            "--add-data=icons_rc.py;.",
-            "--add-data=login.py;.",
-            "--add-data=$pluginsPath/platforms;PySide6/Qt/plugins/platforms",
-            "--add-data=$pluginsPath/imageformats;PySide6/Qt/plugins/imageformats",
-            "--hidden-import=paramiko",
-            "--hidden-import=requests",
-            "--hidden-import=cryptography",
-            "--hidden-import=tzdata",
-            "--hidden-import=PySide6.QtWidgets",
-            "--hidden-import=PySide6.QtCore",
-            "--hidden-import=PySide6.QtGui",
-            "--hidden-import=PySide6.uic",
-            "--hidden-import=PIL.Image",
-            "--hidden-import=login",
-            "--hidden-import=icons_rc",
-            "--hidden-import=docopt_ng",
-            "--runtime-hook=runtime-hook.py",
-            "app.py"
-          )
+          # Run PyInstaller with spec file and capture log
+          & python -m PyInstaller "app.spec" *>&1 | Tee-Object -FilePath $pyinstallerLog
 
-          echo "Running PyInstaller at $(Get-Date)"
-
-          # Corrected: combine arrays safely
-          $proc = Start-Process -FilePath python -ArgumentList @("-m", "PyInstaller") + $args `
-            -RedirectStandardOutput $pyinstallerLog `
-            -RedirectStandardError $pyinstallerLog `
-            -NoNewWindow -PassThru
-          $proc.WaitForExit()
-
-          if ($proc.ExitCode -ne 0) {
-            echo "`n❌ PyInstaller build failed with exit code $($proc.ExitCode)"
+          if ($LASTEXITCODE -ne 0) {
+            echo "`n❌ PyInstaller build failed with exit code $LASTEXITCODE"
             echo "`n📄 Full build log:"
             Get-Content $pyinstallerLog -Raw
-            exit $proc.ExitCode
+            exit $LASTEXITCODE
           }
 
           echo "`n✅ PyInstaller build completed successfully."
           dir dist/PremediaApp
+
 
 
 
