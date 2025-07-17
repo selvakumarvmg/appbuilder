@@ -593,11 +593,13 @@ jobs:
       # Install Inno Setup
       - name: Install Inno Setup
         run: choco install innosetup --no-progress --yes --force
-        shell: powershell
 
       - name: Add Inno Setup to PATH
-        run: echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
-        shell: powershell
+        run: echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding ascii -Append
+
+      - name: Check ISCC exists
+        run: where iscc
+
 
       - name: Verify Inno Setup installed
         run: |
