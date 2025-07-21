@@ -27,6 +27,8 @@ import time
 import re
 import io
 import hashlib
+import httpx
+import mimetypes
 
 if platform.system() != "Windows":
     import fcntl
@@ -140,6 +142,10 @@ API_URL = f"{BASE_DOMAIN}/api/ir_production/get/projectList?business=image_retou
 DOWNLOAD_UPLOAD_API = f"{BASE_DOMAIN}/api/get_download_upload/submission"
 OAUTH_URL = f"{BASE_DOMAIN}/oauth/token"
 USER_VALIDATE_URL = f"{BASE_DOMAIN}/api/user/validate"
+API_URL_CREATE = f"{BASE_DOMAIN}/api/nas_create/creative"
+API_URL_UPDATE_CREATE = f"{BASE_DOMAIN}/api/nas_update/creative"
+API_REPLACE_QC_QA_FILE = f"{BASE_DOMAIN}/api/nas-qc-qa/update/ir-files"
+
 NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
@@ -293,6 +299,13 @@ def initialize_cache():
     default_cache = get_default_cache()
     cache_dir = Path(CACHE_FILE).parent
     try:
+        # Preserve existing credentials if available
+        if GLOBAL_CACHE is not None:
+            default_cache["saved_username"] = GLOBAL_CACHE.get("saved_username", "")
+            default_cache["saved_password"] = GLOBAL_CACHE.get("saved_password", "")
+            default_cache["user"] = GLOBAL_CACHE.get("user", "")
+            default_cache["user_id"] = GLOBAL_CACHE.get("user_id", "")
+        
         cache_dir.mkdir(exist_ok=True)
         with CACHE_WRITE_LOCK:
             with open(CACHE_FILE, "w") as f:
@@ -300,8 +313,8 @@ def initialize_cache():
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
         GLOBAL_CACHE = default_cache
-        logger.info("Initialized empty cache file")
-        app_signals.append_log.emit("[Cache] Initialized empty cache file")
+        logger.info("Initialized cache file with preserved credentials")
+        app_signals.append_log.emit("[Cache] Initialized cache file with preserved credentials")
         return True
     except Exception as e:
         logger.error(f"Error initializing cache: {e}")
@@ -340,33 +353,49 @@ def load_cache():
         return GLOBAL_CACHE
     default_cache = get_default_cache()
     cache_file = Path(CACHE_FILE)
+    
     if not cache_file.exists():
         logger.warning("Cache file does not exist, initializing new cache")
         app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
         initialize_cache()
         return GLOBAL_CACHE
+    
     try:
         with open(CACHE_FILE, "r", encoding='utf-8') as f:
             data = json.load(f)
+        
+        # Log missing keys for debugging
         required_keys = default_cache.keys()
-        if not all(key in data for key in required_keys):
-            logger.warning("Cache is missing required keys, reinitializing")
-            app_signals.append_log.emit("[Cache] Cache is missing required keys, reinitializing")
-            initialize_cache()
+        missing_keys = [key for key in required_keys if key not in data]
+        if missing_keys:
+            logger.warning(f"Cache is missing required keys: {missing_keys}, preserving credentials")
+            app_signals.append_log.emit(f"[Cache] Cache is missing required keys: {missing_keys}, preserving credentials")
+            data.update({key: default_cache[key] for key in missing_keys})
+            data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+            GLOBAL_CACHE = data
+            save_cache(GLOBAL_CACHE)
             return GLOBAL_CACHE
+        
+        # Check cache expiration
         cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
         try:
             cached_time = datetime.fromisoformat(cached_time_str)
             if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=CACHE_DAYS):
-                logger.warning("Cache is expired, reinitializing")
-                app_signals.append_log.emit("[Cache] Cache is expired, reinitializing")
-                initialize_cache()
+                logger.warning("Cache is expired, preserving credentials and updating timestamp")
+                app_signals.append_log.emit("[Cache] Cache is expired, preserving credentials and updating timestamp")
+                data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+                GLOBAL_CACHE = data
+                save_cache(GLOBAL_CACHE)
                 return GLOBAL_CACHE
         except ValueError as e:
-            logger.error(f"Invalid cached_at format: {e}, reinitializing cache")
-            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, reinitializing cache")
-            initialize_cache()
+            logger.error(f"Invalid cached_at format: {e}, preserving credentials and updating timestamp")
+            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, preserving credentials and updating timestamp")
+            data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+            GLOBAL_CACHE = data
+            save_cache(GLOBAL_CACHE)
             return GLOBAL_CACHE
+        
+        # Validate token if present
         token = data.get("token", "")
         if token:
             try:
@@ -377,9 +406,11 @@ def load_cache():
                     timeout=10
                 )
                 if resp.status_code != 200 or not resp.json().get("status"):
-                    logger.warning(f"Cached token invalid (status: {resp.status_code}), reinitializing cache")
-                    app_signals.append_log.emit(f"[Cache] Cached token invalid (status: {resp.status_code}), reinitializing cache")
-                    initialize_cache()
+                    logger.warning(f"Cached token invalid (status: {resp.status_code}), clearing token")
+                    app_signals.append_log.emit(f"[Cache] Cached token invalid (status: {resp.status_code}), clearing token")
+                    data["token"] = ""
+                    GLOBAL_CACHE = data
+                    save_cache(GLOBAL_CACHE)
                     return GLOBAL_CACHE
             except RequestException as e:
                 logger.error(f"Token validation failed: {e}, keeping cache but marking token as invalid")
@@ -388,18 +419,20 @@ def load_cache():
                 GLOBAL_CACHE = data
                 save_cache(GLOBAL_CACHE)
                 return GLOBAL_CACHE
+        
         GLOBAL_CACHE = data
         logger.info("Cache loaded successfully")
         app_signals.append_log.emit("[Cache] Cache loaded successfully")
         return GLOBAL_CACHE
+    
     except json.JSONDecodeError as e:
-        logger.error(f"Corrupted cache file: {e}, reinitializing cache")
-        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, reinitializing cache")
+        logger.error(f"Corrupted cache file: {e}, initializing new cache")
+        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, initializing new cache")
         initialize_cache()
         return GLOBAL_CACHE
     except Exception as e:
-        logger.error(f"Error loading cache: {e}, reinitializing cache")
-        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}, reinitializing cache")
+        logger.error(f"Error loading cache: {e}, initializing new cache")
+        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}, initializing new cache")
         initialize_cache()
         return GLOBAL_CACHE
 
@@ -630,6 +663,94 @@ def check_nas_write_permission(sftp, nas_path):
         logger.error(f"Write permission check failed for {nas_path}: {e}")
         app_signals.append_log.emit(f"[Transfer] Write permission check failed for {nas_path}: {e}")
         return False
+
+MAX_RETRIES = 10
+RETRY_BACKOFF = 2  # seconds
+TIMEOUT = 1000  # seconds
+
+
+def call_api(api_url, payload, local_file_path=None):
+    attempt = 0
+    while attempt < MAX_RETRIES:
+        files = None
+        try:
+            if local_file_path:
+                file_name = os.path.basename(local_file_path)
+                if not os.path.exists(local_file_path):
+                    logger.error(f"File not found: {local_file_path}")
+                    return {"error": "File not found"}
+                mime_type, _ = mimetypes.guess_type(local_file_path)
+                mime_type = mime_type or 'application/octet-stream'
+                files = {
+                    'creative_files': (file_name, open(local_file_path, 'rb'), mime_type)
+                }
+                logger.debug(f"File Name: {file_name}, MIME Type: {mime_type}, File Size: {os.path.getsize(local_file_path)} bytes")
+            logger.debug(f"Payload being sent: {payload}")
+            logger.debug(f"Files being sent: {'Yes' if files else 'No'}")
+            with httpx.Client(timeout=TIMEOUT, verify=False) as client:
+                response = client.post(api_url, files=files, data=payload)
+            logger.debug(f"Response Status Code: {response.status_code}")
+            logger.debug(f"Response Text: {response.text[:500]}...")
+            response.raise_for_status()
+            return response.json()
+        except httpx.RequestError as req_err:
+            logger.warning(f"[Attempt {attempt+1}] Request error: {req_err}")
+            attempt += 1
+            if attempt < MAX_RETRIES:
+                sleep_time = RETRY_BACKOFF ** attempt
+                logger.debug(f"Retrying after {sleep_time:.1f}s...")
+                time.sleep(sleep_time)
+            else:
+                return {"error": "Request failed", "details": str(req_err)}
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            return {"error": "Unexpected error", "details": str(e)}
+        finally:
+            if files:
+                for _, file_obj, _ in files.values():
+                    file_obj.close()
+
+def call_api_qc_qa(api_url, payload, local_file_path=None):
+    attempt = 0
+    while attempt < MAX_RETRIES:
+        files = None
+        try:
+            if local_file_path:
+                file_name = os.path.basename(local_file_path)
+                if not os.path.exists(local_file_path):
+                    logger.error(f"File not found: {local_file_path}")
+                    return {"error": "File not found"}
+                mime_type, _ = mimetypes.guess_type(local_file_path)
+                mime_type = mime_type or 'application/octet-stream'
+                files = {
+                    'files[]': (file_name, open(local_file_path, 'rb'), mime_type)
+                }
+                logger.debug(f"File Name: {file_name}, MIME Type: {mime_type}, File Size: {os.path.getsize(local_file_path)} bytes")
+            logger.debug(f"Payload being sent: {payload}")
+            logger.debug(f"Files being sent: {'Yes' if files else 'No'}")
+            with httpx.Client(timeout=TIMEOUT, verify=False) as client:
+                response = client.post(api_url, files=files, data=payload)
+            logger.debug(f"Response Status Code: {response.status_code}")
+            logger.debug(f"Response Text: {response.text[:500]}...")
+            response.raise_for_status()
+            return response.json()
+        except httpx.RequestError as req_err:
+            logger.warning(f"[Attempt {attempt+1}] Request error: {req_err}")
+            attempt += 1
+            if attempt < MAX_RETRIES:
+                sleep_time = RETRY_BACKOFF ** attempt
+                logger.debug(f"Retrying after {sleep_time:.1f}s...")
+                time.sleep(sleep_time)
+            else:
+                return {"error": "Request failed", "details": str(req_err)}
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            return {"error": "Unexpected error", "details": str(e)}
+        finally:
+            if files:
+                for _, file_obj, _ in files.values():
+                    file_obj.close()
+
 
 
 
@@ -1027,7 +1148,7 @@ class FileWatcherWorker(QObject):
                 sftp.makedirs(dest_dir, mode=0o777)
             try:
                 sftp.chmod(dest_dir, 0o777)
-                self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
+                self.log_update.emit(f"[Transfer] Set permissions to 777 for.directory: {dest_dir}")
             except Exception as e:
                 self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
             try:
@@ -1255,12 +1376,62 @@ class FileWatcherWorker(QObject):
                     return
                 if is_nas_dest:
                     self._upload_to_nas(src_path, dest_path, item)
-                    self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
                 else:
                     self._upload_to_http(src_path)
-                    self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
+                self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                 self.processed_tasks.add(f"{task_id}:{action_type}")
+
+                # Additional API call logic after successful upload
+                try:
+                    user_type = cache.get('user_type', '').lower()
+                    user_id = cache.get('user_id', '')
+                    spec_id = item.get('spec_id', '')
+                    creative_id = item.get('creative_id', '')
+                    job_id = item.get('job_id', '')
+                    original_path = dest_path  # The uploaded file's NAS path
+                    local_file_path = src_path  # The local file path (original or converted JPG)
+
+                    if user_type == 'operator':
+                        op_payload = {
+                            'spec_nid': spec_id,
+                            'operator_nid': user_id,
+                            'files_link': original_path,
+                            'notes': '',
+                            'brief_id': job_id,
+                            'business': 'image_retouching'
+                        }
+                        if creative_id:
+                            op_payload['creative_nid'] = creative_id
+                            response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
+                            logger.info(f"Updated API Response: {response}")
+                            self.log_update.emit(f"[API] Updated API Response: {response}")
+                        else:
+                            response = call_api(API_URL_CREATE, op_payload, local_file_path)
+                            logger.info(f"Created API Response: {response}")
+                            self.log_update.emit(f"[API] Created API Response: {response}")
+
+                    elif user_type in ['qc', 'qa']:
+                        qc_qa_payload = {
+                            'image_id': spec_id,
+                            'job_id': job_id,
+                            'creative_id': creative_id,
+                            'user_id': user_id,
+                            'files_link': [original_path] if isinstance(original_path, str) else original_path,
+                            'business': 'image_retouching'
+                        }
+                        response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
+                        logger.info(f"QC/QA API Response: {response}")
+                        self.log_update.emit(f"[API] QC/QA API Response: {response}")
+                    else:
+                        logger.warning(f"Unknown user_type: {user_type}, skipping API call")
+                        self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+                except Exception as e:
+                    logger.error(f"API call after upload failed (Task {task_id}): {str(e)}")
+                    self.log_update.emit(f"[API] Failed: Error during post-upload API call - {str(e)}")
+                    app_signals.update_file_list.emit(src_path, f"Upload API Failed: {str(e)}", action_type.lower(), 100, is_nas_dest)
+                    raise
+
         except Exception as e:
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
@@ -1484,7 +1655,7 @@ class FileWatcherWorker(QObject):
                     else:
                         logger.error(f"Invalid action_type for task {task_id}: {action_type}")
                         self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-                        updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not is_online))
+                        updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
                 except Exception as e:
                     logger.error(f"Error processing task {task_id}: {str(e)}")
                     self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
