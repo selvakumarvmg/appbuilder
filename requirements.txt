@@ -21,3 +21,6 @@ urllib3==2.2.3
 rawpy>=0.17.0
 tifffile>=2021.7.2
 psutil>=5.9.0
+# Optional: For Python < 3.9 (fallback for zoneinfo)
+backports.zoneinfo; python_version < "3.9"
+httpx  # version not pinned, can be pinned if needed
