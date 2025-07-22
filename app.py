@@ -29,6 +29,9 @@ import io
 import hashlib
 import httpx
 import mimetypes
+from pid import PidFile, PidFileError
+import warnings
+
 
 if platform.system() != "Windows":
     import fcntl
@@ -1959,6 +1962,23 @@ class LogWindow(QDialog):
             logger.error(f"❌ Failed to connect '{name}' to '{slot.__name__}': {e}")
             app_signals.append_log.emit(f"[Log] Failed to connect signal '{name}': {str(e)}")
 
+    # def safe_disconnect(self, name):
+    #     """Disconnect a signal safely with detailed logging."""
+    #     signal_slot = self._connected_signals.pop(name, None)
+    #     if signal_slot:
+    #         signal, slot, signature = signal_slot
+    #         try:
+    #             if signal is not None and slot is not None:
+    #                 signal.disconnect(slot)
+    #                 logger.debug(f"✅ Disconnected '{name}' from '{slot.__name__}' (signature: {signature})")
+    #             else:
+    #                 logger.warning(f"⚠️ '{name}' has invalid signal or slot object.")
+    #         except Exception as e:
+    #             logger.warning(f"⚠️ Could not disconnect '{name}' from '{slot.__name__}': {e}")
+    #     else:
+    #         logger.debug(f"⚠️ '{name}' was never connected or already disconnected.")
+
+
     def safe_disconnect(self, name):
         """Disconnect a signal safely with detailed logging."""
         signal_slot = self._connected_signals.pop(name, None)
@@ -1966,12 +1986,19 @@ class LogWindow(QDialog):
             signal, slot, signature = signal_slot
             try:
                 if signal is not None and slot is not None:
-                    signal.disconnect(slot)
-                    logger.debug(f"✅ Disconnected '{name}' from '{slot.__name__}' (signature: {signature})")
+                    with warnings.catch_warnings(record=True) as caught_warnings:
+                        warnings.simplefilter("always")
+                        signal.disconnect(slot)
+
+                        if caught_warnings:
+                            for w in caught_warnings:
+                                logger.warning(f"⚠️ Disconnect warning for '{name}': {w.message}")
+                        else:
+                            logger.debug(f"✅ Disconnected '{name}' from '{slot.__name__}' (signature: {signature})")
                 else:
                     logger.warning(f"⚠️ '{name}' has invalid signal or slot object.")
             except Exception as e:
-                logger.warning(f"⚠️ Could not disconnect '{name}' from '{slot.__name__}': {e}")
+                logger.warning(f"⚠️ Could not disconnect '{name}' from '{getattr(slot, '__name__', repr(slot))}': {e}")
         else:
             logger.debug(f"⚠️ '{name}' was never connected or already disconnected.")
 
