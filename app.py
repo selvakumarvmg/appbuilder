@@ -145,6 +145,7 @@ USER_VALIDATE_URL = f"{BASE_DOMAIN}/api/user/validate"
 API_URL_CREATE = f"{BASE_DOMAIN}/api/nas_create/creative"
 API_URL_UPDATE_CREATE = f"{BASE_DOMAIN}/api/nas_update/creative"
 API_REPLACE_QC_QA_FILE = f"{BASE_DOMAIN}/api/nas-qc-qa/update/ir-files"
+API_URL_UPLOAD = f"{BASE_DOMAIN}/api/post/operator_upload"
 
 NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
@@ -752,6 +753,21 @@ def call_api_qc_qa(api_url, payload, local_file_path=None):
                     file_obj.close()
 
 
+def post_metadata_to_api_upload(spec_id, user_id):
+    try:
+        payload = {
+            'business': 'image_retouching',
+            'operator_uid': user_id,
+            'spec_id': spec_id
+        }
+        response = requests.post(API_URL_UPLOAD, json=payload, verify=False)
+        logger.info(response)
+        if response.status_code == 200:
+            logger.info(f"Successfully posted metadata to API (Upload).")
+        else:
+            logger.error(f"Failed to post metadata to API (Upload): {response.status_code} {response.text}")
+    except Exception as e:
+        logger.error(f"Error posting metadata to API (Upload): {e}")
 
 
 # ===================== image convertion logic =====================
@@ -1021,7 +1037,6 @@ class FileConversionWorker(QObject):
             logger.error(f"File conversion error for {self.src_path}: {e}")
             self.error.emit(str(e), Path(self.src_path).name)
 
-from PySide6.QtWidgets import QProgressDialog
 class FileWatcherWorker(QObject):
     status_update = Signal(str)
     log_update = Signal(str)
@@ -1148,7 +1163,7 @@ class FileWatcherWorker(QObject):
                 sftp.makedirs(dest_dir, mode=0o777)
             try:
                 sftp.chmod(dest_dir, 0o777)
-                self.log_update.emit(f"[Transfer] Set permissions to 777 for.directory: {dest_dir}")
+                self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
             except Exception as e:
                 self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
             try:
@@ -1164,8 +1179,6 @@ class FileWatcherWorker(QObject):
                 sftp.remove(temp_test_file)
             except Exception as e:
                 raise PermissionError(f"No write permission for NAS directory {dest_dir}: {str(e)}")
-            if src_path.lower().endswith('.jpg'):
-                dest_path = dest_path.rsplit('.', 1)[0] + '.jpg'
             logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
             self.log_update.emit(f"[Transfer] Uploading {src_path} to NAS path {dest_path}")
             sftp.put(src_path, dest_path)
@@ -1178,7 +1191,7 @@ class FileWatcherWorker(QObject):
         finally:
             transport.close()
 
-    def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas):
+    def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas, file_type="original"):
         cache = load_cache()
         cache.setdefault("downloaded_files", {})
         cache.setdefault("downloaded_files_with_metadata", {})
@@ -1200,18 +1213,18 @@ class FileWatcherWorker(QObject):
             elif action_type.lower() == "upload":
                 if dest_path not in cache["uploaded_files"]:
                     cache["uploaded_files"].append(dest_path)
-                    cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
+                    cache["uploaded_files_with_metadata"][f"{task_id}:{file_type}"] = {"local_path": local_path, "api_response": item}
                     timer_response = cache.get("timer_responses", {}).get(local_path)
                     if timer_response:
                         end_timer_api(src_path, timer_response, cache.get('token', ''))
-                    app_signals.update_file_list.emit(local_path, f"{action_type} Completed", action_type.lower(), 100, is_nas)
-                    logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
-                    self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+                    app_signals.update_file_list.emit(local_path, f"{action_type} Completed ({file_type.capitalize()})", action_type.lower(), 100, is_nas)
+                    logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
+                    self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
             save_cache(cache)
-            app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
+            app_signals.append_log.emit(f"[Transfer] {action_type} completed ({file_type.capitalize()}): {src_path} to {dest_path}")
         except Exception as e:
-            logger.error(f"Failed to update cache and signals for {action_type} (Task {task_id}): {str(e)}")
-            self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} (Task {task_id}): {str(e)}")
+            logger.error(f"Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             raise
 
     def open_with_photoshop(self, file_path):
@@ -1319,7 +1332,7 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        local_jpg, _ = self.process_single_file(dest_path)
+                        local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
                         self.processed_tasks.add(f"{task_id}:{action_type}")
@@ -1338,16 +1351,16 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        local_jpg, _ = self.process_single_file(dest_path)
+                        local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
                         self.processed_tasks.add(f"{task_id}:{action_type}")
                     else:
                         raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
             elif action_type.lower() == "upload":
-                dest_path = item.get('file_path', dest_path)
                 cache = load_cache()
                 cache.setdefault("uploaded_files", [])
+                # Validate source file existence
                 if not os.path.exists(src_path):
                     logger.error(f"Source file does not exist for upload: {src_path}")
                     self.log_update.emit(f"[Transfer] Failed: Source file does not exist for upload: {src_path}")
@@ -1357,81 +1370,137 @@ class FileWatcherWorker(QObject):
                             self._download_from_nas(dest_path, temp_dest, item)
                             if os.path.exists(temp_dest):
                                 src_path = temp_dest
-                                local_jpg, _ = self.process_single_file(src_path)
-                                if local_jpg:
-                                    src_path = local_jpg
-                                    self.log_update.emit(f"[Transfer] Converted to JPG for upload: {src_path}")
-                                else:
-                                    raise FileNotFoundError(f"Conversion failed for {temp_dest}")
+                                self.log_update.emit(f"[Transfer] Downloaded source file for upload: {src_path}")
                             else:
                                 raise FileNotFoundError(f"Fallback download failed for {temp_dest}")
                         except Exception as e:
                             logger.error(f"Fallback download failed for upload task {task_id}: {str(e)}")
                             self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
                             raise
-                if dest_path in cache["uploaded_files"]:
-                    logger.warning(f"File already uploaded: {dest_path}")
-                    self.log_update.emit(f"[Transfer] Skipped: File already uploaded: {dest_path}")
-                    app_signals.update_file_list.emit(src_path, f"{action_type} Skipped: Already uploaded", action_type.lower(), 100, is_nas_dest)
-                    return
-                if is_nas_dest:
-                    self._upload_to_nas(src_path, dest_path, item)
+                # Upload original file
+                original_dest_path = item.get('file_path', dest_path)
+                if original_dest_path in cache["uploaded_files"]:
+                    logger.warning(f"Original file already uploaded: {original_dest_path}")
+                    self.log_update.emit(f"[Transfer] Skipped: Original file already uploaded: {original_dest_path}")
+                    app_signals.update_file_list.emit(src_path, f"{action_type} Skipped: Original already uploaded", action_type.lower(), 100, is_nas_dest)
                 else:
-                    self._upload_to_http(src_path)
-                self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_dest)
-                self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
-                self.processed_tasks.add(f"{task_id}:{action_type}")
-
-                # Additional API call logic after successful upload
-                try:
-                    user_type = cache.get('user_type', '').lower()
-                    user_id = cache.get('user_id', '')
-                    spec_id = item.get('spec_id', '')
-                    creative_id = item.get('creative_id', '')
-                    job_id = item.get('job_id', '')
-                    original_path = dest_path  # The uploaded file's NAS path
-                    local_file_path = src_path  # The local file path (original or converted JPG)
-
-                    if user_type == 'operator':
-                        op_payload = {
-                            'spec_nid': spec_id,
-                            'operator_nid': user_id,
-                            'files_link': original_path,
-                            'notes': '',
-                            'brief_id': job_id,
-                            'business': 'image_retouching'
-                        }
-                        if creative_id:
-                            op_payload['creative_nid'] = creative_id
-                            response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
-                            logger.info(f"Updated API Response: {response}")
-                            self.log_update.emit(f"[API] Updated API Response: {response}")
-                        else:
-                            response = call_api(API_URL_CREATE, op_payload, local_file_path)
-                            logger.info(f"Created API Response: {response}")
-                            self.log_update.emit(f"[API] Created API Response: {response}")
-
-                    elif user_type in ['qc', 'qa']:
-                        qc_qa_payload = {
-                            'image_id': spec_id,
-                            'job_id': job_id,
-                            'creative_id': creative_id,
-                            'user_id': user_id,
-                            'files_link': [original_path] if isinstance(original_path, str) else original_path,
-                            'business': 'image_retouching'
-                        }
-                        response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
-                        logger.info(f"QC/QA API Response: {response}")
-                        self.log_update.emit(f"[API] QC/QA API Response: {response}")
+                    if is_nas_dest:
+                        self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
+                        self._upload_to_nas(src_path, original_dest_path, item)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
                     else:
-                        logger.warning(f"Unknown user_type: {user_type}, skipping API call")
-                        self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
+                        raise NotImplementedError("HTTP upload not implemented")
+                    self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
+                    self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
+                    self.processed_tasks.add(f"{task_id}:{action_type}:original")
+                
+                # Handle JPG conversion and upload for supported formats
+                if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
+                    jpg_name = Path(src_path).stem + ".jpg"
+                    client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
+                    project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
+                    jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
+                    try:
+                        os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                        os.chmod(jpg_folder, 0o777)
+                        self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
+                    except OSError as e:
+                        logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
+                        self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
+                        raise
+                    jpg_path = str(jpg_folder / jpg_name)
+                    self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
+                    try:
+                        local_jpg, backup_path = process_single_file(src_path)
+                        logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                        self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                        if local_jpg and os.path.exists(local_jpg):
+                            jpg_path = local_jpg
+                            self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
+                        else:
+                            logger.error(f"Failed to convert to JPG: {jpg_path}")
+                            self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
+                            raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
+                    except Exception as e:
+                        logger.error(f"JPG conversion error for {src_path}: {str(e)}")
+                        self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
+                        raise
+                    # Ensure distinct NAS path for JPG to avoid overwriting original
+                    jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+                    if jpg_nas_path in cache["uploaded_files"]:
+                        logger.warning(f"JPG file already uploaded: {jpg_nas_path}")
+                        self.log_update.emit(f"[Transfer] Skipped: JPG file already uploaded: {jpg_nas_path}")
+                        app_signals.update_file_list.emit(jpg_path, f"{action_type} Skipped: JPG already uploaded", action_type.lower(), 100, is_nas_dest)
+                    else:
+                        if is_nas_dest:
+                            self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
+                            self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                            self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                        else:
+                            self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                            raise NotImplementedError("HTTP upload not implemented")
+                        self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                        self.processed_tasks.add(f"{task_id}:{action_type}:jpg")
+                else:
+                    self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
+                
+                # Post-upload API call logic for original file
+                user_type = cache.get('user_type', '').lower()
+                user_id = cache.get('user_id', '')
+                spec_id = item.get('spec_id', '')
+                creative_id = item.get('creative_id', '')
+                job_id = item.get('job_id', '')
+                original_path = original_dest_path
+                local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
+                if user_type == 'operator':
+                    op_payload = {
+                        'spec_nid': spec_id,
+                        'operator_nid': user_id,
+                        'files_link': original_path,
+                        'notes': '',
+                        'brief_id': job_id,
+                        'business': 'image_retouching'
+                    }
+                    if creative_id:
+                        op_payload['creative_nid'] = creative_id
+                        response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
+                        logger.info(f"Updated API Response: {response}")
+                        self.log_update.emit(f"[API] Updated API Response: {response}")
+                    else:
+                        response = call_api(API_URL_CREATE, op_payload, local_file_path)
+                        post_metadata_to_api_upload(spec_id, user_id)
+                        logger.info(f"Created API Response: {response}")
+                        self.log_update.emit(f"[API] Created API Response: {response}")
+                elif user_type in ['qc', 'qa']:
+                    qc_qa_payload = {
+                        'image_id': spec_id,
+                        'job_id': job_id,
+                        'creative_id': creative_id,
+                        'user_id': user_id,
+                        'files_link': [original_path] if isinstance(original_path, str) else original_path,
+                        'business': 'image_retouching'
+                    }
+                    response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
+                    logger.info(f"QC/QA API Response: {response}")
+                    self.log_update.emit(f"[API] QC/QA API Response: {response}")
+                else:
+                    logger.warning(f"Unknown user_type: {user_type}, skipping API call")
+                    self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+                    
+                # Update task status for both original and JPG
+                try:
+                    status_payload = {
+                        'id': task_id,
+                        'request_status': 'completed'
+                    }
+                    logger.info(f"Updated task {task_id} status to completed")
+                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
                 except Exception as e:
-                    logger.error(f"API call after upload failed (Task {task_id}): {str(e)}")
-                    self.log_update.emit(f"[API] Failed: Error during post-upload API call - {str(e)}")
-                    app_signals.update_file_list.emit(src_path, f"Upload API Failed: {str(e)}", action_type.lower(), 100, is_nas_dest)
-                    raise
-
+                    logger.error(f"Failed to update task {task_id} status: {str(e)}")
+                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
+                    
         except Exception as e:
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
@@ -1451,7 +1520,7 @@ class FileWatcherWorker(QObject):
             return
         self._is_running = True
         try:
-            logger.debug("Starting file watcher run")
+            logger.debug("Starting取代Starting file watcher run")
             self.log_update.emit("[API Scan] Starting file watcher run")
             if not self.check_connectivity():
                 logger.warning("Connectivity check failed, will retry on next run")
@@ -1461,6 +1530,8 @@ class FileWatcherWorker(QObject):
             cache = load_cache()
             user_id = cache.get('user_id', '')
             token = cache.get('token', '')
+            cache.setdefault('user_type', 'operator')
+            save_cache(cache)
             if not user_id or not token:
                 logger.error("No user_id or token found in cache")
                 self.status_update.emit("No user_id or token found in cache")
@@ -1616,14 +1687,27 @@ class FileWatcherWorker(QObject):
                                 client_name = client_name or "default_client"
                                 project_name = project_name or "default_project"
                         original_nas_path = item.get('file_path', file_path)
-                        if original_nas_path in cache["uploaded_files"]:
-                            logger.warning(f"Original file already uploaded: {original_nas_path}")
-                            self.log_update.emit(f"[Transfer] Skipped: Original file already uploaded: {original_nas_path}")
-                            updates.append((local_path, f"Upload Skipped: Already uploaded", action_type, 100, not is_online))
-                        else:
+                        cache = load_cache()
+                        cache.setdefault("uploaded_files", [])
+                        # Upload original file
+                        if original_nas_path not in cache["uploaded_files"]:
                             self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
                             updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
-                        jpg_path = local_path
+                            try:
+                                status_payload = {
+                                    'id': task_id,
+                                    'request_status': 'completed'
+                                }
+                                logger.info(f"Updated task {task_id} status to completed (Original)")
+                                self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
+                            except Exception as e:
+                                logger.error(f"Failed to update task {task_id} status (Original): {str(e)}")
+                                self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
+                        else:
+                            logger.warning(f"Original file already uploaded: {original_nas_path}")
+                            self.log_update.emit(f"[Transfer] Skipped: Original file already uploaded: {original_nas_path}")
+                            updates.append((local_path, f"Upload Skipped: Already uploaded (Original)", action_type, 100, not is_online))
+                        # Upload JPG if needed
                         if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
                             jpg_name = Path(local_path).stem + ".jpg"
                             jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
@@ -1635,7 +1719,7 @@ class FileWatcherWorker(QObject):
                                 updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
                                 continue
                             jpg_path = str(jpg_folder / jpg_name)
-                            local_jpg, _ = self.process_single_file(local_path)
+                            local_jpg, backup_path = process_single_file(local_path)
                             if local_jpg:
                                 jpg_path = local_jpg
                                 self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
@@ -1644,12 +1728,22 @@ class FileWatcherWorker(QObject):
                                 if jpg_nas_path not in cache["uploaded_files"]:
                                     self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
                                     updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
+                                    try:
+                                        status_payload = {
+                                            'id': task_id,
+                                            'request_status': 'completed'
+                                        }
+                                        logger.info(f"Updated task {task_id} status to completed (JPG)")
+                                        self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
+                                    except Exception as e:
+                                        logger.error(f"Failed to update task {task_id} status (JPG): {str(e)}")
+                                        self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
                                 else:
                                     logger.warning(f"JPG file already uploaded: {jpg_nas_path}")
                                     self.log_update.emit(f"[Transfer] Skipped: JPG file already uploaded: {jpg_nas_path}")
-                                    updates.append((jpg_path, f"Upload Skipped: Already uploaded", action_type, 100, not is_online))
+                                    updates.append((jpg_path, f"Upload Skipped: Already uploaded (JPG)", action_type, 100, not is_online))
                             else:
-                                self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
+                                self.log-update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
                                 updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
                         self.processed_tasks.add(task_key)
                     else:
@@ -1695,10 +1789,10 @@ class FileWatcherWorker(QObject):
         original_filename = Path(src_path).name
         try:
             self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
-            self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}%", dest_path, 100)
+            self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
         except Exception as e:
             logger.error(f"Progress error for {action_type} (Task {task_id}): {str(e)}")
-            self.log_update.emit(f"[App] Progress update: {action_type} Failed (Task {task_id}): {original_filename}%")
+            self.log_update.emit(f"[App] Progress update: {action_type} Failed (Task {task_id}): {original_filename}")
             raise
 
     def _download_from_http(self, src_path, dest_path):
@@ -1725,6 +1819,11 @@ class FileWatcherWorker(QObject):
         self.timer.stop()
         logger.info("FileWatcherWorker stopped")
         self.log_update.emit("[FileWatcher] Stopped")
+
+
+
+
+
 
 class LogWindow(QDialog):
     def __init__(self):
