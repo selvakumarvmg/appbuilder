@@ -31,7 +31,7 @@ import httpx
 import mimetypes
 from pid import PidFile, PidFileError
 import warnings
-
+import tempfile
 
 if platform.system() != "Windows":
     import fcntl
@@ -2726,16 +2726,17 @@ class LoginDialog(QDialog):
         super().closeEvent(event)
   
 
-
 def check_single_instance():
+    pid_dir = tempfile.gettempdir()
     try:
-        with PidFile(piddir='/tmp', pidname='premedia_app.pid'):
+        with PidFile(piddir=pid_dir, pidname='premedia_app.pid'):
             logger.info(f"Acquired lock for PID {os.getpid()}")
             return True
     except PidFileError:
         logger.error(f"Another instance of PremediaApp is running (PID file exists)")
         print("Another instance of PremediaApp is already running")
         sys.exit(1)
+
 
 class PremediaApp(QApplication):
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
