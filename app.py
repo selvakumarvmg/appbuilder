@@ -146,6 +146,8 @@ API_URL_CREATE = f"{BASE_DOMAIN}/api/nas_create/creative"
 API_URL_UPDATE_CREATE = f"{BASE_DOMAIN}/api/nas_update/creative"
 API_REPLACE_QC_QA_FILE = f"{BASE_DOMAIN}/api/nas-qc-qa/update/ir-files"
 API_URL_UPLOAD = f"{BASE_DOMAIN}/api/post/operator_upload"
+API_URL_UPLOAD_DOWNLOAD_UPDATE = f"{BASE_DOMAIN}/api/save_download_upload/update"
+
 
 NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
@@ -231,13 +233,22 @@ def async_log_worker():
 log_thread = threading.Thread(target=async_log_worker, daemon=True)
 
 def setup_logger(log_window=None):
+    logger.setLevel(logging.INFO)  # Ignores DEBUG logs
     logger.handlers.clear()
+
+    # Create handler and set level to INFO (ignores DEBUG)
     async_handler = LogWindowHandler()
+    async_handler.setLevel(logging.INFO)  # Only INFO and above
+
     logger.addHandler(async_handler)
+
+    # Connect signals to UI if provided
     if log_window:
         app_signals.append_log.connect(log_window.append_log, Qt.QueuedConnection)
         app_signals.api_call_status.connect(log_window.append_api_status, Qt.QueuedConnection)
         app_signals.update_timer_status.connect(log_window.update_timer_status, Qt.QueuedConnection)
+
+    # Trim log file to last 200 lines
     try:
         log_file = log_dir / "app.log"
         if log_file.exists():
@@ -249,6 +260,7 @@ def setup_logger(log_window=None):
     except Exception as e:
         logger.error(f"Error managing log file: {e}")
         app_signals.append_log.emit(f"[Log] Error managing log file: {str(e)}")
+
     return logger
 
 def stop_logging():
@@ -769,6 +781,60 @@ def post_metadata_to_api_upload(spec_id, user_id):
     except Exception as e:
         logger.error(f"Error posting metadata to API (Upload): {e}")
 
+
+# def update_download_upload_metadata(task_id, request_status):
+#     payload = {
+#         "id": task_id,
+#         "request_status": request_status
+#     }
+    
+#     attempt = 0
+#     while attempt < MAX_RETRIES:
+#         try:
+#             logger.debug(f"API URL: {API_URL_UPLOAD_DOWNLOAD_UPDATE}")
+#             logger.debug(f"JSON Payload being sent: {payload}")
+#             with httpx.Client(timeout=TIMEOUT, verify=False) as client:
+#                 response = client.post(API_URL_UPLOAD_DOWNLOAD_UPDATE, json=payload)
+#             logger.debug(f"Response Status Code: {response.status_code}")
+#             logger.debug(f"Response Text: {response.text[:500]}...")
+#             response.raise_for_status()
+#             return response.json()
+#         except httpx.RequestError as req_err:
+#             logger.warning(f"[Attempt {attempt+1}] Request error: {req_err}")
+#             attempt += 1
+#             if attempt < MAX_RETRIES:
+#                 sleep_time = RETRY_BACKOFF ** attempt
+#                 logger.debug(f"Retrying after {sleep_time:.1f}s...")
+#                 time.sleep(sleep_time)
+#             else:
+#                 return {"error": "Request failed", "details": str(req_err)}
+#         except Exception as e:
+#             logger.error(f"Unexpected error: {e}")
+#             return {"error": "Unexpected error", "details": str(e)}
+
+def update_download_upload_metadata(task_id, request_status):
+   
+    try:
+        payload = {
+            'id': task_id,
+            'request_status': request_status
+        }
+        response = requests.post(API_URL_UPLOAD_DOWNLOAD_UPDATE, json=payload, verify=False)
+        logger.info(response)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"error": "Failed to update metadata", "details": f"{response.status_code} {response.text}"}
+    except requests.RequestException as e:
+        logger.error(f"Error updating metadata: {e}")
+        return {"error": "Request failed", "details": str(e)}
+    except httpx.RequestError as req_err:
+        logger.error(f"Request error while updating metadata: {req_err}")
+        return {"error": "Request error", "details": str(req_err)}
+    except Exception as e:
+        logger.error(f"Failed to post metadata to API (Upload): {response.status_code} {response.text}")
+        return {"error": "Unexpected error", "details": str(e)}
+   
 
 # ===================== image convertion logic =====================
 
@@ -1311,6 +1377,7 @@ class FileWatcherWorker(QObject):
             original_filename = Path(src_path).name
             self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
             if action_type.lower() == "download":
+                
                 dest_path = self._prepare_download_path(item)
                 cache = load_cache()
                 cache.setdefault("downloaded_files", {})
@@ -1330,12 +1397,14 @@ class FileWatcherWorker(QObject):
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
+                        
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        local_jpg, _ = process_single_file(dest_path)
-                        if local_jpg:
-                            app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
-                        self.processed_tasks.add(f"{task_id}:{action_type}")
+                        
+                        # local_jpg, _ = process_single_file(dest_path)
+                        # if local_jpg:
+                        #     app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
+                        # self.processed_tasks.add(f"{task_id}:{action_type}")
                     else:
                         raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
                 else:
@@ -1351,6 +1420,7 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+                        update_download_upload_metadata(task_id, "completed")
                         local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
@@ -1491,10 +1561,7 @@ class FileWatcherWorker(QObject):
                     
                 # Update task status for both original and JPG
                 try:
-                    status_payload = {
-                        'id': task_id,
-                        'request_status': 'completed'
-                    }
+                    update_download_upload_metadata(task_id, "completed")
                     logger.info(f"Updated task {task_id} status to completed")
                     self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
                 except Exception as e:
@@ -1628,6 +1695,7 @@ class FileWatcherWorker(QObject):
                     file_name = item.get('file_name', Path(file_path).name)
                     action_type = item.get('request_type', '').lower()
                     task_key = f"{task_id}:{action_type}"
+                    update_download_upload_metadata(task_id, "completed")
                     if task_key in self.processed_tasks:
                         logger.debug(f"Skipping already processed task: {task_key} (id: {task_id})")
                         self.log_update.emit(f"[API Scan] Skipping already processed task: {task_key} (id: {task_id})")
@@ -1647,6 +1715,8 @@ class FileWatcherWorker(QObject):
                                 self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
                                 if os.path.exists(local_path):
                                     self.processed_tasks.add(task_key)
+                                    
+                                    
                                     updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
                                     break
                                 else:
