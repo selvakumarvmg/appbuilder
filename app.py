@@ -2748,10 +2748,12 @@ class PremediaApp(QApplication):
             self.app.setWindowIcon(load_icon(ICON_PATH, "application"))
 
             # Prevent multiple instances using a lock file
-            self.lock_file = "/tmp/premedia_app.lock"
+            # self.lock_file = "/tmp/premedia_app.lock"
+            self.lock_file = os.path.join(tempfile.gettempdir(), "premedia_app.lock")
+            
             try:
                 self.lock_fd = open(self.lock_file, 'w')
-                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except IOError:
                 logger.error("Another instance of PremediaApp is already running")
                 app_signals.append_log.emit("[Init] Failed: Another instance of PremediaApp is already running")
