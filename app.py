@@ -150,6 +150,8 @@ API_URL_UPDATE_CREATE = f"{BASE_DOMAIN}/api/nas_update/creative"
 API_REPLACE_QC_QA_FILE = f"{BASE_DOMAIN}/api/nas-qc-qa/update/ir-files"
 API_URL_UPLOAD = f"{BASE_DOMAIN}/api/post/operator_upload"
 API_URL_UPLOAD_DOWNLOAD_UPDATE = f"{BASE_DOMAIN}/api/save_download_upload/update"
+API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
+API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 
 
 NAS_IP = "192.168.3.20"
@@ -776,6 +778,19 @@ def post_metadata_to_api_upload(spec_id, user_id):
             'spec_id': spec_id
         }
         response = requests.post(API_URL_UPLOAD, json=payload, verify=False)
+        logger.info(response)
+        if response.status_code == 200:
+            logger.info(f"Successfully posted metadata to API (Upload).")
+        else:
+            logger.error(f"Failed to post metadata to API (Upload): {response.status_code} {response.text}")
+    except Exception as e:
+        logger.error(f"Error posting metadata to API (Upload): {e}")
+
+
+def post_api(api_url,payload):
+    logger.info("-------------------------------------------------- Posting Metadata to Upload API -------------------------------")
+    try:        
+        response = requests.post(api_url, data=payload, verify=False)
         logger.info(response)
         if response.status_code == 200:
             logger.info(f"Successfully posted metadata to API (Upload).")
@@ -1525,16 +1540,27 @@ class FileWatcherWorker(QObject):
                 spec_id = item.get('spec_id', '')
                 creative_id = item.get('creative_id', '')
                 job_id = item.get('job_id', '')
+                nas_path = item.get('nas_path', '')
                 original_path = original_dest_path
                 local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
+                
+                payload = {
+                'id': id,
+                'nas_it_path': nas_path,
+                'task_id': task_id,
+                }
+                print(f"Update NAS Path payload: {payload}")
+                response = post_api(API_URL_UPDATE_NAS_ASSET, payload)
+
                 if user_type == 'operator':
                     op_payload = {
                         'spec_nid': spec_id,
                         'operator_nid': user_id,
-                        'files_link': original_path,
+                        'files_link': nas_path,
                         'notes': '',
                         'brief_id': job_id,
-                        'business': 'image_retouching'
+                        'business': 'image_retouching',
+                        'task_id': task_id,
                     }
                     if creative_id:
                         op_payload['creative_nid'] = creative_id
@@ -1552,8 +1578,9 @@ class FileWatcherWorker(QObject):
                         'job_id': job_id,
                         'creative_id': creative_id,
                         'user_id': user_id,
-                        'files_link': [original_path] if isinstance(original_path, str) else original_path,
-                        'business': 'image_retouching'
+                        'files_link': [nas_path] if isinstance(nas_path, str) else nas_path,
+                        'business': 'image_retouching',
+                        'task_id': task_id,
                     }
                     response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
                     logger.info(f"QC/QA API Response: {response}")
