@@ -1283,7 +1283,7 @@ class FileWatcherWorker(QObject):
             raise
 
     def open_with_photoshop(self, file_path):
-        """Dynamically find Adobe Photoshop path and open the original file."""
+        """Dynamically find Adobe Photoshop path and open the original file in an existing or new instance."""
         try:
             system = platform.system()
             photoshop_path = None
@@ -1332,7 +1332,7 @@ class FileWatcherWorker(QObject):
                             continue
                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
                         if photoshop_exes:
-                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_exes.sort(key=lambda x: x.name, reverse=True)
                             photoshop_path = str(photoshop_exes[0])
                             break
                     if not photoshop_path:
@@ -1346,18 +1346,65 @@ class FileWatcherWorker(QObject):
                 app_signals.update_status.emit(f"Unsupported platform: {system}")
                 return
 
+            # Validate file path
+            file_path = str(Path(file_path).resolve())
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            if system == "Darwin":
-                subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+            # Log paths for debugging
+            logger.debug(f"Photoshop path: {photoshop_path}")
+            logger.debug(f"File path: {file_path}")
+
+            # Check if Photoshop is already running
+            photoshop_running = False
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if system == "Windows" and "Photoshop" in proc.info['name']:
+                        photoshop_running = True
+                        break
+                    elif system == "Darwin" and "Adobe Photoshop" in proc.info['name']:
+                        photoshop_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            # Open file in Photoshop
+            if photoshop_running:
+                if system == "Darwin":
+                    # Use AppleScript to open file in existing instance
+                    script = f'tell application "Adobe Photoshop" to open "{file_path}"'
+                    subprocess.run(["osascript", "-e", script], check=True)
+                elif system == "Windows":
+                    # Use DDE (Dynamic Data Exchange) to open file in existing instance
+                    import win32com.client
+                    shell = win32com.client.Dispatch("WScript.Shell")
+                    shell.AppActivate("Adobe Photoshop")
+                    time.sleep(1)  # Give time to activate
+                    shell.SendKeys(f"%f{file_path}{'{ENTER}'}")
+                else:
+                    logger.warning("Opening file in existing Photoshop instance not supported on Linux")
+                    app_signals.append_log.emit("[Photoshop] Opening in existing instance not supported on Linux")
             else:
-                subprocess.run([photoshop_path, file_path], check=True)
+                if system == "Darwin":
+                    cmd = ["open", "-a", photoshop_path, file_path]
+                else:
+                    cmd = [photoshop_path, file_path]
+                process = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if process.returncode != 0:
+                    raise subprocess.CalledProcessError(process.returncode, cmd, output=process.stdout, stderr=process.stderr)
 
             logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
             app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
 
+        except FileNotFoundError as e:
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to open {file_path} in Photoshop: {e.stderr}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {e.stderr}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {e.stderr}")
         except Exception as e:
             logger.error(f"Failed to open {file_path} in Photoshop: {e}")
             app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
@@ -1376,6 +1423,7 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
                         app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
                         try:
+                            update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
@@ -1391,6 +1439,7 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
                         app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
                         try:
+                            update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
@@ -1398,7 +1447,7 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        update_download_upload_metadata(task_id, "completed")
+                        
                         local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
