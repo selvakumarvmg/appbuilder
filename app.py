@@ -925,88 +925,205 @@ def check_nas_write_permission(sftp, nas_path):
         app_signals.append_log.emit(f"[Transfer-lang=python] Write permission check failed for {nas_path}: {e}")
         return False
 
+# def process_image_in_memory(image_data, ext, full_file_path):
+#     """Convert image data to JPEG in memory with improved color mode handling."""
+#     try:
+#         stream = io.BytesIO(image_data)
+#         pil_image = None
+#         ext = ext.lower()
+
+#         if ext in ['jpg', 'jpeg', 'png']:
+#             pil_image = Image.open(stream)
+#         elif ext == 'gif':
+#             pil_image = Image.open(stream)
+#             pil_image = next(ImageSequence.Iterator(pil_image))
+#         elif ext in ['tif', 'tiff']:
+#             with tifffile.TiffFile(stream) as tif:
+#                 page = tif.pages[0]
+#                 arr = page.asarray()
+#                 photometric = getattr(page.photometric, 'name', 'unknown').lower()
+#                 logger.debug(f"TIFF photometric: {photometric}, shape: {arr.shape}")
+#                 if photometric in ['rgb', 'ycbcr']:
+#                     if arr.ndim == 3 and arr.shape[2] >= 3:
+#                         arr = arr[:, :, :3]  # Ensure only RGB channels
+#                     pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+#                 elif photometric == 'cmyk':
+#                     pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
+#                 elif photometric == 'minisblack' or arr.ndim == 2:
+#                     arr = np.stack((arr,) * 3, axis=-1)
+#                     pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+#                 else:
+#                     logger.warning(f"Unsupported TIFF photometric: {photometric}")
+#                     return None
+#         elif ext in ['psd', 'psb']:
+#             try:
+#                 psd = PSDImage.open(stream)
+#                 try:
+#                     # Attempt to composite without strict ICC enforcement
+#                     pil_image = psd.composite()
+#                     if pil_image is None:
+#                         raise ValueError("PSD composite is None")
+#                 except Exception as icc_error:
+#                     logger.warning(f"psd-tools composite failed (ICC issue) for {full_file_path}: {icc_error}")
+#                     # Fallback to raw image data without ICC
+#                     try:
+#                         pil_image = psd.as_PIL()
+#                         if pil_image is None:
+#                             raise ValueError("PSD as_PIL returned None")
+#                     except Exception as raw_error:
+#                         logger.warning(f"psd-tools raw fallback failed for {full_file_path}: {raw_error}")
+#                         pil_image = None
+#             except Exception as e:
+#                 logger.warning(f"psd-tools open failed for {full_file_path}: {e}")
+#                 pil_image = None
+
+#             # Fallback using Pillow with forced RGB conversion
+#             if pil_image is None:
+#                 try:
+#                     stream.seek(0)
+#                     pil_image = Image.open(stream)
+#                     logger.debug(f"Pillow fallback opened PSD with mode {pil_image.mode}")
+#                     # Force RGB to handle potential ICC issues
+#                     if pil_image.mode != "RGB":
+#                         pil_image = pil_image.convert("RGB")
+#                 except Exception as fallback_error:
+#                     logger.error(f"Both psd-tools and Pillow failed for PSD: {fallback_error}")
+#                     return None
+#         elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+#             with rawpy.imread(stream) as raw:
+#                 rgb = raw.postprocess()
+#                 pil_image = Image.fromarray(rgb)
+#         else:
+#             pil_image = Image.open(stream)
+
+#         # Ensure RGB mode for all images
+#         if pil_image.mode != "RGB":
+#             pil_image = pil_image.convert("RGB")
+
+#         jpeg_buffer = io.BytesIO()
+#         pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+#         jpeg_buffer.seek(0)
+#         return jpeg_buffer
+#     except Exception as e:
+#         logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {e}")
+#         return None
+
+
 def process_image_in_memory(image_data, ext, full_file_path):
-    """Convert image data to JPEG in memory with improved color mode handling."""
+    """Advanced in-memory image conversion to JPEG with full ICC and color mode support."""
     try:
         stream = io.BytesIO(image_data)
         pil_image = None
+        icc_profile_bytes = None
         ext = ext.lower()
 
         if ext in ['jpg', 'jpeg', 'png']:
-            pil_image = Image.open(stream)
+            pil_image = Image.open(stream).copy()
+
         elif ext == 'gif':
             pil_image = Image.open(stream)
-            pil_image = next(ImageSequence.Iterator(pil_image))
+            pil_image = next(ImageSequence.Iterator(pil_image)).copy()
+
         elif ext in ['tif', 'tiff']:
-            with tifffile.TiffFile(stream) as tif:
-                page = tif.pages[0]
-                arr = page.asarray()
-                photometric = getattr(page.photometric, 'name', 'unknown').lower()
-                logger.debug(f"TIFF photometric: {photometric}, shape: {arr.shape}")
-                if photometric in ['rgb', 'ycbcr']:
-                    if arr.ndim == 3 and arr.shape[2] >= 3:
-                        arr = arr[:, :, :3]  # Ensure only RGB channels
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                elif photometric == 'cmyk':
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
-                elif photometric == 'minisblack' or arr.ndim == 2:
-                    arr = np.stack((arr,) * 3, axis=-1)
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                else:
-                    logger.warning(f"Unsupported TIFF photometric: {photometric}")
-                    return None
+            try:
+                with tifffile.TiffFile(stream) as tif:
+                    page = tif.pages[0]
+                    arr = page.asarray()
+                    photometric = getattr(page.photometric, 'name', '').lower()
+                    logger.debug(f"TIFF photometric: {photometric}, shape: {arr.shape}")
+
+                    if photometric in ['rgb', 'ycbcr'] and arr.ndim == 3:
+                        arr = arr[:, :, :3].astype(np.uint8)
+                        pil_image = Image.fromarray(arr, mode='RGB')
+
+                    elif photometric == 'cmyk':
+                        arr = arr.astype(np.uint8)
+                        pil_image = Image.fromarray(arr, mode='CMYK').convert('RGB')
+
+                    elif photometric in ['minisblack', 'miniswhite'] or arr.ndim == 2:
+                        arr = np.stack([arr] * 3, axis=-1).astype(np.uint8)
+                        pil_image = Image.fromarray(arr, mode='RGB')
+
+                    else:
+                        logger.warning(f"Unsupported TIFF photometric: {photometric}, trying fallback.")
+                        stream.seek(0)
+                        pil_image = Image.open(stream).copy()
+
+                # Try to extract ICC profile from TIFF metadata
+                metadata = tifffile.TiffFile(io.BytesIO(image_data)).pages[0].tags
+                icc = metadata.get('ICCProfile', None)
+                if icc:
+                    icc_profile_bytes = icc.value
+
+            except Exception as e:
+                logger.warning(f"TIFF processing failed: {e}, using fallback")
+                stream.seek(0)
+                pil_image = Image.open(stream).copy()
+
         elif ext in ['psd', 'psb']:
             try:
                 psd = PSDImage.open(stream)
-                try:
-                    # Attempt to composite without strict ICC enforcement
-                    pil_image = psd.composite()
-                    if pil_image is None:
-                        raise ValueError("PSD composite is None")
-                except Exception as icc_error:
-                    logger.warning(f"psd-tools composite failed (ICC issue) for {full_file_path}: {icc_error}")
-                    # Fallback to raw image data without ICC
-                    try:
-                        pil_image = psd.as_PIL()
-                        if pil_image is None:
-                            raise ValueError("PSD as_PIL returned None")
-                    except Exception as raw_error:
-                        logger.warning(f"psd-tools raw fallback failed for {full_file_path}: {raw_error}")
-                        pil_image = None
-            except Exception as e:
-                logger.warning(f"psd-tools open failed for {full_file_path}: {e}")
-                pil_image = None
 
-            # Fallback using Pillow with forced RGB conversion
-            if pil_image is None:
+                # Extract ICC Profile (resource ID 1039)
+                for res in psd.image_resources:
+                    if res.resource_id == 1039:
+                        icc_profile_bytes = res.data
+                        logger.debug(f"Extracted ICC profile from PSD: {len(icc_profile_bytes)} bytes")
+                        break
+
+                # Try composite view
+                pil_image = psd.composite()
+                if pil_image is None:
+                    raise ValueError("PSD composite failed")
+
+                # Convert if needed
+                if pil_image.mode != "RGB":
+                    pil_image = pil_image.convert("RGB")
+
+            except Exception as psd_error:
+                logger.warning(f"PSD composite failed: {psd_error}, trying fallback.")
                 try:
                     stream.seek(0)
-                    pil_image = Image.open(stream)
-                    logger.debug(f"Pillow fallback opened PSD with mode {pil_image.mode}")
-                    # Force RGB to handle potential ICC issues
+                    pil_image = Image.open(stream).copy()
                     if pil_image.mode != "RGB":
                         pil_image = pil_image.convert("RGB")
                 except Exception as fallback_error:
-                    logger.error(f"Both psd-tools and Pillow failed for PSD: {fallback_error}")
+                    logger.error(f"PSD fallback failed: {fallback_error}")
                     return None
-        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
-            with rawpy.imread(stream) as raw:
-                rgb = raw.postprocess()
-                pil_image = Image.fromarray(rgb)
-        else:
-            pil_image = Image.open(stream)
 
-        # Ensure RGB mode for all images
+        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+            try:
+                with rawpy.imread(stream) as raw:
+                    rgb = raw.postprocess()
+                    pil_image = Image.fromarray(rgb)
+            except Exception as raw_error:
+                logger.error(f"RAW conversion failed: {raw_error}")
+                return None
+
+        else:
+            try:
+                pil_image = Image.open(stream).copy()
+            except Exception as generic_error:
+                logger.error(f"Fallback image opening failed: {generic_error}")
+                return None
+
+        # Final safety: ensure RGB
         if pil_image.mode != "RGB":
             pil_image = pil_image.convert("RGB")
 
+        # Save JPEG with ICC profile if available
         jpeg_buffer = io.BytesIO()
-        pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+        save_kwargs = {"format": "JPEG", "quality": 80}
+        if icc_profile_bytes:
+            save_kwargs["icc_profile"] = icc_profile_bytes
+        pil_image.save(jpeg_buffer, **save_kwargs)
         jpeg_buffer.seek(0)
         return jpeg_buffer
+
     except Exception as e:
-        logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {e}")
+        logger.error(f"Advanced conversion failed ({ext}) for {full_file_path}: {e}")
         return None
+
 
 def process_single_file(full_file_path):
     """Convert a single file to JPEG and move original to backup."""
@@ -1448,13 +1565,7 @@ class FileWatcherWorker(QObject):
                             self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
                             raise
                 original_dest_path = item.get('file_path', dest_path)
-                if is_nas_dest:
-                    self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
-                    self._upload_to_nas(src_path, original_dest_path, item)
-                    self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
-                else:
-                    self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
-                    raise NotImplementedError("HTTP upload not implemented")
+                
                 self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
                 # Handle JPG conversion and upload for supported formats
@@ -1488,16 +1599,23 @@ class FileWatcherWorker(QObject):
                         logger.error(f"JPG conversion error for {src_path}: {str(e)}")
                         self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
                         raise
-                    jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
                     if is_nas_dest:
-                        self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                        # self._upload_to_nas(jpg_path, jpg_nas_path, item)
-                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                        self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
+                        self._upload_to_nas(src_path, original_dest_path, item)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
                     else:
-                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
                         raise NotImplementedError("HTTP upload not implemented")
-                    self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                    self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                    # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+                    # if is_nas_dest:
+                    #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
+                    #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                    #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                    # else:
+                    #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                    #     raise NotImplementedError("HTTP upload not implemented")
+                    # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                    # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
                 # Post-upload API call logic for original file
