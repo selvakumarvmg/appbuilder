@@ -1071,7 +1071,7 @@ def process_single_file(full_file_path):
     path.rename(backup_path)
     logger.debug(f"Original file renamed to {backup_path}")
 
-    return str(local_output_path), str(backup_path)
+    return str(local_output_path), str(full_file_path)
 
 # ===================== image covertion logic =====================
 
@@ -1229,47 +1229,113 @@ class FileWatcherWorker(QObject):
         finally:
             transport.close()
 
+    def wait_for_file_complete(self, file_path, timeout=30, interval=1):
+        """Wait until the file size stabilizes, indicating it's fully written."""
+        prev_size = -1
+        start_time = time.time()
+        file_path = str(file_path)  # Ensure file_path is a string
+        while time.time() - start_time < timeout:
+            try:
+                size = os.path.getsize(file_path)
+                if size == prev_size and size > 0:  # Ensure non-zero size
+                    logger.debug(f"File {file_path} stabilized at {size} bytes")
+                    self.log_update.emit(f"[Transfer] File {file_path} stabilized at {size} bytes")
+                    return True
+                prev_size = size
+                time.sleep(interval)
+            except FileNotFoundError:
+                logger.warning(f"File {file_path} not found during size check")
+                self.log_update.emit(f"[Transfer] File {file_path} not found during size check")
+                time.sleep(interval)
+        logger.error(f"File {file_path} did not stabilize within {timeout} seconds")
+        self.log_update.emit(f"[Transfer] Failed: File {file_path} did not stabilize within {timeout} seconds")
+        return False
+
     def _upload_to_nas(self, src_path, dest_path, item):
+        """Upload a file to NAS via SFTP, ensuring the source file is complete and verifying integrity."""
+        src_path = str(src_path)  # Convert Path to string
+        dest_path = str(dest_path)  # Convert Path to string
+        task_id = str(item.get('id', ''))
+
+        # Check if source file exists
         if not Path(src_path).exists():
+            logger.error(f"Source file does not exist: {src_path}")
+            self.log_update.emit(f"[Transfer] Failed: Source file does not exist: {src_path}")
             raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+        # Wait for the source file to be fully written
+        if not self.wait_for_file_complete(src_path, timeout=30):
+            logger.error(f"Source file {src_path} not fully written within timeout")
+            self.log_update.emit(f"[Transfer] Failed: Source file {src_path} not fully written within timeout")
+            raise TimeoutError(f"Source file {src_path} not fully written within timeout")
+
+        # Compute source file hash and size
+        src_size = os.path.getsize(src_path)
+        src_hash = get_file_hash(src_path)
+        if src_hash is None:
+            logger.error(f"Failed to compute hash for source file {src_path}")
+            self.log_update.emit(f"[Transfer] Failed: Could not compute hash for source file {src_path}")
+            raise ValueError(f"Failed to compute hash for source file {src_path}")
+        logger.debug(f"Source file {src_path} size: {src_size} bytes, hash: {src_hash}")
+        self.log_update.emit(f"[Transfer] Source file {src_path} size: {src_size} bytes, hash: {src_hash}")
+
+        # Connect to NAS
         nas_connection = connect_to_nas()
         if not nas_connection:
+            logger.error(f"NAS connection failed to {NAS_IP}")
+            self.log_update.emit(f"[Transfer] Failed: NAS connection failed to {NAS_IP}")
             raise Exception(f"NAS connection failed to {NAS_IP}")
+
         transport, sftp = nas_connection
         try:
-            dest_path = item.get('file_path', dest_path)
-            dest_dir = "/".join(dest_path.split("/")[:-1])
-            try:
-                sftp.stat(dest_dir)
-                self.log_update.emit(f"[Transfer] NAS parent directory exists: {dest_dir}")
-            except FileNotFoundError:
-                self.log_update.emit(f"[Transfer] Creating NAS parent directory: {dest_dir}")
-                sftp.makedirs(dest_dir, mode=0o777)
-            try:
-                sftp.chmod(dest_dir, 0o777)
-                self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
-            except Exception as e:
-                self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
-            try:
-                file_attr = sftp.stat(dest_path)
-                if file_attr:
-                    sftp.chmod(dest_path, 0o777)
-                    self.log_update.emit(f"[Transfer] Set permissions to 777 for existing file: {dest_path}")
-            except FileNotFoundError:
-                self.log_update.emit(f"[Transfer] No existing file at {dest_path}, proceeding with upload")
-            temp_test_file = f"{dest_dir}/test_permissions_{int(time.time())}.tmp"
-            try:
-                sftp.putfo(io.BytesIO(b"test"), temp_test_file)
-                sftp.remove(temp_test_file)
-            except Exception as e:
-                raise PermissionError(f"No write permission for NAS directory {dest_dir}: {str(e)}")
+            # Check NAS write permissions
+            if not check_nas_write_permission(sftp, dest_path):
+                logger.error(f"No write permission for NAS path {dest_path}")
+                self.log_update.emit(f"[Transfer] Failed: No write permission for NAS path {dest_path}")
+                raise PermissionError(f"No write permission for NAS path {dest_path}")
+
+            # Perform the upload with progress callback
             logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
             self.log_update.emit(f"[Transfer] Uploading {src_path} to NAS path {dest_path}")
-            sftp.put(src_path, dest_path)
+            sftp.put(src_path, dest_path, callback=lambda transferred, total: self._upload_progress(transferred, total, src_path, dest_path, task_id))
             sftp.chmod(dest_path, 0o777)
             self.log_update.emit(f"[Transfer] Set permissions to 777 for uploaded file: {dest_path}")
+
+            # Verify uploaded file size and hash
+            dest_stat = sftp.stat(dest_path)
+            dest_size = dest_stat.st_size
+            if dest_size != src_size:
+                logger.error(f"Uploaded file size mismatch: {dest_size} bytes (NAS) vs {src_size} bytes (local)")
+                self.log_update.emit(f"[Transfer] Failed: Uploaded file size mismatch: {dest_size} bytes (NAS) vs {src_size} bytes (local)")
+                raise ValueError(f"Uploaded file size mismatch: {dest_size} bytes (NAS) vs {src_size} bytes (local)")
+
+            # Download the uploaded file to a temporary location to compute its hash
+            temp_local_path = f"/tmp/{sanitize_filename(Path(dest_path).name)}_{int(time.time())}.tmp"
+            try:
+                sftp.get(dest_path, temp_local_path)
+                dest_hash = get_file_hash(temp_local_path)
+                if dest_hash is None:
+                    logger.error(f"Failed to compute hash for uploaded file {dest_path}")
+                    self.log_update.emit(f"[Transfer] Failed: Could not compute hash for uploaded file {dest_path}")
+                    raise ValueError(f"Failed to compute hash for uploaded file {dest_path}")
+                if dest_hash != src_hash:
+                    logger.error(f"Uploaded file hash mismatch: {dest_hash} (NAS) vs {src_hash} (local)")
+                    self.log_update.emit(f"[Transfer] Failed: Uploaded file hash mismatch: {dest_hash} (NAS) vs {src_hash} (local)")
+                    raise ValueError(f"Uploaded file hash mismatch: {dest_hash} (NAS) vs {src_hash} (local)")
+                logger.info(f"Upload successful: {dest_path}, size {dest_size} bytes, hash {dest_hash}")
+                self.log_update.emit(f"[Transfer] Successfully uploaded file: {dest_path}, size {dest_size} bytes, hash {dest_hash}")
+            finally:
+                if os.path.exists(temp_local_path):
+                    os.remove(temp_local_path)
+
         finally:
             transport.close()
+
+    def _upload_progress(self, transferred, total, src_path, dest_path, task_id):
+        """Callback to track upload progress and emit signals."""
+        progress = int((transferred / total) * 100)
+        logger.debug(f"Upload progress: {transferred}/{total} bytes ({progress}%) for {src_path} to {dest_path}")
+        self.progress_update.emit(f"Uploading (Task {task_id}): {Path(src_path).name}", dest_path, progress)
 
     def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas, file_type="original"):
         cache = load_cache()
@@ -1491,7 +1557,7 @@ class FileWatcherWorker(QObject):
                     jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
                     if is_nas_dest:
                         self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                        self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                        #self._upload_to_nas(jpg_path, jpg_nas_path, item)
                         self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
                     else:
                         self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
