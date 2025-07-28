@@ -32,6 +32,7 @@ import mimetypes
 from pid import PidFile, PidFileError
 import warnings
 import tempfile
+import psutil  # To check if Photoshop is running
 
 if platform.system() != "Windows":
     import fcntl
@@ -1281,13 +1282,22 @@ class FileWatcherWorker(QObject):
             logger.error(f"Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             raise
-
     def open_with_photoshop(self, file_path):
-        """Dynamically find Adobe Photoshop path and open the original file in an existing or new instance."""
+        """Open a file in Adobe Photoshop across all platforms (Windows, macOS, Linux with Wine)."""
         try:
             system = platform.system()
             photoshop_path = None
 
+            # Validate file path
+            file_path = str(Path(file_path).resolve())
+            if not Path(file_path).exists():
+                raise FileNotFoundError(f"File does not exist: {file_path}")
+
+            # Log paths for debugging
+            logger.debug(f"System: {system}")
+            logger.debug(f"File path: {file_path}")
+
+            # Determine Photoshop path based on platform
             if system == "Windows":
                 search_dirs = [
                     Path("C:/Program Files/Adobe"),
@@ -1341,57 +1351,52 @@ class FileWatcherWorker(QObject):
                     raise FileNotFoundError("Wine is not installed or not functioning")
 
             else:
-                logger.warning(f"Unsupported platform for Photoshop: {system}")
-                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
-                app_signals.update_status.emit(f"Unsupported platform: {system}")
-                return
-
-            # Validate file path
-            file_path = str(Path(file_path).resolve())
-            if not Path(file_path).exists():
-                raise FileNotFoundError(f"File does not exist: {file_path}")
-
-            # Log paths for debugging
-            logger.debug(f"Photoshop path: {photoshop_path}")
-            logger.debug(f"File path: {file_path}")
+                raise ValueError(f"Unsupported platform: {system}")
 
             # Check if Photoshop is already running
             photoshop_running = False
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
-                    if system == "Windows" and "Photoshop" in proc.info['name']:
-                        photoshop_running = True
-                        break
-                    elif system == "Darwin" and "Adobe Photoshop" in proc.info['name']:
+                    if (system == "Windows" and "Photoshop" in proc.info['name']) or \
+                    (system == "Darwin" and "Adobe Photoshop" in proc.info['name']) or \
+                    (system == "Linux" and "wine-preloader" in proc.info['name']):
                         photoshop_running = True
                         break
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            # Open file in Photoshop
+            # Construct command to open file
             if photoshop_running:
+                logger.info("Photoshop is already running, attempting to open file in existing instance.")
                 if system == "Darwin":
-                    # Use AppleScript to open file in existing instance
+                    # Use AppleScript for macOS
                     script = f'tell application "Adobe Photoshop" to open "{file_path}"'
                     subprocess.run(["osascript", "-e", script], check=True)
                 elif system == "Windows":
-                    # Use DDE (Dynamic Data Exchange) to open file in existing instance
-                    import win32com.client
-                    shell = win32com.client.Dispatch("WScript.Shell")
-                    shell.AppActivate("Adobe Photoshop")
-                    time.sleep(1)  # Give time to activate
-                    shell.SendKeys(f"%f{file_path}{'{ENTER}'}")
-                else:
-                    logger.warning("Opening file in existing Photoshop instance not supported on Linux")
-                    app_signals.append_log.emit("[Photoshop] Opening in existing instance not supported on Linux")
+                    # Use COM to open in existing instance (requires pywin32)
+                    try:
+                        import win32com.client
+                        shell = win32com.client.Dispatch("WScript.Shell")
+                        shell.AppActivate("Adobe Photoshop")
+                        time.sleep(1)  # Allow activation
+                        shell.SendKeys(f"%f{file_path}{'{ENTER}'}")
+                    except ImportError:
+                        logger.warning("pywin32 not found, falling back to new instance.")
+                        subprocess.run([photoshop_path, file_path], check=True)
+                    except Exception as e:
+                        logger.error(f"COM activation failed: {e}, falling back to new instance.")
+                        subprocess.run([photoshop_path, file_path], check=True)
+                else:  # Linux with Wine
+                    logger.warning("Opening in existing Wine instance not fully supported, launching new instance.")
+                    subprocess.run(["wine", photoshop_path, file_path], check=True)
             else:
+                # Launch new instance
                 if system == "Darwin":
-                    cmd = ["open", "-a", photoshop_path, file_path]
-                else:
-                    cmd = [photoshop_path, file_path]
-                process = subprocess.run(cmd, capture_output=True, text=True, check=False)
-                if process.returncode != 0:
-                    raise subprocess.CalledProcessError(process.returncode, cmd, output=process.stdout, stderr=process.stderr)
+                    subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+                elif system == "Windows":
+                    subprocess.run([photoshop_path, file_path], check=True)
+                else:  # Linux with Wine
+                    subprocess.run(["wine", photoshop_path, file_path], check=True)
 
             logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
@@ -1409,6 +1414,7 @@ class FileWatcherWorker(QObject):
             logger.error(f"Failed to open {file_path} in Photoshop: {e}")
             app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
             app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
         task_id = str(item.get('id', ''))

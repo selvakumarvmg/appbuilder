@@ -25,3 +25,4 @@ psutil>=5.9.0
 backports.zoneinfo; python_version < "3.9"
 httpx  # version not pinned, can be pinned if needed
 pid==3.0.4
+pywin32==304
