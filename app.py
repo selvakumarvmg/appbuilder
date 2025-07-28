@@ -1064,32 +1064,37 @@ def process_image_in_memory(image_data, ext, full_file_path):
             try:
                 psd = PSDImage.open(stream)
 
-                # Extract ICC Profile (resource ID 1039)
+                # Try to extract ICC profile from image resources (ID: 1039)
                 for res in psd.image_resources:
                     if res.resource_id == 1039:
                         icc_profile_bytes = res.data
-                        logger.debug(f"Extracted ICC profile from PSD: {len(icc_profile_bytes)} bytes")
                         break
 
-                # Try composite view
+                # Attempt composite first
                 pil_image = psd.composite()
-                if pil_image is None:
-                    raise ValueError("PSD composite failed")
+                if pil_image is None or pil_image.size == (0, 0):
+                    raise ValueError("Composite view failed or empty")
 
-                # Convert if needed
+                # Convert to RGB if needed
                 if pil_image.mode != "RGB":
                     pil_image = pil_image.convert("RGB")
 
-            except Exception as psd_error:
-                logger.warning(f"PSD composite failed: {psd_error}, trying fallback.")
+            except Exception as composite_error:
+                logger.warning(f"PSD composite failed: {composite_error}, trying top visible layer.")
                 try:
-                    stream.seek(0)
-                    pil_image = Image.open(stream).copy()
-                    if pil_image.mode != "RGB":
-                        pil_image = pil_image.convert("RGB")
-                except Exception as fallback_error:
-                    logger.error(f"PSD fallback failed: {fallback_error}")
+                    # Use top visible layer as fallback
+                    visible_layers = [layer for layer in psd.descendants() if layer.is_visible()]
+                    if visible_layers:
+                        top_layer = visible_layers[0]
+                        pil_image = top_layer.topil()
+                        if pil_image.mode != "RGB":
+                            pil_image = pil_image.convert("RGB")
+                    else:
+                        raise ValueError("No visible layers found")
+                except Exception as layer_fallback_error:
+                    logger.error(f"PSD fallback failed: {layer_fallback_error}")
                     return None
+
 
         elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
             try:
