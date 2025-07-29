@@ -27,3 +27,4 @@ httpx  # version not pinned, can be pinned if needed
 pid==3.0.4
 psutil
 pywin32==304 ; sys_platform == 'win32'
+attrs>=23.2.0
