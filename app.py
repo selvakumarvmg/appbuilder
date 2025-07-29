@@ -177,7 +177,7 @@ NEXT_API_HIT_TIME = None
 
 # === Logging Setup ===
 logger = logging.getLogger("PremediaApp")
-logger.setLevel(logging.ERROR)  # Only ERROR and CRITICAL allowed
+logger.setLevel(logging.INFO)  # Only INFO and higher allowed
 
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 log_dir = BASE_DIR / "log"
@@ -247,12 +247,12 @@ log_thread = threading.Thread(target=async_log_worker, daemon=True)
 
 def setup_logger(log_window=None):
     logger = logging.getLogger("PremediaApp")
-    logger.setLevel(logging.ERROR)  # Only ERROR and CRITICAL
+    logger.setLevel(logging.INFO)  # Only INFO and higher allowed
     logger.handlers.clear()
     logger.propagate = False  # Prevent log from bubbling up to root logger
 
     async_handler = LogWindowHandler()
-    async_handler.setLevel(logging.ERROR)
+    async_handler.setLevel(logging.INFO)
 
     logger.addHandler(async_handler)
 
@@ -936,17 +936,25 @@ def check_nas_write_permission(sftp, nas_path):
         app_signals.append_log.emit(f"[Transfer-lang=python] Write permission check failed for {nas_path}: {e}")
         return False
 
+
+
+
+
+
 def process_image_in_memory(image_data, ext, full_file_path):
     try:
         stream = io.BytesIO(image_data)
         pil_image = None
         ext = ext.lower()
+        logger.info(f"Starting processing of {full_file_path} with extension {ext}")
 
         if ext in ['jpg', 'jpeg', 'png']:
             pil_image = Image.open(stream)
+            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
         elif ext == 'gif':
             pil_image = Image.open(stream)
             pil_image = next(ImageSequence.Iterator(pil_image))
+            logger.info("Processed GIF first frame, mode: {pil_image.mode}")
         elif ext in ['tif', 'tiff']:
             with tifffile.TiffFile(stream) as tif:
                 page = tif.pages[0]
@@ -963,37 +971,72 @@ def process_image_in_memory(image_data, ext, full_file_path):
                 else:
                     logger.warning(f"Unsupported TIFF photometric: {photometric}")
                     return None
+                logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
         elif ext in ['psd', 'psb']:
             try:
                 psd = PSDImage.open(stream)
-                # Force composite with fallback to raw data
                 pil_image = psd.composite()
                 if pil_image is None:
-                    logger.warning(f"PSD composite failed for {full_file_path}, trying raw data")
-                    pil_image = psd.as_PIL()
-                if pil_image is None:
-                    raise ValueError("Both composite and as_PIL failed")
+                    logger.error(f"PSD composite failed for {full_file_path}")
+                    stream.seek(0)
+                    pil_image = Image.open(stream)
+                logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
+                if pil_image.mode != 'RGB':
+                    pil_image = pil_image.convert('RGB')
+                    logger.info("Converted PSD to RGB")
+                try:
+                    if hasattr(psd, 'has_icc_profile') and psd.has_icc_profile():
+                        pil_image.info['icc_profile'] = psd.get_icc_profile()
+                        logger.info(f"Applied ICC profile, size: {pil_image.size}")
+                    else:
+                        logger.warning(f"No ICC profile or method unavailable for {full_file_path}")
+                except AttributeError:
+                    logger.warning(f"ICC profile handling not supported for {full_file_path}")
+                if pil_image.size[0] <= 0 or pil_image.size[1] <= 0:
+                    logger.error(f"Invalid image size {pil_image.size} for {full_file_path}")
+                    return None
+                if pil_image.getpixel((0, 0)) is None:
+                    logger.error(f"Invalid pixel data at (0, 0) for {full_file_path}")
+                    return None
             except Exception as e:
-                logger.warning(f"psd-tools failed for {full_file_path}: {e}")
-                stream.seek(0)
-                pil_image = Image.open(stream).convert("RGB")  # Force RGB as last resort
+                logger.error(f"PSD processing error for {full_file_path}: {str(e)}")
+                return None
         elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
             with rawpy.imread(stream) as raw:
                 rgb = raw.postprocess()
                 pil_image = Image.fromarray(rgb)
+            logger.info(f"Processed raw image, mode: {pil_image.mode}")
         else:
             pil_image = Image.open(stream)
+            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+
+        if pil_image is None:
+            logger.error(f"Failed to create PIL image for {full_file_path}")
+            return None
 
         if pil_image.mode != "RGB":
             pil_image = pil_image.convert("RGB")
+            logger.info("Final conversion to RGB, size: {pil_image.size}")
 
         jpeg_buffer = io.BytesIO()
-        pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+        logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
+        pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=pil_image.info.get('icc_profile'))
+        logger.info(f"JPEG save completed, buffer position: {jpeg_buffer.tell()}")
+        jpeg_buffer.seek(0)
+        buffer_size = jpeg_buffer.getbuffer().nbytes
+        logger.info(f"Buffer byte count: {buffer_size}")
+        if buffer_size == 0:
+            logger.error(f"Empty JPEG buffer for {full_file_path} after save")
+            return None
         jpeg_buffer.seek(0)
         return jpeg_buffer
     except Exception as e:
-        logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {e}")
+        logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {str(e)}")
         return None
+
+
+
+
 
 def process_single_file(full_file_path):
     """Convert a single file to JPEG and move original to backup."""
@@ -1157,7 +1200,10 @@ class FileWatcherWorker(QObject):
             "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
             "max_processed_tasks": 1000,
             "task_retention_hours": 24,
-            "supported_image_extensions": (".psd", ".png", ".bmp", ".tiff", ".jpeg"),
+            "supported_image_extensions": (
+                ".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".bmp", ".webp",
+                ".psd", ".psb", ".cr2", ".nef", ".arw", ".dng", ".raf", ".pef", ".srw"
+            ),
         }
         logger.info("FileWatcherWorker initialized")
         self.log_update.emit("[FileWatcher] Initialized")
@@ -1298,7 +1344,7 @@ class FileWatcherWorker(QObject):
             logger.error(f"Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             raise
-        
+
     def open_with_photoshop(self, file_path):
         """Open a file directly in Adobe Photoshop across platforms without popups."""
         try:
