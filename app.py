@@ -974,12 +974,15 @@ def process_image_in_memory(image_data, ext, full_file_path):
                 logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
         elif ext in ['psd', 'psb']:
             try:
+                from psd_tools import PSDImage
+                logger.info(f"Attempting to open PSD with psd-tools version: {psd_tools.__version__}")
                 psd = PSDImage.open(stream)
-                pil_image = psd.composite()
-                if pil_image is None:
-                    logger.error(f"PSD composite failed for {full_file_path}")
+                if psd is None:
+                    logger.error(f"PSDImage.open returned None for {full_file_path}")
                     stream.seek(0)
                     pil_image = Image.open(stream)
+                else:
+                    pil_image = psd.composite()
                 logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
                 if pil_image.mode != 'RGB':
                     pil_image = pil_image.convert('RGB')
