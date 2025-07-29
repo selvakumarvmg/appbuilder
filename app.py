@@ -941,41 +941,41 @@ def check_nas_write_permission(sftp, nas_path):
 
 
 
-def process_image_in_memory(image_data, ext, full_file_path):
-    try:
-        stream = io.BytesIO(image_data)
-        pil_image = None
-        ext = ext.lower()
-        logger.info(f"Starting processing of {full_file_path} with extension {ext}")
 
-        if ext in ['jpg', 'jpeg', 'png']:
-            pil_image = Image.open(stream)
-            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
-        elif ext == 'gif':
-            pil_image = Image.open(stream)
-            pil_image = next(ImageSequence.Iterator(pil_image))
-            logger.info("Processed GIF first frame, mode: {pil_image.mode}")
-        elif ext in ['tif', 'tiff']:
-            with tifffile.TiffFile(stream) as tif:
-                page = tif.pages[0]
-                arr = page.asarray()
-                photometric = getattr(page.photometric, 'name', 'unknown').lower()
-                if photometric in ['rgb', 'ycbcr']:
-                    arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                elif photometric == 'cmyk':
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
-                elif photometric == 'minisblack' or arr.ndim == 2:
-                    arr = np.stack((arr,) * 3, axis=-1)
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                else:
-                    logger.warning(f"Unsupported TIFF photometric: {photometric}")
-                    return None
-                logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
-        elif ext in ['psd', 'psb']:
+def process_image_in_memory(image_data, ext, full_file_path):
+   
+    stream = io.BytesIO(image_data)
+    pil_image = None
+    ext = ext.lower()
+    logger.info(f"Starting processing of {full_file_path} with extension {ext}")
+
+    if ext in ['jpg', 'jpeg', 'png']:
+        pil_image = Image.open(stream)
+        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+    elif ext == 'gif':
+        pil_image = Image.open(stream)
+        pil_image = next(ImageSequence.Iterator(pil_image))
+        logger.info("Processed GIF first frame, mode: {pil_image.mode}")
+    elif ext in ['tif', 'tiff']:
+        with tifffile.TiffFile(stream) as tif:
+            page = tif.pages[0]
+            arr = page.asarray()
+            photometric = getattr(page.photometric, 'name', 'unknown').lower()
+            if photometric in ['rgb', 'ycbcr']:
+                arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+            elif photometric == 'cmyk':
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
+            elif photometric == 'minisblack' or arr.ndim == 2:
+                arr = np.stack((arr,) * 3, axis=-1)
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+            else:
+                logger.warning(f"Unsupported TIFF photometric: {photometric}")
+                return None
+            logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
+    elif ext in ['psd', 'psb']:
+        if PSDImage is not None:
             try:
-                from psd_tools import PSDImage
-                logger.info(f"Attempting to open PSD with psd-tools version: {psd_tools.__version__}")
                 psd = PSDImage.open(stream)
                 if psd is None:
                     logger.error(f"PSDImage.open returned None for {full_file_path}")
@@ -1002,40 +1002,44 @@ def process_image_in_memory(image_data, ext, full_file_path):
                     logger.error(f"Invalid pixel data at (0, 0) for {full_file_path}")
                     return None
             except Exception as e:
-                logger.error(f"PSD processing error for {full_file_path}: {str(e)}")
-                return None
-        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
-            with rawpy.imread(stream) as raw:
-                rgb = raw.postprocess()
-                pil_image = Image.fromarray(rgb)
-            logger.info(f"Processed raw image, mode: {pil_image.mode}")
+                logger.error(f"PSD processing error with psd-tools for {full_file_path}: {str(e)}")
+                stream.seek(0)
+                pil_image = Image.open(stream)
         else:
+            logger.warning(f"Falling back to PIL for PSD processing of {full_file_path}")
             pil_image = Image.open(stream)
-            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+        logger.info(f"Processed PSD with {pil_image.mode}")
+    elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+        with rawpy.imread(stream) as raw:
+            rgb = raw.postprocess()
+            pil_image = Image.fromarray(rgb)
+        logger.info(f"Processed raw image, mode: {pil_image.mode}")
+    else:
+        pil_image = Image.open(stream)
+        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
 
-        if pil_image is None:
-            logger.error(f"Failed to create PIL image for {full_file_path}")
-            return None
-
-        if pil_image.mode != "RGB":
-            pil_image = pil_image.convert("RGB")
-            logger.info("Final conversion to RGB, size: {pil_image.size}")
-
-        jpeg_buffer = io.BytesIO()
-        logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
-        pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=pil_image.info.get('icc_profile'))
-        logger.info(f"JPEG save completed, buffer position: {jpeg_buffer.tell()}")
-        jpeg_buffer.seek(0)
-        buffer_size = jpeg_buffer.getbuffer().nbytes
-        logger.info(f"Buffer byte count: {buffer_size}")
-        if buffer_size == 0:
-            logger.error(f"Empty JPEG buffer for {full_file_path} after save")
-            return None
-        jpeg_buffer.seek(0)
-        return jpeg_buffer
-    except Exception as e:
-        logger.error(f"Image conversion failed ({ext}) for {full_file_path}: {str(e)}")
+    if pil_image is None:
+        logger.error(f"Failed to create PIL image for {full_file_path}")
         return None
+
+    if pil_image.mode != "RGB":
+        pil_image = pil_image.convert("RGB")
+        logger.info("Final conversion to RGB, size: {pil_image.size}")
+
+    jpeg_buffer = io.BytesIO()
+    logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
+    pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=pil_image.info.get('icc_profile'))
+    logger.info(f"JPEG save completed, buffer position: {jpeg_buffer.tell()}")
+    jpeg_buffer.seek(0)
+    buffer_size = jpeg_buffer.getbuffer().nbytes
+    logger.info(f"Buffer byte count: {buffer_size}")
+    if buffer_size == 0:
+        logger.error(f"Empty JPEG buffer for {full_file_path} after save")
+        return None
+    jpeg_buffer.seek(0)
+    return jpeg_buffer
+ 
+
 
 
 
