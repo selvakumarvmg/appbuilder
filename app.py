@@ -3,8 +3,10 @@ from PySide6.QtWidgets import (
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
-from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
 from login import Ui_Dialog
 import sys
 import logging
@@ -33,7 +35,7 @@ from pid import PidFile, PidFileError
 import warnings
 import tempfile
 import psutil  # To check if Photoshop is running
-
+from threading import Lock
 if platform.system() != "Windows":
     import fcntl
 import numpy as np
@@ -175,21 +177,26 @@ NEXT_API_HIT_TIME = None
 
 # === Logging Setup ===
 logger = logging.getLogger("PremediaApp")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.ERROR)  # Only ERROR and CRITICAL allowed
+
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 log_dir = BASE_DIR / "log"
+
 try:
     log_dir.mkdir(exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
         log_dir / "app.log", maxBytes=10485760, backupCount=5
     )
+    file_handler.setLevel(logging.ERROR)  # <- Restrict handler
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 except Exception as e:
     logger.error(f"Error setting up log file: {e}")
     console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.ERROR)  # <- Restrict console handler too
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+
 
 # === Signals for Safe GUI Updates ===
 class AppSignals(QObject):
@@ -239,22 +246,23 @@ def async_log_worker():
 log_thread = threading.Thread(target=async_log_worker, daemon=True)
 
 def setup_logger(log_window=None):
-    logger.setLevel(logging.INFO)  # Ignores DEBUG logs
+    logger = logging.getLogger("PremediaApp")
+    logger.setLevel(logging.ERROR)  # Only ERROR and CRITICAL
     logger.handlers.clear()
+    logger.propagate = False  # Prevent log from bubbling up to root logger
 
-    # Create handler and set level to INFO (ignores DEBUG)
     async_handler = LogWindowHandler()
-    async_handler.setLevel(logging.INFO)  # Only INFO and above
+    async_handler.setLevel(logging.ERROR)
 
     logger.addHandler(async_handler)
 
-    # Connect signals to UI if provided
+    # Connect UI signals
     if log_window:
         app_signals.append_log.connect(log_window.append_log, Qt.QueuedConnection)
         app_signals.api_call_status.connect(log_window.append_api_status, Qt.QueuedConnection)
         app_signals.update_timer_status.connect(log_window.update_timer_status, Qt.QueuedConnection)
 
-    # Trim log file to last 200 lines
+    # Trim log file
     try:
         log_file = log_dir / "app.log"
         if log_file.exists():
@@ -268,6 +276,8 @@ def setup_logger(log_window=None):
         app_signals.append_log.emit(f"[Log] Error managing log file: {str(e)}")
 
     return logger
+
+
 
 def stop_logging():
     global LOGGING_ACTIVE
@@ -1104,6 +1114,7 @@ class FileConversionWorker(QObject):
 
 
 class FileWatcherWorker(QObject):
+    show_dialog = Signal(str, str, str)  # Signal for title, message, dialog_type
     status_update = Signal(str)
     log_update = Signal(str)
     progress_update = Signal(str, str, int)
@@ -1138,9 +1149,10 @@ class FileWatcherWorker(QObject):
         FileWatcherWorker._instance_thread = QThread.currentThread()
         self.processed_tasks = set()
         self.running = True
+        self._lock = Lock()  # Initialize the lock
         self.last_api_hit_time = None
         self.next_api_hit_time = None
-        self.api_poll_interval = 5000
+        self.api_poll_interval = 20000
         self.config = {
             "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
             "max_processed_tasks": 1000,
@@ -1151,12 +1163,16 @@ class FileWatcherWorker(QObject):
         self.log_update.emit("[FileWatcher] Initialized")
         self.log_update.emit(f"[FileWatcher] Application started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')}")
         self.timer = QTimer(self)
+        self.timer.setSingleShot(True)  # Single-shot to prevent overlapping ticks
         self.timer.timeout.connect(self.run)
         self.cleanup_signal.connect(self.cleanup)
         if not self.timer.isActive():
             self.timer.start(self.api_poll_interval)
-            logger.debug("FileWatcherWorker timer started with 5-second interval")
-            self.log_update.emit("[FileWatcher] Timer started with 5-second interval")
+            logger.debug(f"FileWatcherWorker timer started with {self.api_poll_interval/1000}-second interval")
+            self.log_update.emit(f"[FileWatcher] Timer started with {self.api_poll_interval/1000}-second interval")
+        else:
+            logger.debug("FileWatcherWorker timer already active")
+            self.log_update.emit("[FileWatcher] Timer already active")
 
     def _prepare_download_path(self, item):
         """Prepare the local destination path for download using file_path."""
@@ -1282,23 +1298,22 @@ class FileWatcherWorker(QObject):
             logger.error(f"Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             raise
-
+        
     def open_with_photoshop(self, file_path):
-        """Open a file directly in Adobe Photoshop on Windows without popups."""
+        """Open a file directly in Adobe Photoshop across platforms without popups."""
         try:
             system = platform.system()
             photoshop_path = None
 
-            # Validate and normalize file path
-            file_path = str(Path(file_path).resolve()).replace("\\", "/")  # Consistent path separators
+            # Validate and normalize file path (use native separators)
+            file_path = str(Path(file_path).resolve())
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            # Log paths for debugging
             logger.debug(f"System: {system}")
             logger.debug(f"File path: {file_path}")
 
-            # Determine Photoshop path (focusing on Windows)
+            # Determine Photoshop path
             if system == "Windows":
                 search_dirs = [
                     Path("C:/Program Files/Adobe"),
@@ -1315,20 +1330,12 @@ class FileWatcherWorker(QObject):
                 if not photoshop_path:
                     raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
             elif system == "Darwin":
-                try:
-                    result = subprocess.run(
-                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
-                        capture_output=True, text=True, check=True
-                    )
-                    if result.stdout.strip():
-                        photoshop_path = result.stdout.strip().split("\n")[0]
-                except subprocess.CalledProcessError:
-                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
-                    if photoshop_apps:
-                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
-                        photoshop_path = str(photoshop_apps[0])
-                if not photoshop_path:
-                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+                photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
+                if photoshop_apps:
+                    photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                    photoshop_path = str(photoshop_apps[0] / "Contents/MacOS/Photoshop")
+                if not photoshop_path or not Path(photoshop_path).exists():
+                    raise FileNotFoundError("Adobe Photoshop executable not found in /Applications")
             elif system == "Linux":
                 try:
                     subprocess.run(["wine", "--version"], capture_output=True, check=True)
@@ -1341,7 +1348,7 @@ class FileWatcherWorker(QObject):
                             continue
                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
                         if photoshop_exes:
-                            photoshop_exes.sort(key=lambda x: x.name, reverse=True)
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
                             photoshop_path = str(photoshop_exes[0])
                             break
                     if not photoshop_path:
@@ -1351,49 +1358,61 @@ class FileWatcherWorker(QObject):
             else:
                 raise ValueError(f"Unsupported platform: {system}")
 
-            # Check if Photoshop is already running
+            # Check if Photoshop is running
             photoshop_running = False
+            photoshop_process_names = {
+                "Windows": ["Photoshop.exe"],
+                "Darwin": ["Photoshop"],
+                "Linux": ["wine", "wine-preloader", "Photoshop.exe"]
+            }
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
-                    if (system == "Windows" and "Photoshop" in proc.info['name']) or \
-                    (system == "Darwin" and "Adobe Photoshop" in proc.info['name']) or \
-                    (system == "Linux" and "wine-preloader" in proc.info['name']):
+                    if proc.info['name'] in photoshop_process_names[system]:
                         photoshop_running = True
                         break
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            # Construct command to open file directly without popups
+            # Open file in Photoshop
             if photoshop_running:
-                logger.info("Photoshop is already running, attempting to open file in existing instance.")
+                logger.info("Photoshop is running, attempting to open file in existing instance.")
                 if system == "Windows":
                     try:
                         import win32com.client
                         ps_app = win32com.client.Dispatch("Photoshop.Application")
-                        ps_app.Open(file_path)  # Direct open via COM
+                        ps_app.Open(file_path)
                         logger.info(f"Opened {Path(file_path).name} via COM")
-                    except ImportError:
-                        logger.warning("pywin32 not found, launching new instance with file.")
-                        subprocess.run([photoshop_path, file_path], check=True)
-                    except Exception as e:
-                        logger.error(f"COM open failed: {e}, launching new instance with file.")
-                        subprocess.run([photoshop_path, file_path], check=True)
+                    except (ImportError, Exception) as e:
+                        logger.warning(f"COM open failed: {e}, falling back to new instance.")
+                        subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
                 elif system == "Darwin":
-                    script = f'tell application "Adobe Photoshop" to open POSIX file "{file_path}"'
-                    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
-                    if result.returncode != 0:
-                        logger.error(f"AppleScript failed: {result.stderr}")
-                else:  # Linux with Wine
+                    # Try version-specific application names
+                    app_names = [f"Adobe Photoshop {year}" for year in range(2025, 2019, -1)] + ["Adobe Photoshop"]
+                    for app_name in app_names:
+                        script = f'''
+                        tell application "{app_name}"
+                            activate
+                            open POSIX file "{file_path}"
+                        end tell
+                        '''
+                        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+                        if result.returncode == 0:
+                            logger.info(f"Opened {Path(file_path).name} via AppleScript")
+                            break
+                    else:
+                        logger.warning("AppleScript failed for all app names, falling back to new instance.")
+                        subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
+                else:  # Linux
                     logger.warning("Opening in existing Wine instance not supported, launching new instance.")
-                    subprocess.run(["wine", photoshop_path, file_path], check=True)
+                    subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
             else:
-                # Launch new instance with file
+                logger.info("Photoshop is not running, launching new instance.")
                 if system == "Windows":
-                    subprocess.run([photoshop_path, file_path], check=True)
+                    subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
                 elif system == "Darwin":
-                    subprocess.run(["open", "-a", photoshop_path, "--args", file_path], check=True)
-                else:  # Linux with Wine
-                    subprocess.run(["wine", photoshop_path, file_path], check=True)
+                    subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
+                else:  # Linux
+                    subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
 
             logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
@@ -1403,14 +1422,19 @@ class FileWatcherWorker(QObject):
             logger.error(f"Failed to open {file_path} in Photoshop: {e}")
             app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
             app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+            raise
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {e.stderr}")
-            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {e.stderr}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {e.stderr}")
+            error_msg = e.stderr or str(e)
+            logger.error(f"Failed to open {file_path} in Photoshop: {error_msg}")
+            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {error_msg}")
+            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {error_msg}")
+            raise
         except Exception as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            logger.error(f"Unexpected error opening {file_path} in Photoshop: {e}")
             app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
             app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+            raise
+
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
         task_id = str(item.get('id', ''))
@@ -1428,6 +1452,7 @@ class FileWatcherWorker(QObject):
                             update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
+                            update_download_upload_metadata(task_id, "failed")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
@@ -1444,6 +1469,7 @@ class FileWatcherWorker(QObject):
                             update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
+                            update_download_upload_metadata(task_id, "failed")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
@@ -1475,6 +1501,21 @@ class FileWatcherWorker(QObject):
                             logger.error(f"Fallback download failed for upload task {task_id}: {str(e)}")
                             self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
                             raise
+
+                # Check if file is in use by another application
+                try:
+                    with open(src_path, 'rb') as f:
+                        f.read(1)  # Attempt to read a byte to check file accessibility
+                except (PermissionError, IOError) as e:
+                    update_download_upload_metadata(task_id, "failed")
+                    error_message = f"File {src_path} is currently in use by another application. Please close the application and try again."
+                    logger.error(error_message)
+                    self.log_update.emit(f"[Transfer] Failed: {error_message}")
+                    self.show_dialog.emit("File In Use", error_message, "error")
+                    
+                    self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+                    raise RuntimeError(error_message)
+                
                 original_dest_path = item.get('file_path', dest_path)
                 
                 self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
@@ -1587,6 +1628,7 @@ class FileWatcherWorker(QObject):
                     logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
                     self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
         except Exception as e:
+            update_download_upload_metadata(task_id, "failed")
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
             app_signals.update_file_list.emit(dest_path if action_type.lower() == "download" else src_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src or is_nas_dest)
@@ -1594,251 +1636,265 @@ class FileWatcherWorker(QObject):
             raise
 
     def run(self):
-        if not self.running:
-            logger.info("File watcher stopped")
-            self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
-            self.cleanup()
-            return
-        if self._is_running:
-            logger.debug("File watcher already running, skipping this cycle")
-            self.log_update.emit("[FileWatcher] Skipped: Already running")
-            return
-        self._is_running = True
-        try:
-            logger.debug("Starting file watcher run")
-            self.log_update.emit("[API Scan] Starting file watcher run")
-            if not self.check_connectivity():
-                logger.warning("Connectivity check failed, will retry on next run")
-                self.status_update.emit("Connectivity check failed, will retry")
-                self.log_update.emit("[API Scan] Connectivity check failed")
+        with self._lock:
+            if self._is_running:
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher already running, skipping this cycle, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Skipped: Already running")
                 return
-            cache = load_cache()
-            user_id = cache.get('user_id', '')
-            token = cache.get('token', '')
-            cache.setdefault('user_type', 'operator')
-            save_cache(cache)
-            if not user_id or not token:
-                logger.error("No user_id or token found in cache")
-                self.status_update.emit("No user_id or token found in cache")
-                self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
-                self.request_reauth.emit()
+            current_time = datetime.now(timezone.utc)
+            if hasattr(self, 'next_api_hit_time') and self.next_api_hit_time and current_time < self.next_api_hit_time:
+                logger.debug(f"[{current_time.isoformat()}] API call skipped: Too soon since last call, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Skipped: Too soon since last API call")
                 return
-            self.status_update.emit("Checking for file tasks...")
-            self.log_update.emit("[API Scan] Starting file task check")
-            app_signals.append_log.emit("[API Scan] Initiating file task check")
-            self.last_api_hit_time = datetime.now(timezone.utc)
-            self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
-            app_signals.update_timer_status.emit(
-                f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                f"Interval: {self.api_poll_interval/1000:.1f}s"
-            )
-            headers = {"Authorization": f"Bearer {token}"}
-            max_retries = 3
-            tasks = []
-            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-            for attempt in range(max_retries):
-                try:
-                    logger.debug(f"Hitting API: {api_url}")
-                    app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
-                    response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
-                    logger.debug(f"API response: Status={response.status_code}, Content={response.text[:500]}...")
-                    app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
-                    app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-                    if response.status_code == 401:
-                        logger.warning("Unauthorized: Token may be invalid")
-                        self.log_update.emit("[API Scan] Unauthorized: Token invalid")
-                        self.status_update.emit("Unauthorized: Token invalid")
-                        self.request_reauth.emit()
-                        return
-                    response.raise_for_status()
-                    response_data = response.json()
-                    tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
-                    if not isinstance(tasks, list):
-                        logger.error(f"API returned non-list tasks: {type(tasks)}, data: {tasks}")
-                        self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
-                        return
-                    logger.debug(f"Retrieved {len(tasks)} tasks")
-                    app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
-                    break
-                except RequestException as e:
-                    logger.error(f"Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}")
-                    self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
-                    if attempt == max_retries - 1:
-                        logger.warning("Max retries reached for task fetch, will retry on next run")
+            self._is_running = True
+            try:
+                if not self.running:
+                    logger.info(f"[{current_time.isoformat()}] File watcher stopped, instance: {id(self)}")
+                    self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
+                    return
+                logger.debug(f"[{current_time.isoformat()}] Starting file watcher run, instance: {id(self)}")
+                self.log_update.emit("[API Scan] Starting file watcher run")
+                if not self.check_connectivity():
+                    logger.warning(f"[{current_time.isoformat()}] Connectivity check failed, will retry on next run, instance: {id(self)}")
+                    self.status_update.emit("Connectivity check failed, will retry")
+                    self.log_update.emit("[API Scan] Connectivity check failed")
+                    return
+                cache = load_cache()
+                user_id = cache.get('user_id', '')
+                token = cache.get('token', '')
+                cache.setdefault('user_type', 'operator')
+                save_cache(cache)
+                if not user_id or not token:
+                    logger.error(f"[{current_time.isoformat()}] No user_id or token found in cache, instance: {id(self)}")
+                    self.status_update.emit("No user_id or token found in cache")
+                    self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
+                    self.request_reauth.emit()
+                    logger.debug(f"[{current_time.isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
+                    self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
+                    return
+                self.status_update.emit("Checking for file tasks...")
+                self.log_update.emit("[API Scan] Starting file task check")
+                app_signals.append_log.emit("[API Scan] Initiating file task check")
+                self.last_api_hit_time = current_time
+                self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
+                app_signals.update_timer_status.emit(
+                    f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                    f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                    f"Interval: {self.api_poll_interval/1000:.1f}s"
+                )
+                headers = {"Authorization": f"Bearer {token}"}
+                max_retries = 3
+                tasks = []
+                api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+                for attempt in range(max_retries):
+                    try:
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
+                        response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
+                        app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
+                        if response.status_code == 401:
+                            logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Unauthorized: Token may be invalid, instance: {id(self)}")
+                            self.log_update.emit("[API Scan] Unauthorized: Token invalid")
+                            self.status_update.emit("Unauthorized: Token invalid")
+                            self.request_reauth.emit()
+                            logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
+                            self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
+                            return
+                        response.raise_for_status()
+                        response_data = response.json()
+                        tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
+                        if not isinstance(tasks, list):
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] API returned non-list tasks: {type(tasks)}, data: {tasks}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
+                            return
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrieved {len(tasks)} tasks, instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
+                        break
+                    except RequestException as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
+                        if attempt < max_retries - 1:
+                            time.sleep(2 ** attempt)
+                            continue
+                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Max retries reached for task fetch, will retry on next run, instance: {id(self)}")
                         self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
                         self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
                         return
-            unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
-            download_tasks = [
-                {
-                    "task_id": str(item.get('id', '')),
-                    "action_type": item.get('request_type', '').lower(),
-                    "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
-                    "file_path": item.get('file_path', ''),
-                    "status": "Queued",
-                    "thumbnail": item.get('thumbnail', ''),
-                    "job_id": item.get('job_id', ''),
-                    "project_id": item.get('project_id', ''),
-                    "task_type": "download"
-                } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
-            ]
-            upload_tasks = [
-                {
-                    "task_id": str(item.get('id', '')),
-                    "action_type": item.get('request_type', '').lower(),
-                    "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
-                    "file_path": item.get('file_path', ''),
-                    "status": "Queued",
-                    "thumbnail": item.get('thumbnail', ''),
-                    "job_id": item.get('job_id', ''),
-                    "project_id": item.get('project_id', ''),
-                    "task_type": "upload"
-                } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
-            ]
-            self.task_list_update.emit(download_tasks + upload_tasks)
-            self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
-            updates = []
-            self._clean_processed_tasks()
-            max_download_retries = 3
-            for item in unprocessed_tasks:
-                try:
-                    if not isinstance(item, dict):
-                        logger.error(f"Invalid task item type: {type(item)}, item: {item}")
-                        self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
-                        updates.append(("", f"Invalid task: {type(item)}", "unknown", 0, False))
-                        continue
-                    task_id = str(item.get('id', ''))
-                    file_path = item.get('file_path', '')
-                    file_name = item.get('file_name', Path(file_path).name)
-                    action_type = item.get('request_type', '').lower()
-                    task_key = f"{task_id}:{action_type}"
-                    is_online = 'http' in file_path.lower()
-                    local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
-                    logger.debug(f"Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
-                    self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
-                    if action_type == "download":
-                        self.status_update.emit(f"Downloading {file_name}")
-                        self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
-                        app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-                        app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
-                        for attempt in range(max_download_retries):
-                            try:
-                                self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
-                                if os.path.exists(local_path):
-                                    self.processed_tasks.add(task_key)
-                                    updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
-                                    update_download_upload_metadata(task_id, "completed")
-                                    break
-                                else:
-                                    logger.warning(f"Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
-                                    self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
-                                    updates.append((local_path, f"Download Failed: File not found", action_type, 0, not is_online))
-                            except Exception as e:
-                                logger.error(f"Download failed for {local_path} (Task {task_id}): {str(e)}")
-                                self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
-                                updates.append((local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online))
-                                if attempt < max_download_retries - 1:
-                                    delay = 2 ** attempt
-                                    logger.debug(f"Retrying download after {delay}s")
-                                    self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
-                                    time.sleep(delay)
-                                else:
-                                    logger.error(f"Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
-                                    self.log_update.emit(f"[API Scan] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
-                                    break
-                    elif action_type.lower() in ("upload", "replace"):
-                        self.status_update.emit(f"Uploading {file_name}")
-                        self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
-                        app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-                        app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
-                        client_name = item.get("client_name", "").strip().replace(" ", "_") or None
-                        project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
-                        if not client_name or not project_name:
-                            try:
-                                parts = Path(file_path).parts
-                                if len(parts) >= 3:
-                                    client_name = client_name or parts[1]
-                                    project_name = project_name or parts[2]
-                                else:
+                unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
+                download_tasks = [
+                    {
+                        "task_id": str(item.get('id', '')),
+                        "action_type": item.get('request_type', '').lower(),
+                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        "file_path": item.get('file_path', ''),
+                        "status": "Queued",
+                        "thumbnail": item.get('thumbnail', ''),
+                        "job_id": item.get('job_id', ''),
+                        "project_id": item.get('project_id', ''),
+                        "task_type": "download"
+                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+                ]
+                upload_tasks = [
+                    {
+                        "task_id": str(item.get('id', '')),
+                        "action_type": item.get('request_type', '').lower(),
+                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        "file_path": item.get('file_path', ''),
+                        "status": "Queued",
+                        "thumbnail": item.get('thumbnail', ''),
+                        "job_id": item.get('job_id', ''),
+                        "project_id": item.get('project_id', ''),
+                        "task_type": "upload"
+                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
+                ]
+                self.task_list_update.emit(download_tasks + upload_tasks)
+                self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
+                updates = []
+                self._clean_processed_tasks()
+                max_download_retries = 3
+                for item in unprocessed_tasks:
+                    try:
+                        if not isinstance(item, dict):
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
+                            updates.append(("", f"Invalid task: {type(item)}", "unknown", 0, False))
+                            continue
+                        task_id = str(item.get('id', ''))
+                        file_path = item.get('file_path', '')
+                        file_name = item.get('file_name', Path(file_path).name)
+                        action_type = item.get('request_type', '').lower()
+                        task_key = f"{task_id}:{action_type}"
+                        is_online = 'http' in file_path.lower()
+                        local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
+                        if action_type == "download":
+                            self.status_update.emit(f"Downloading {file_name}")
+                            self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
+                            app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
+                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                            for attempt in range(max_download_retries):
+                                try:
+                                    self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
+                                    if os.path.exists(local_path):
+                                        self.processed_tasks.add(task_key)
+                                        updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
+                                        update_download_upload_metadata(task_id, "completed")
+                                        break
+                                    else:
+                                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
+                                        updates.append((local_path, f"Download Failed: File not found", action_type, 0, not is_online))
+                                except Exception as e:
+                                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path} (Task {task_id}): {str(e)}, instance: {id(self)}")
+                                    self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
+                                    updates.append((local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online))
+                                    if attempt < max_download_retries - 1:
+                                        delay = 2 ** attempt
+                                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrying download after {delay}s, instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
+                                        time.sleep(delay)
+                                    else:
+                                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id}), instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
+                                        break
+                        elif action_type.lower() in ("upload", "replace"):
+                            self.status_update.emit(f"Uploading {file_name}")
+                            self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
+                            app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
+                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                            client_name = item.get("client_name", "").strip().replace(" ", "_") or None
+                            project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
+                            if not client_name or not project_name:
+                                try:
+                                    parts = Path(file_path).parts
+                                    if len(parts) >= 3:
+                                        client_name = client_name or parts[1]
+                                        project_name = project_name or parts[2]
+                                    else:
+                                        client_name = client_name or "default_client"
+                                        project_name = project_name or "default_project"
+                                except Exception as e:
+                                    self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
                                     client_name = client_name or "default_client"
                                     project_name = project_name or "default_project"
-                            except Exception as e:
-                                self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
-                                client_name = client_name or "default_client"
-                                project_name = project_name or "default_project"
-                        original_nas_path = item.get('file_path', file_path)
-                        self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
-                        updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
-                        self.processed_tasks.add(task_key)
-                        try:
-                            status_payload = {
-                                'id': task_id,
-                                'request_status': 'completed'
-                            }
-                            logger.info(f"Updated task {task_id} status to completed (Original)")
-                            self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
-                        except Exception as e:
-                            logger.error(f"Failed to update task {task_id} status (Original): {str(e)}")
-                            self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
-                        if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
-                            jpg_name = Path(local_path).stem + ".jpg"
-                            jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
+                            original_nas_path = item.get('file_path', file_path)
+                            self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
+                            updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
+                            self.processed_tasks.add(task_key)
                             try:
-                                os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                                os.chmod(jpg_folder, 0o777)
-                            except OSError as e:
-                                self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
-                                updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
-                                continue
-                            jpg_path = str(jpg_folder / jpg_name)
-                            local_jpg, backup_path = process_single_file(local_path)
-                            if local_jpg:
-                                jpg_path = local_jpg
-                                self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
-                                app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
-                                jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}_converted.jpg"
-                                self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
-                                updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
-                                self.processed_tasks.add(f"{task_id}:jpg")
+                                status_payload = {
+                                    'id': task_id,
+                                    'request_status': 'completed'
+                                }
+                                logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (Original), instance: {id(self)}")
+                                self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
+                            except Exception as e:
+                                logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (Original): {str(e)}, instance: {id(self)}")
+                                self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
+                            if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
+                                jpg_name = Path(local_path).stem + ".jpg"
+                                jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
                                 try:
-                                    status_payload = {
-                                        'id': task_id,
-                                        'request_status': 'completed'
-                                    }
-                                    logger.info(f"Updated task {task_id} status to completed (JPG)")
-                                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
-                                except Exception as e:
-                                    logger.error(f"Failed to update task {task_id} status (JPG): {str(e)}")
-                                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
-                            else:
-                                self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
-                                updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
-                    else:
-                        logger.error(f"Invalid action_type for task {task_id}: {action_type}")
-                        self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-                        updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
-                except Exception as e:
-                    logger.error(f"Error processing task {task_id}: {str(e)}")
-                    self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
-                    updates.append((file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in file_path.lower())))
-                    continue
-            if updates:
-                for update in updates:
-                    app_signals.update_file_list.emit(*update)
-            self.status_update.emit("File tasks check completed")
-            self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
-            app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
-        except Exception as e:
-            logger.error(f"Error in file watcher run: {e}")
-            self.status_update.emit(f"Error processing tasks: {str(e)}")
-            self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
-            app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-        finally:
-            self._is_running = False
-            if not self.running:
-                self.cleanup()
+                                    os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                                    os.chmod(jpg_folder, 0o777)
+                                except OSError as e:
+                                    self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
+                                    updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
+                                    continue
+                                jpg_path = str(jpg_folder / jpg_name)
+                                local_jpg, backup_path = process_single_file(local_path)
+                                if local_jpg:
+                                    jpg_path = local_jpg
+                                    self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
+                                    app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
+                                    jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}_converted.jpg"
+                                    self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
+                                    updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
+                                    self.processed_tasks.add(f"{task_id}:jpg")
+                                    try:
+                                        status_payload = {
+                                            'id': task_id,
+                                            'request_status': 'completed'
+                                        }
+                                        logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (JPG), instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
+                                    except Exception as e:
+                                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (JPG): {str(e)}, instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
+                                else:
+                                    self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
+                                    updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
+                        else:
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid action_type for task {task_id}: {action_type}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
+                            updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
+                    except Exception as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
+                        updates.append((file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in file_path.lower())))
+                        continue
+                if updates:
+                    for update in updates:
+                        app_signals.update_file_list.emit(*update)
+                self.status_update.emit("File tasks check completed")
+                self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
+                app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
+            except Exception as e:
+                logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error in file watcher run: {e}, instance: {id(self)}")
+                self.status_update.emit(f"Error processing tasks: {str(e)}")
+                self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
+                app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+            finally:
+                self._is_running = False
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher cycle completed, will run again on next timer tick, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Cycle completed, awaiting next timer tick")
+                if self.running:
+                    self.timer.start(self.api_poll_interval)
+
 
     def check_connectivity(self):
         try:
@@ -1881,14 +1937,15 @@ class FileWatcherWorker(QObject):
 
     def cleanup(self):
         self.running = False
-        self.timer.stop()
         logger.info("FileWatcherWorker cleaned up")
         self.log_update.emit("[FileWatcher] Cleaned up")
 
     def stop(self):
+        """Stop the timer and worker gracefully."""
         self.running = False
-        self.timer.stop()
-        logger.info("FileWatcherWorker stopped")
+        if self.timer.isActive():
+            self.timer.stop()
+        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] FileWatcherWorker stopped")
 
 
 
@@ -3472,6 +3529,26 @@ class PremediaApp(QApplication):
             QMessageBox.critical(self, "Post-Login Error", f"Post-login error: {str(e)}")
             self.set_logged_out_state()
             self.login_dialog.show()
+
+    def show_dialog(self, title, message, dialog_type):
+        
+        try:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(title)
+            msg_box.setText(message)
+            if dialog_type.lower() == "error":
+                msg_box.setIcon(QMessageBox.Critical)
+            else:
+                msg_box.setIcon(QMessageBox.Information)
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
+            logger.debug(f"Displayed dialog: {title} - {message} ({dialog_type})")
+            app_signals.append_log.emit(f"[Dialog] Displayed: {title} - {message} ({dialog_type})")
+            app_signals.update_status.emit(f"Displayed dialog: {title}")
+        except Exception as e:
+            logger.error(f"Error in show_dialog: {str(e)}")
+            app_signals.append_log.emit(f"[Dialog] Failed: Error displaying dialog - {str(e)}")
+            app_signals.update_status.emit(f"Error displaying dialog: {str(e)}")
 
 if __name__ == "__main__":
     key = parse_custom_url()
