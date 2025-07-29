@@ -941,58 +941,77 @@ def check_nas_write_permission(sftp, nas_path):
 
 
 
-
 def process_image_in_memory(image_data, ext, full_file_path):
-   
-    stream = io.BytesIO(image_data)
-    pil_image = None
-    ext = ext.lower()
-    logger.info(f"Starting processing of {full_file_path} with extension {ext}")
+    import io
+    from PIL import Image
+    import numpy as np
+    import tifffile
+    import rawpy
+    import logging
+    import platform
+    from psd_tools import PSDImage
 
-    if ext in ['jpg', 'jpeg', 'png']:
-        pil_image = Image.open(stream)
-        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
-    elif ext == 'gif':
-        pil_image = Image.open(stream)
-        pil_image = next(ImageSequence.Iterator(pil_image))
-        logger.info("Processed GIF first frame, mode: {pil_image.mode}")
-    elif ext in ['tif', 'tiff']:
-        with tifffile.TiffFile(stream) as tif:
-            page = tif.pages[0]
-            arr = page.asarray()
-            photometric = getattr(page.photometric, 'name', 'unknown').lower()
-            if photometric in ['rgb', 'ycbcr']:
-                arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
-                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-            elif photometric == 'cmyk':
-                pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
-            elif photometric == 'minisblack' or arr.ndim == 2:
-                arr = np.stack((arr,) * 3, axis=-1)
-                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-            else:
-                logger.warning(f"Unsupported TIFF photometric: {photometric}")
-                return None
-            logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
-    elif ext in ['psd', 'psb']:
-        if PSDImage is not None:
+    # logger = logging.getLogger(__name__)
+    # if not logger.handlers:
+    #     logging.basicConfig(level=logging.INFO)
+    #     logger.setLevel(logging.INFO)
+    # logger.info(f"Running on {platform.system()}")
+
+    try:
+        stream = io.BytesIO(image_data)
+        pil_image = None
+        ext = ext.lower()
+        logger.info(f"Starting processing of {full_file_path} with extension {ext}")
+
+        if ext in ['jpg', 'jpeg', 'png']:
+            pil_image = Image.open(stream)
+            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+        elif ext == 'gif':
+            pil_image = Image.open(stream)
+            pil_image = next(ImageSequence.Iterator(pil_image))
+            logger.info("Processed GIF first frame, mode: {pil_image.mode}")
+        elif ext in ['tif', 'tiff']:
+            with tifffile.TiffFile(stream) as tif:
+                page = tif.pages[0]
+                arr = page.asarray()
+                photometric = getattr(page.photometric, 'name', 'unknown').lower()
+                if photometric in ['rgb', 'ycbcr']:
+                    arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
+                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+                elif photometric == 'cmyk':
+                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
+                elif photometric == 'minisblack' or arr.ndim == 2:
+                    arr = np.stack((arr,) * 3, axis=-1)
+                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+                else:
+                    logger.warning(f"Unsupported TIFF photometric: {photometric}")
+                    return None
+                logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
+        elif ext in ['psd', 'psb']:
             try:
                 psd = PSDImage.open(stream)
-                if psd is None:
-                    logger.error(f"PSDImage.open returned None for {full_file_path}")
+                pil_image = psd.composite()
+                if pil_image is None:
+                    logger.error(f"PSD composite failed for {full_file_path}")
                     stream.seek(0)
                     pil_image = Image.open(stream)
-                else:
-                    pil_image = psd.composite()
                 logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
                 if pil_image.mode != 'RGB':
+                    icc_profile = pil_image.info.get('icc_profile') if 'icc_profile' in pil_image.info else None
                     pil_image = pil_image.convert('RGB')
-                    logger.info("Converted PSD to RGB")
+                    if icc_profile:
+                        pil_image.info['icc_profile'] = icc_profile
+                    logger.info("Converted PSD to RGB with ICC profile preserved")
                 try:
                     if hasattr(psd, 'has_icc_profile') and psd.has_icc_profile():
-                        pil_image.info['icc_profile'] = psd.get_icc_profile()
-                        logger.info(f"Applied ICC profile, size: {pil_image.size}")
+                        icc_profile = psd.get_icc_profile()
+                        if icc_profile and len(icc_profile) > 0:
+                            pil_image.info['icc_profile'] = icc_profile
+                            logger.info(f"Applied ICC profile, size: {len(icc_profile)} bytes")
+                        else:
+                            logger.warning(f"Empty or invalid ICC profile for {full_file_path}")
                     else:
-                        logger.warning(f"No ICC profile or method unavailable for {full_file_path}")
+                        logger.warning(f"No ICC profile detected in PSD for {full_file_path}")
                 except AttributeError:
                     logger.warning(f"ICC profile handling not supported for {full_file_path}")
                 if pil_image.size[0] <= 0 or pil_image.size[1] <= 0:
@@ -1002,44 +1021,52 @@ def process_image_in_memory(image_data, ext, full_file_path):
                     logger.error(f"Invalid pixel data at (0, 0) for {full_file_path}")
                     return None
             except Exception as e:
-                logger.error(f"PSD processing error with psd-tools for {full_file_path}: {str(e)}")
-                stream.seek(0)
-                pil_image = Image.open(stream)
+                logger.error(f"PSD processing error for {full_file_path}: {str(e)}")
+                return None
+        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+            with rawpy.imread(stream) as raw:
+                rgb = raw.postprocess()
+                pil_image = Image.fromarray(rgb)
+            logger.info(f"Processed raw image, mode: {pil_image.mode}")
         else:
-            logger.warning(f"Falling back to PIL for PSD processing of {full_file_path}")
             pil_image = Image.open(stream)
-        logger.info(f"Processed PSD with {pil_image.mode}")
-    elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
-        with rawpy.imread(stream) as raw:
-            rgb = raw.postprocess()
-            pil_image = Image.fromarray(rgb)
-        logger.info(f"Processed raw image, mode: {pil_image.mode}")
-    else:
-        pil_image = Image.open(stream)
-        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
 
-    if pil_image is None:
-        logger.error(f"Failed to create PIL image for {full_file_path}")
+        if pil_image is None:
+            logger.error(f"Failed to create PIL image for {full_file_path}")
+            return None
+
+        if pil_image.mode != "RGB":
+            icc_profile = pil_image.info.get('icc_profile') if 'icc_profile' in pil_image.info else None
+            pil_image = pil_image.convert('RGB')
+            if icc_profile:
+                pil_image.info['icc_profile'] = icc_profile
+            logger.info("Final conversion to RGB with ICC profile preserved")
+
+        jpeg_buffer = io.BytesIO()
+        logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
+        icc_profile = pil_image.info.get('icc_profile')
+        if icc_profile and len(icc_profile) > 0:
+            try:
+                pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=icc_profile)
+                logger.info(f"JPEG saved with ICC profile, buffer position: {jpeg_buffer.tell()}, profile size: {len(icc_profile)}")
+            except (ValueError, OSError) as e:
+                logger.error(f"Failed to embed ICC profile for {full_file_path} on {platform.system()}: {str(e)}, saving without profile")
+                pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+        else:
+            pil_image.save(jpeg_buffer, format="JPEG", quality=80)
+            logger.info(f"JPEG saved without ICC profile, buffer position: {jpeg_buffer.tell()}")
+        jpeg_buffer.seek(0)
+        buffer_size = jpeg_buffer.getbuffer().nbytes
+        logger.info(f"Buffer byte count: {buffer_size}")
+        if buffer_size == 0:
+            logger.error(f"Empty JPEG buffer for {full_file_path} after save")
+            return None
+        jpeg_buffer.seek(0)
+        return jpeg_buffer
+    except Exception as e:
+        logger.error(f"Image conversion failed ({ext}) for {full_file_path} on {platform.system()}: {str(e)}")
         return None
-
-    if pil_image.mode != "RGB":
-        pil_image = pil_image.convert("RGB")
-        logger.info("Final conversion to RGB, size: {pil_image.size}")
-
-    jpeg_buffer = io.BytesIO()
-    logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
-    pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=pil_image.info.get('icc_profile'))
-    logger.info(f"JPEG save completed, buffer position: {jpeg_buffer.tell()}")
-    jpeg_buffer.seek(0)
-    buffer_size = jpeg_buffer.getbuffer().nbytes
-    logger.info(f"Buffer byte count: {buffer_size}")
-    if buffer_size == 0:
-        logger.error(f"Empty JPEG buffer for {full_file_path} after save")
-        return None
-    jpeg_buffer.seek(0)
-    return jpeg_buffer
- 
-
 
 
 
