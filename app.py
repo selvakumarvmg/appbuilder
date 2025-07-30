@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
-from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QMutex
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from login import Ui_Dialog
@@ -1202,6 +1202,7 @@ class FileWatcherWorker(QObject):
     _instance = None
     _instance_thread = None
     _is_running = False
+    
 
     @classmethod
     def get_instance(cls, parent=None):
@@ -1380,50 +1381,24 @@ class FileWatcherWorker(QObject):
             raise
 
     def open_with_photoshop(self, file_path):
-        """Open a file directly in Adobe Photoshop across platforms without popups."""
+        """Open a file in Adobe Photoshop across platforms without dialogs."""
         try:
             system = platform.system()
-            photoshop_path = None
-
-            # Validate and normalize file path (use native separators)
             file_path = str(Path(file_path).resolve())
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            logger.debug(f"System: {system}")
-            logger.debug(f"File path: {file_path}")
+            logger.debug(f"System: {system}, File path: {file_path}")
 
             # Determine Photoshop path
-            if system == "Windows":
-                search_dirs = [
-                    Path("C:/Program Files/Adobe"),
-                    Path("C:/Program Files (x86)/Adobe")
-                ]
-                for base_dir in search_dirs:
-                    if not base_dir.exists():
-                        continue
-                    photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
-                    if photoshop_exes:
-                        photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
-                        photoshop_path = str(photoshop_exes[0])
-                        break
-                if not photoshop_path:
-                    raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
-            elif system == "Darwin":
-                photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
-                if photoshop_apps:
-                    photoshop_apps.sort(key=lambda x: x.name, reverse=True)
-                    photoshop_path = str(photoshop_apps[0] / "Contents/MacOS/Photoshop")
-                if not photoshop_path or not Path(photoshop_path).exists():
-                    raise FileNotFoundError("Adobe Photoshop executable not found in /Applications")
-            elif system == "Linux":
-                try:
-                    subprocess.run(["wine", "--version"], capture_output=True, check=True)
-                    wine_dirs = [
-                        Path.home() / ".wine/drive_c/Program Files/Adobe",
-                        Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+            photoshop_path = self.config.get("photoshop_path")
+            if not photoshop_path or not Path(photoshop_path).exists():
+                if system == "Windows":
+                    search_dirs = [
+                        Path("C:/Program Files/Adobe"),
+                        Path("C:/Program Files (x86)/Adobe")
                     ]
-                    for base_dir in wine_dirs:
+                    for base_dir in search_dirs:
                         if not base_dir.exists():
                             continue
                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
@@ -1432,45 +1407,56 @@ class FileWatcherWorker(QObject):
                             photoshop_path = str(photoshop_exes[0])
                             break
                     if not photoshop_path:
-                        raise FileNotFoundError("Photoshop.exe not found in Wine directories")
-                except subprocess.CalledProcessError:
-                    raise FileNotFoundError("Wine is not installed or not functioning")
-            else:
-                raise ValueError(f"Unsupported platform: {system}")
-
-            # Check if Photoshop is running
-            photoshop_running = False
-            photoshop_process_names = {
-                "Windows": ["Photoshop.exe"],
-                "Darwin": ["Photoshop"],
-                "Linux": ["wine", "wine-preloader", "Photoshop.exe"]
-            }
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    if proc.info['name'] in photoshop_process_names[system]:
-                        photoshop_running = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-
-            # Open file in Photoshop
-            if photoshop_running:
-                logger.info("Photoshop is running, attempting to open file in existing instance.")
-                if system == "Windows":
-                    try:
-                        import win32com.client
-                        ps_app = win32com.client.Dispatch("Photoshop.Application")
-                        ps_app.Open(file_path)
-                        logger.info(f"Opened {Path(file_path).name} via COM")
-                    except (ImportError, Exception) as e:
-                        logger.warning(f"COM open failed: {e}, falling back to new instance.")
-                        subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
+                        raise FileNotFoundError("Adobe Photoshop executable not found")
                 elif system == "Darwin":
-                    # Try version-specific application names
-                    app_names = [f"Adobe Photoshop {year}" for year in range(2025, 2019, -1)] + ["Adobe Photoshop"]
-                    for app_name in app_names:
+                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
+                    if photoshop_apps:
+                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                        photoshop_path = str(photoshop_apps[0] / "Contents/MacOS/Photoshop")
+                    if not photoshop_path or not Path(photoshop_path).exists():
+                        raise FileNotFoundError("Adobe Photoshop not found in /Applications")
+                elif system == "Linux":
+                    try:
+                        subprocess.run(["wine", "--version"], capture_output=True, check=True)
+                        wine_dirs = [
+                            Path.home() / ".wine/drive_c/Program Files/Adobe",
+                            Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+                        ]
+                        for base_dir in wine_dirs:
+                            if not base_dir.exists():
+                                continue
+                            photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                            if photoshop_exes:
+                                photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                                photoshop_path = str(photoshop_exes[0])
+                                break
+                        if not photoshop_path:
+                            raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                    except subprocess.CalledProcessError:
+                        raise FileNotFoundError("Wine is not installed")
+                else:
+                    raise ValueError(f"Unsupported platform: {system}")
+
+            # Attempt to open file in Photoshop (new or existing instance)
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    if system == "Windows":
+                        # Try COM interface first if available
+                        try:
+                            import win32com.client
+                            ps_app = win32com.client.Dispatch("Photoshop.Application")
+                            ps_app.Open(file_path)
+                            logger.info(f"Opened {Path(file_path).name} via COM")
+                            break
+                        except (ImportError, Exception) as e:
+                            logger.debug(f"COM open failed: {e}, trying subprocess")
+                            subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
+                            logger.info(f"Opened {Path(file_path).name} via subprocess")
+                            break
+                    elif system == "Darwin":
                         script = f'''
-                        tell application "{app_name}"
+                        tell application "Adobe Photoshop"
                             activate
                             open POSIX file "{file_path}"
                         end tell
@@ -1479,40 +1465,29 @@ class FileWatcherWorker(QObject):
                         if result.returncode == 0:
                             logger.info(f"Opened {Path(file_path).name} via AppleScript")
                             break
-                    else:
-                        logger.warning("AppleScript failed for all app names, falling back to new instance.")
-                        subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
-                else:  # Linux
-                    logger.warning("Opening in existing Wine instance not supported, launching new instance.")
-                    subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
-            else:
-                logger.info("Photoshop is not running, launching new instance.")
-                if system == "Windows":
-                    subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
-                elif system == "Darwin":
-                    subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
-                else:  # Linux
-                    subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
+                        else:
+                            logger.debug(f"AppleScript failed: {result.stderr}, trying open command")
+                            subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
+                            logger.info(f"Opened {Path(file_path).name} via open command")
+                            break
+                    else:  # Linux
+                        subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
+                        logger.info(f"Opened {Path(file_path).name} via Wine")
+                        break
+                except (subprocess.CalledProcessError, Exception) as e:
+                    if attempt < max_attempts - 1:
+                        logger.debug(f"Attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
+                        time.sleep(2)
+                        continue
+                    raise RuntimeError(f"Failed to open {file_path} after {max_attempts} attempts: {str(e)}")
 
-            logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
-            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
-            app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+            logger.info(f"Successfully opened {Path(file_path).name} in Photoshop at {photoshop_path}")
+            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
 
-        except FileNotFoundError as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
-            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
-            raise
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or str(e)
-            logger.error(f"Failed to open {file_path} in Photoshop: {error_msg}")
-            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {error_msg}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {error_msg}")
-            raise
         except Exception as e:
-            logger.error(f"Unexpected error opening {file_path} in Photoshop: {e}")
-            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+            logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
+            self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
+            # Do not emit dialog signals to avoid popups
             raise
 
 
@@ -1555,7 +1530,6 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        
                         local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
@@ -1582,25 +1556,36 @@ class FileWatcherWorker(QObject):
                             self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
                             raise
 
-                # Check if file is in use by another application
-                try:
-                    with open(src_path, 'rb') as f:
-                        f.read(1)  # Attempt to read a byte to check file accessibility
-                except (PermissionError, IOError) as e:
-                    update_download_upload_metadata(task_id, "failed")
-                    error_message = f"File {src_path} is currently in use by another application. Please close the application and try again."
-                    logger.error(error_message)
-                    self.log_update.emit(f"[Transfer] Failed: {error_message}")
-                    self.show_dialog.emit("File In Use", error_message, "error")
-                    
-                    self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
-                    raise RuntimeError(error_message)
-                
+                # Check file accessibility with retries
+                max_attempts = 3
+                for attempt in range(max_attempts):
+                    try:
+                        with open(src_path, 'rb') as f:
+                            f.read(1)  # Check if file is accessible
+                        break
+                    except (PermissionError, IOError) as e:
+                        if attempt < max_attempts - 1:
+                            logger.debug(f"File {src_path} is in use, retrying after 2s (attempt {attempt + 1})")
+                            self.log_update.emit(f"[Transfer] File {src_path} in use, retrying after 2s")
+                            time.sleep(2)
+                            continue
+                        logger.error(f"File {src_path} is locked after {max_attempts} attempts: {str(e)}")
+                        self.log_update.emit(f"[Transfer] Failed: File {src_path} is locked by another application")
+                        self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+                        return  # Skip upload instead of failing
+
                 original_dest_path = item.get('file_path', dest_path)
-                
+                if is_nas_dest:
+                    self._upload_to_nas(src_path, original_dest_path, item)
+                    self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
+                else:
+                    self._upload_to_http(src_path)
+                    self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
+
                 self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
-                # Handle JPG conversion and upload for supported formats
+
+                # Handle JPG conversion and upload
                 if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
                     jpg_name = Path(src_path).stem + ".jpg"
                     client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
@@ -1615,42 +1600,30 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
                         raise
                     jpg_path = str(jpg_folder / jpg_name)
-                    self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
                     try:
                         local_jpg, backup_path = process_single_file(src_path)
-                        logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                        self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
                         if local_jpg and os.path.exists(local_jpg):
                             jpg_path = local_jpg
                             self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
                         else:
-                            logger.error(f"Failed to convert to JPG: {jpg_path}")
-                            self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
                             raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
                     except Exception as e:
                         logger.error(f"JPG conversion error for {src_path}: {str(e)}")
                         self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
                         raise
                     if is_nas_dest:
-                        self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
-                        self._upload_to_nas(src_path, original_dest_path, item)
-                        self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
+                        jpg_nas_path = f"{original_dest_path.rsplit('.', 1)[0]}_converted.jpg"
+                        self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                        self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                     else:
-                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
-                        raise NotImplementedError("HTTP upload not implemented")
-                    # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
-                    # if is_nas_dest:
-                    #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                    #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
-                    #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
-                    # else:
-                    #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
-                    #     raise NotImplementedError("HTTP upload not implemented")
-                    # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                    # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                        self._upload_to_http(jpg_path)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_path}")
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
-                # Post-upload API call logic for original file
+
+                # Post-upload API logic
                 user_type = cache.get('user_type', '').lower()
                 user_id = cache.get('user_id', '')
                 spec_id = item.get('spec_id', '')
@@ -1692,14 +1665,8 @@ class FileWatcherWorker(QObject):
                 else:
                     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
                     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
-                try:
-                    update_download_upload_metadata(task_id, "completed")
-                    logger.info(f"Updated task {task_id} status to completed")
-                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
-                except Exception as e:
-                    logger.error(f"Failed to update task {task_id} status: {str(e)}")
-                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
-
+                update_download_upload_metadata(task_id, "completed")
+                self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
                 try:
                     os.remove(local_file_path)
                     logger.info(f"Deleted local JPG file: {local_file_path}")
