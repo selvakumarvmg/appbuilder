@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
-from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QMutex
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from login import Ui_Dialog
@@ -155,7 +155,7 @@ API_URL_UPLOAD = f"{BASE_DOMAIN}/api/post/operator_upload"
 API_URL_UPLOAD_DOWNLOAD_UPDATE = f"{BASE_DOMAIN}/api/save_download_upload/update"
 API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
-
+DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
 NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
@@ -941,77 +941,58 @@ def check_nas_write_permission(sftp, nas_path):
 
 
 
+
 def process_image_in_memory(image_data, ext, full_file_path):
-    import io
-    from PIL import Image
-    import numpy as np
-    import tifffile
-    import rawpy
-    import logging
-    import platform
-    from psd_tools import PSDImage
+   
+    stream = io.BytesIO(image_data)
+    pil_image = None
+    ext = ext.lower()
+    logger.info(f"Starting processing of {full_file_path} with extension {ext}")
 
-    # logger = logging.getLogger(__name__)
-    # if not logger.handlers:
-    #     logging.basicConfig(level=logging.INFO)
-    #     logger.setLevel(logging.INFO)
-    # logger.info(f"Running on {platform.system()}")
-
-    try:
-        stream = io.BytesIO(image_data)
-        pil_image = None
-        ext = ext.lower()
-        logger.info(f"Starting processing of {full_file_path} with extension {ext}")
-
-        if ext in ['jpg', 'jpeg', 'png']:
-            pil_image = Image.open(stream)
-            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
-        elif ext == 'gif':
-            pil_image = Image.open(stream)
-            pil_image = next(ImageSequence.Iterator(pil_image))
-            logger.info("Processed GIF first frame, mode: {pil_image.mode}")
-        elif ext in ['tif', 'tiff']:
-            with tifffile.TiffFile(stream) as tif:
-                page = tif.pages[0]
-                arr = page.asarray()
-                photometric = getattr(page.photometric, 'name', 'unknown').lower()
-                if photometric in ['rgb', 'ycbcr']:
-                    arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                elif photometric == 'cmyk':
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
-                elif photometric == 'minisblack' or arr.ndim == 2:
-                    arr = np.stack((arr,) * 3, axis=-1)
-                    pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
-                else:
-                    logger.warning(f"Unsupported TIFF photometric: {photometric}")
-                    return None
-                logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
-        elif ext in ['psd', 'psb']:
+    if ext in ['jpg', 'jpeg', 'png']:
+        pil_image = Image.open(stream)
+        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+    elif ext == 'gif':
+        pil_image = Image.open(stream)
+        pil_image = next(ImageSequence.Iterator(pil_image))
+        logger.info("Processed GIF first frame, mode: {pil_image.mode}")
+    elif ext in ['tif', 'tiff']:
+        with tifffile.TiffFile(stream) as tif:
+            page = tif.pages[0]
+            arr = page.asarray()
+            photometric = getattr(page.photometric, 'name', 'unknown').lower()
+            if photometric in ['rgb', 'ycbcr']:
+                arr = arr[:, :, :3] if arr.ndim == 3 and arr.shape[2] >= 3 else arr
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+            elif photometric == 'cmyk':
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='CMYK').convert("RGB")
+            elif photometric == 'minisblack' or arr.ndim == 2:
+                arr = np.stack((arr,) * 3, axis=-1)
+                pil_image = Image.fromarray(arr.astype(np.uint8), mode='RGB')
+            else:
+                logger.warning(f"Unsupported TIFF photometric: {photometric}")
+                return None
+            logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
+    elif ext in ['psd', 'psb']:
+        if PSDImage is not None:
             try:
                 psd = PSDImage.open(stream)
-                pil_image = psd.composite()
-                if pil_image is None:
-                    logger.error(f"PSD composite failed for {full_file_path}")
+                if psd is None:
+                    logger.error(f"PSDImage.open returned None for {full_file_path}")
                     stream.seek(0)
                     pil_image = Image.open(stream)
+                else:
+                    pil_image = psd.composite()
                 logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
                 if pil_image.mode != 'RGB':
-                    icc_profile = pil_image.info.get('icc_profile') if 'icc_profile' in pil_image.info else None
                     pil_image = pil_image.convert('RGB')
-                    if icc_profile:
-                        pil_image.info['icc_profile'] = icc_profile
-                    logger.info("Converted PSD to RGB with ICC profile preserved")
+                    logger.info("Converted PSD to RGB")
                 try:
                     if hasattr(psd, 'has_icc_profile') and psd.has_icc_profile():
-                        icc_profile = psd.get_icc_profile()
-                        if icc_profile and len(icc_profile) > 0:
-                            pil_image.info['icc_profile'] = icc_profile
-                            logger.info(f"Applied ICC profile, size: {len(icc_profile)} bytes")
-                        else:
-                            logger.warning(f"Empty or invalid ICC profile for {full_file_path}")
+                        pil_image.info['icc_profile'] = psd.get_icc_profile()
+                        logger.info(f"Applied ICC profile, size: {pil_image.size}")
                     else:
-                        logger.warning(f"No ICC profile detected in PSD for {full_file_path}")
+                        logger.warning(f"No ICC profile or method unavailable for {full_file_path}")
                 except AttributeError:
                     logger.warning(f"ICC profile handling not supported for {full_file_path}")
                 if pil_image.size[0] <= 0 or pil_image.size[1] <= 0:
@@ -1021,52 +1002,44 @@ def process_image_in_memory(image_data, ext, full_file_path):
                     logger.error(f"Invalid pixel data at (0, 0) for {full_file_path}")
                     return None
             except Exception as e:
-                logger.error(f"PSD processing error for {full_file_path}: {str(e)}")
-                return None
-        elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
-            with rawpy.imread(stream) as raw:
-                rgb = raw.postprocess()
-                pil_image = Image.fromarray(rgb)
-            logger.info(f"Processed raw image, mode: {pil_image.mode}")
+                logger.error(f"PSD processing error with psd-tools for {full_file_path}: {str(e)}")
+                stream.seek(0)
+                pil_image = Image.open(stream)
         else:
+            logger.warning(f"Falling back to PIL for PSD processing of {full_file_path}")
             pil_image = Image.open(stream)
-            logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
+        logger.info(f"Processed PSD with {pil_image.mode}")
+    elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
+        with rawpy.imread(stream) as raw:
+            rgb = raw.postprocess()
+            pil_image = Image.fromarray(rgb)
+        logger.info(f"Processed raw image, mode: {pil_image.mode}")
+    else:
+        pil_image = Image.open(stream)
+        logger.info(f"Opened {ext} file, mode: {pil_image.mode}")
 
-        if pil_image is None:
-            logger.error(f"Failed to create PIL image for {full_file_path}")
-            return None
-
-        if pil_image.mode != "RGB":
-            icc_profile = pil_image.info.get('icc_profile') if 'icc_profile' in pil_image.info else None
-            pil_image = pil_image.convert('RGB')
-            if icc_profile:
-                pil_image.info['icc_profile'] = icc_profile
-            logger.info("Final conversion to RGB with ICC profile preserved")
-
-        jpeg_buffer = io.BytesIO()
-        logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
-        icc_profile = pil_image.info.get('icc_profile')
-        if icc_profile and len(icc_profile) > 0:
-            try:
-                pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=icc_profile)
-                logger.info(f"JPEG saved with ICC profile, buffer position: {jpeg_buffer.tell()}, profile size: {len(icc_profile)}")
-            except (ValueError, OSError) as e:
-                logger.error(f"Failed to embed ICC profile for {full_file_path} on {platform.system()}: {str(e)}, saving without profile")
-                pil_image.save(jpeg_buffer, format="JPEG", quality=80)
-        else:
-            pil_image.save(jpeg_buffer, format="JPEG", quality=80)
-            logger.info(f"JPEG saved without ICC profile, buffer position: {jpeg_buffer.tell()}")
-        jpeg_buffer.seek(0)
-        buffer_size = jpeg_buffer.getbuffer().nbytes
-        logger.info(f"Buffer byte count: {buffer_size}")
-        if buffer_size == 0:
-            logger.error(f"Empty JPEG buffer for {full_file_path} after save")
-            return None
-        jpeg_buffer.seek(0)
-        return jpeg_buffer
-    except Exception as e:
-        logger.error(f"Image conversion failed ({ext}) for {full_file_path} on {platform.system()}: {str(e)}")
+    if pil_image is None:
+        logger.error(f"Failed to create PIL image for {full_file_path}")
         return None
+
+    if pil_image.mode != "RGB":
+        pil_image = pil_image.convert("RGB")
+        logger.info("Final conversion to RGB, size: {pil_image.size}")
+
+    jpeg_buffer = io.BytesIO()
+    logger.info(f"Attempting to save JPEG to buffer, initial position: {jpeg_buffer.tell()}")
+    pil_image.save(jpeg_buffer, format="JPEG", quality=80, icc_profile=pil_image.info.get('icc_profile'))
+    logger.info(f"JPEG save completed, buffer position: {jpeg_buffer.tell()}")
+    jpeg_buffer.seek(0)
+    buffer_size = jpeg_buffer.getbuffer().nbytes
+    logger.info(f"Buffer byte count: {buffer_size}")
+    if buffer_size == 0:
+        logger.error(f"Empty JPEG buffer for {full_file_path} after save")
+        return None
+    jpeg_buffer.seek(0)
+    return jpeg_buffer
+ 
+
 
 
 
@@ -1202,7 +1175,6 @@ class FileWatcherWorker(QObject):
     _instance = None
     _instance_thread = None
     _is_running = False
-    
 
     @classmethod
     def get_instance(cls, parent=None):
@@ -1492,8 +1464,11 @@ class FileWatcherWorker(QObject):
 
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
-        task_id = str(item.get('id', ''))
+     
         try:
+            task_id = str(item.get('id'))
+            update_download_upload_metadata(task_id, "In Progress")
+            logger.info(f"[In Progress]=================================== {task_id}")
             original_filename = Path(src_path).name
             self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
             if action_type.lower() == "download":
@@ -1530,6 +1505,7 @@ class FileWatcherWorker(QObject):
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+                        
                         local_jpg, _ = process_single_file(dest_path)
                         if local_jpg:
                             app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
@@ -1556,36 +1532,25 @@ class FileWatcherWorker(QObject):
                             self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
                             raise
 
-                # Check file accessibility with retries
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    try:
-                        with open(src_path, 'rb') as f:
-                            f.read(1)  # Check if file is accessible
-                        break
-                    except (PermissionError, IOError) as e:
-                        if attempt < max_attempts - 1:
-                            logger.debug(f"File {src_path} is in use, retrying after 2s (attempt {attempt + 1})")
-                            self.log_update.emit(f"[Transfer] File {src_path} in use, retrying after 2s")
-                            time.sleep(2)
-                            continue
-                        logger.error(f"File {src_path} is locked after {max_attempts} attempts: {str(e)}")
-                        self.log_update.emit(f"[Transfer] Failed: File {src_path} is locked by another application")
-                        self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
-                        return  # Skip upload instead of failing
-
+                # Check if file is in use by another application
+                try:
+                    with open(src_path, 'rb') as f:
+                        f.read(1)  # Attempt to read a byte to check file accessibility
+                except (PermissionError, IOError) as e:
+                    update_download_upload_metadata(task_id, "failed")
+                    error_message = f"File {src_path} is currently in use by another application. Please close the application and try again."
+                    logger.error(error_message)
+                    self.log_update.emit(f"[Transfer] Failed: {error_message}")
+                    self.show_dialog.emit("File In Use", error_message, "error")
+                    
+                    self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+                    raise RuntimeError(error_message)
+                
                 original_dest_path = item.get('file_path', dest_path)
-                if is_nas_dest:
-                    self._upload_to_nas(src_path, original_dest_path, item)
-                    self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
-                else:
-                    self._upload_to_http(src_path)
-                    self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
-
+                
                 self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
-
-                # Handle JPG conversion and upload
+                # Handle JPG conversion and upload for supported formats
                 if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
                     jpg_name = Path(src_path).stem + ".jpg"
                     client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
@@ -1600,30 +1565,72 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
                         raise
                     jpg_path = str(jpg_folder / jpg_name)
+                    self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
                     try:
                         local_jpg, backup_path = process_single_file(src_path)
+                        logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                        self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
                         if local_jpg and os.path.exists(local_jpg):
                             jpg_path = local_jpg
                             self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
                         else:
+                            logger.error(f"Failed to convert to JPG: {jpg_path}")
+                            self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
                             raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
                     except Exception as e:
                         logger.error(f"JPG conversion error for {src_path}: {str(e)}")
                         self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
                         raise
                     if is_nas_dest:
-                        jpg_nas_path = f"{original_dest_path.rsplit('.', 1)[0]}_converted.jpg"
+                        self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
+                        self._upload_to_nas(src_path, original_dest_path, item)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
+                    else:
+                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
+                        raise NotImplementedError("HTTP upload not implemented")
+                    jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+                    if is_nas_dest:
+                        self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
                         self._upload_to_nas(jpg_path, jpg_nas_path, item)
                         self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
-                        self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                     else:
-                        self._upload_to_http(jpg_path)
-                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_path}")
+                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                        raise NotImplementedError("HTTP upload not implemented")
+                    self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                    self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
-
-                # Post-upload API logic
+                # Post-upload API call logic for original file
+               
+                # try:
+                #     request_data = {
+                #         'job_id': item.get('job_id'),
+                #         'project_id': item.get("project_id"),
+                #         'file_name': item.get("user_id"),
+                #         'user_id': item.get("user_id"),
+                #         'user_type': item.get("user_type"),
+                #         'spec_id': item.get("spec_id"),
+                #         'creative_id': item.get("creative_id"),
+                #         'inventory_id': item.get("inventory_id"),
+                #         'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                #     }
+                    
+                #     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+                #     response = requests.post(
+                #         DRUPAL_DB_ENTRY_API,
+                #         data=request_data,
+                #         headers={},
+                #         verify=False
+                #     )
+                #     update_download_upload_metadata(task_id, "completed")
+                #     logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
+                #     # print("DRUPAL_DB_ENTRY_API data success:", response.text)
+                # except Exception as e:
+                #     logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
+                #     # print("Error in DRUPAL_DB_ENTRY_API data:", e)
+               
+               
+               
                 user_type = cache.get('user_type', '').lower()
                 user_id = cache.get('user_id', '')
                 spec_id = item.get('spec_id', '')
@@ -1665,8 +1672,14 @@ class FileWatcherWorker(QObject):
                 else:
                     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
                     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
-                update_download_upload_metadata(task_id, "completed")
-                self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                try:
+                    update_download_upload_metadata(task_id, "completed")
+                    logger.info(f"Updated task {task_id} status to completed")
+                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                except Exception as e:
+                    logger.error(f"Failed to update task {task_id} status: {str(e)}")
+                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
+
                 try:
                     os.remove(local_file_path)
                     logger.info(f"Deleted local JPG file: {local_file_path}")
@@ -1804,6 +1817,7 @@ class FileWatcherWorker(QObject):
                 max_download_retries = 3
                 for item in unprocessed_tasks:
                     try:
+                        
                         if not isinstance(item, dict):
                             logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
                             self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
@@ -1872,53 +1886,53 @@ class FileWatcherWorker(QObject):
                             self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
                             updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
                             self.processed_tasks.add(task_key)
-                            try:
-                                status_payload = {
-                                    'id': task_id,
-                                    'request_status': 'completed'
-                                }
-                                logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (Original), instance: {id(self)}")
-                                self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
-                            except Exception as e:
-                                logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (Original): {str(e)}, instance: {id(self)}")
-                                self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
-                            if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
-                                jpg_name = Path(local_path).stem + ".jpg"
-                                jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
-                                try:
-                                    os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                                    os.chmod(jpg_folder, 0o777)
-                                except OSError as e:
-                                    self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
-                                    updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
-                                    continue
-                                jpg_path = str(jpg_folder / jpg_name)
-                                local_jpg, backup_path = process_single_file(local_path)
-                                if local_jpg:
-                                    jpg_path = local_jpg
-                                    self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
-                                    app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
-                                    jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}_converted.jpg"
-                                    self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
-                                    updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
-                                    self.processed_tasks.add(f"{task_id}:jpg")
-                                    try:
-                                        status_payload = {
-                                            'id': task_id,
-                                            'request_status': 'completed'
-                                        }
-                                        logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (JPG), instance: {id(self)}")
-                                        self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
-                                    except Exception as e:
-                                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (JPG): {str(e)}, instance: {id(self)}")
-                                        self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
-                                else:
-                                    self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
-                                    updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
-                        else:
-                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid action_type for task {task_id}: {action_type}, instance: {id(self)}")
-                            self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-                            updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
+                        #     try:
+                        #         status_payload = {
+                        #             'id': task_id,
+                        #             'request_status': 'completed'
+                        #         }
+                        #         logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (Original), instance: {id(self)}")
+                        #         self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
+                        #     except Exception as e:
+                        #         logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (Original): {str(e)}, instance: {id(self)}")
+                        #         self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
+                        #     if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
+                        #         jpg_name = Path(local_path).stem + ".jpg"
+                        #         jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
+                        #         try:
+                        #             os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                        #             os.chmod(jpg_folder, 0o777)
+                        #         except OSError as e:
+                        #             self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
+                        #             updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
+                        #             continue
+                        #         jpg_path = str(jpg_folder / jpg_name)
+                        #         local_jpg, backup_path = process_single_file(local_path)
+                        #         if local_jpg:
+                        #             jpg_path = local_jpg
+                        #             self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
+                        #             app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
+                        #             jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}_converted.jpg"
+                        #             self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
+                        #             updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
+                        #             self.processed_tasks.add(f"{task_id}:jpg")
+                        #             try:
+                        #                 status_payload = {
+                        #                     'id': task_id,
+                        #                     'request_status': 'completed'
+                        #                 }
+                        #                 logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (JPG), instance: {id(self)}")
+                        #                 self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
+                        #             except Exception as e:
+                        #                 logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (JPG): {str(e)}, instance: {id(self)}")
+                        #                 self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
+                        #         else:
+                        #             self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
+                        #             updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
+                        # else:
+                        #     logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid action_type for task {task_id}: {action_type}, instance: {id(self)}")
+                        #     self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
+                        #     updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
                     except Exception as e:
                         logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, instance: {id(self)}")
                         self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
