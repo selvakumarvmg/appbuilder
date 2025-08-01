@@ -1353,7 +1353,7 @@ class FileWatcherWorker(QObject):
             raise
 
     def open_with_photoshop(self, file_path):
-        """Open a file in Adobe Photoshop across platforms without dialogs."""
+        """Open a file in Adobe Photoshop across platforms without dialogs except for Photoshop not found."""
         try:
             system = platform.system()
             file_path = str(Path(file_path).resolve())
@@ -1361,6 +1361,7 @@ class FileWatcherWorker(QObject):
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
             logger.debug(f"System: {system}, File path: {file_path}")
+            self.log_update.emit(f"[Photoshop] Attempting to open {Path(file_path).name}")
 
             # Determine Photoshop path
             photoshop_path = self.config.get("photoshop_path")
@@ -1414,38 +1415,105 @@ class FileWatcherWorker(QObject):
             for attempt in range(max_attempts):
                 try:
                     if system == "Windows":
-                        # Try COM interface first if available
                         try:
                             import win32com.client
-                            ps_app = win32com.client.Dispatch("Photoshop.Application")
+                            import pythoncom
+                            pythoncom.CoInitialize()  # Initialize COM for thread
+                            try:
+                                ps_app = win32com.client.GetActiveObject("Photoshop.Application")
+                                logger.debug("Found existing Photoshop instance via COM")
+                            except Exception:
+                                ps_app = win32com.client.Dispatch("Photoshop.Application")
+                                logger.debug("Started new Photoshop instance via COM")
+                            ps_app.Visible = True  # Ensure Photoshop is visible
                             ps_app.Open(file_path)
+                            # Maximize and bring to front
+                            try:
+                                ps_app.Application.Windows(1).WindowState = 1  # 1 = maximized
+                                logger.debug("Maximized Photoshop window via COM")
+                            except Exception as e:
+                                logger.debug(f"Failed to maximize via COM: {str(e)}")
+                            pythoncom.CoUninitialize()
                             logger.info(f"Opened {Path(file_path).name} via COM")
+                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
                             break
-                        except (ImportError, Exception) as e:
-                            logger.debug(f"COM open failed: {e}, trying subprocess")
-                            subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
-                            logger.info(f"Opened {Path(file_path).name} via subprocess")
-                            break
+                        except Exception as e:
+                            if attempt < max_attempts - 1:
+                                logger.debug(f"COM attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
+                                time.sleep(2)
+                                continue
+                            raise RuntimeError(f"COM failed: {str(e)}")
                     elif system == "Darwin":
                         script = f'''
                         tell application "Adobe Photoshop"
                             activate
                             open POSIX file "{file_path}"
+                            tell application "System Events"
+                                tell process "Photoshop"
+                                    set frontmost to true
+                                    set window_state to get properties of window 1
+                                    if minimized of window_state is true then
+                                        set minimized of window 1 to false
+                                    end if
+                                end tell
+                            end tell
                         end tell
                         '''
-                        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
-                        if result.returncode == 0:
+                        process = subprocess.Popen(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        stdout, stderr = process.communicate(timeout=30)
+                        if process.returncode == 0:
                             logger.info(f"Opened {Path(file_path).name} via AppleScript")
+                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
                             break
                         else:
-                            logger.debug(f"AppleScript failed: {result.stderr}, trying open command")
-                            subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
-                            logger.info(f"Opened {Path(file_path).name} via open command")
-                            break
+                            logger.debug(f"AppleScript failed: {stderr}, trying open command")
+                            process = subprocess.Popen(["open", "-a", photoshop_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            stdout, stderr = process.communicate(timeout=30)
+                            if process.returncode == 0:
+                                # Ensure window is restored and brought to front
+                                restore_script = f'''
+                                tell application "System Events"
+                                    tell process "Photoshop"
+                                        set frontmost to true
+                                        set window_state to get properties of window 1
+                                        if minimized of window_state is true then
+                                            set minimized of window 1 to false
+                                        end if
+                                    end tell
+                                end tell
+                                '''
+                                subprocess.run(["osascript", "-e", restore_script], check=True, capture_output=True, text=True)
+                                logger.info(f"Opened {Path(file_path).name} via open command")
+                                self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
+                                break
+                            else:
+                                raise RuntimeError(f"Open command failed: {stderr}")
                     else:  # Linux
-                        subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
-                        logger.info(f"Opened {Path(file_path).name} via Wine")
-                        break
+                        # Check for running Wine Photoshop instance
+                        try:
+                            ps_aux = subprocess.run(["ps", "aux"], capture_output=True, text=True, check=True)
+                            is_running = "Photoshop.exe" in ps_aux.stdout
+                            logger.debug(f"Photoshop running via Wine: {is_running}")
+                            # Use Popen for non-blocking launch
+                            process = subprocess.Popen(["wine", photoshop_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            # Don't wait for completion to avoid blocking
+                            logger.info(f"Opened {Path(file_path).name} via Wine")
+                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
+                            # Attempt to maximize (non-blocking)
+                            try:
+                                subprocess.Popen(["wmctrl", "-r", "Photoshop", "-b", "add,maximized_vert,maximized_horz"])
+                                subprocess.Popen(["wmctrl", "-a", "Photoshop"])
+                                logger.debug("Maximized and activated Photoshop via wmctrl")
+                            except subprocess.CalledProcessError:
+                                logger.debug("wmctrl not available or failed, window state unchanged")
+                            break
+                        except subprocess.CalledProcessError as e:
+                            if attempt < max_attempts - 1:
+                                logger.debug(f"Wine attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
+                                time.sleep(2)
+                                continue
+                            raise RuntimeError(f"Wine failed: {str(e)}")
+                    QApplication.processEvents()  # Ensure Qt event loop continues
                 except (subprocess.CalledProcessError, Exception) as e:
                     if attempt < max_attempts - 1:
                         logger.debug(f"Attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
@@ -1454,12 +1522,28 @@ class FileWatcherWorker(QObject):
                     raise RuntimeError(f"Failed to open {file_path} after {max_attempts} attempts: {str(e)}")
 
             logger.info(f"Successfully opened {Path(file_path).name} in Photoshop at {photoshop_path}")
-            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
+            self.log_update.emit(f"[Photoshop] Successfully opened {Path(file_path).name}")
+            QApplication.processEvents()  # Ensure other processes continue
 
+        except FileNotFoundError as e:
+            if str(e) in [
+                "Adobe Photoshop executable not found",
+                "Adobe Photoshop not found in /Applications",
+                "Photoshop.exe not found in Wine directories",
+                "Wine is not installed"
+            ]:
+                error_msg = f"Adobe Photoshop is not installed or could not be found: {str(e)}"
+                logger.error(error_msg)
+                self.log_update.emit(f"[Photoshop] Failed: {error_msg}")
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Photoshop Error", error_msg)
+            else:
+                logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
+                self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
+                raise
         except Exception as e:
             logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
             self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
-            # Do not emit dialog signals to avoid popups
             raise
 
 
@@ -1479,7 +1563,7 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
                         app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
                         try:
-                            update_download_upload_metadata(task_id, "completed")
+                            # update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
                             update_download_upload_metadata(task_id, "failed")
@@ -2693,10 +2777,16 @@ class LoginDialog(QDialog):
             cache = load_cache()
             token = cache.get("token")
             user_id = cache.get("user_id")
+            name = cache.get("user_data", {}).get("data", [{}])[0].get("attributes", {}).get("name", cache.get("user_info", {}).get("mail", "user"))
+            user_info = {
+                "uid": user_id,
+                "name": name,
+                "mail": cache.get("user_info", {}).get("mail", "user")  # Add mail for compatibility
+            }
             if token and user_id:
                 logger.info(f"Auto-login from cache for user: {user_id}")
                 app_signals.append_log.emit(f"[Login] Auto-login from cache for user: {user_id}")
-                QTimer.singleShot(100, lambda: self.on_login_success({"uid": user_id}, token))
+                QTimer.singleShot(100, lambda: self.on_login_success(user_info, token))
             else:
                 app_signals.append_log.emit("[Login] No valid cache for auto-login")
 
@@ -2728,6 +2818,12 @@ class LoginDialog(QDialog):
 
     def show_progress(self, message):
         try:
+            if self.progress and self.progress.isVisible():
+                logger.debug(f"Progress dialog already visible, updating message to: {message}")
+                self.progress.setLabelText(message)
+                QApplication.processEvents()
+                return
+
             self.progress = QProgressDialog(message, None, 0, 0, self)
             self.progress.setWindowModality(Qt.WindowModal)
             self.progress.setCancelButton(None)
@@ -2783,6 +2879,7 @@ class LoginDialog(QDialog):
             self.worker.success.connect(self.worker.deleteLater)
             self.worker.failure.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.finished.connect(lambda: self.cleanup_progress())  # Clean up progress dialog
             self.thread.start()
             app_signals.append_log.emit(f"[Login] Starting login thread for user: {username}")
             self.status_bar.showMessage(f"Starting login for {username}")
@@ -2790,9 +2887,23 @@ class LoginDialog(QDialog):
             logger.error(f"Login thread error: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Login thread error - {str(e)}")
             self.status_bar.showMessage(f"Login thread error: {str(e)}")
-            if self.progress:
+            if self.progress and self.progress.isVisible():
                 self.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in perform_login error handler")
+                app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
             QMessageBox.critical(self, "Login Error", f"Login thread error: {str(e)}")
+
+    def cleanup_progress(self):
+        try:
+            if self.progress and self.progress.isVisible():
+                self.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in cleanup_progress")
+                app_signals.append_log.emit("[Login] Progress dialog closed in cleanup_progress")
+        except Exception as e:
+            logger.error(f"Error in cleanup_progress: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Error in cleanup_progress - {str(e)}")
 
     
     def on_login_success(self, user_info: dict, token: str):
@@ -2800,17 +2911,23 @@ class LoginDialog(QDialog):
             logger.info(f"Login successful for user_id: {user_info['uid']}")
             app_signals.append_log.emit(f"[App] Login successful for user_id: {user_info['uid']}")
             self.is_logged_in = True
-
+            user_name = user_info.get('name', user_info.get('mail', 'user'))
             # Update parent (PremediaApp) state
             if hasattr(self, 'app') and self.app:
                 self.app.set_logged_in_state()
                 self.app.start_file_watcher()
-                self.app.show_logs()
-                logger.debug("Updated PremediaApp state and showed LogWindow")
-                app_signals.append_log.emit("[Login] Updated PremediaApp state and showed LogWindow")
-
+                logger.debug("Updated PremediaApp state")
+                app_signals.append_log.emit("[Login] Updated PremediaApp state")
+            
+            # Close progress dialog
+            if self.progress and self.progress.isVisible():
+                self.progress.close()
+                QApplication.processEvents()  # Ensure close is processed
+                logger.debug("Progress dialog closed in on_login_success")
+                app_signals.append_log.emit("[Login] Progress dialog closed")
+            
             # Show success message
-            QMessageBox.information(self, "Login Success", f"Successfully logged in as {user_info.get('uid', 'user')}")
+            QMessageBox.information(self, "Login Success", f"Successfully logged in as {user_name}")
             
             self.accept()
             app_signals.update_status.emit("Logged in successfully")
@@ -2820,14 +2937,37 @@ class LoginDialog(QDialog):
             logger.error(f"Error in on_login_success: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Error in on_login_success - {str(e)}")
             app_signals.update_status.emit(f"Login success handling error: {str(e)}")
+            # Ensure progress dialog is closed on error
+            if self.progress and self.progress.isVisible():
+                self.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in on_login_success error handler")
+                app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
             QMessageBox.critical(self, "Login Error", f"Error handling login success: {str(e)}")
 
 
     def on_login_failed(self, error):
-        logger.error(f"Login failed: {error}")
-        app_signals.append_log.emit(f"[App] Login failed: {error}")
-        app_signals.update_status.emit(f"Login failed: {error}")
-        QMessageBox.critical(self, "Login Error", str(error))
+        try:
+            logger.error(f"Login failed: {error}")
+            app_signals.append_log.emit(f"[App] Login failed: {error}")
+            app_signals.update_status.emit(f"Login failed: {error}")
+            # Close progress dialog
+            if self.progress and self.progress.isVisible():
+                self.progress.close()
+                QApplication.processEvents()  # Ensure close is processed
+                logger.debug("Progress dialog closed in on_login_failed")
+                app_signals.append_log.emit("[Login] Progress dialog closed")
+            QMessageBox.critical(self, "Login Error", str(error))
+        except Exception as e:
+            logger.error(f"Error in on_login_failed: {str(e)}")
+            app_signals.append_log.emit(f"[Login] Failed: Error in on_login_failed - {str(e)}")
+            app_signals.update_status.emit(f"Error in on_login_failed: {str(e)}")
+            # Ensure progress dialog is closed on error
+            if self.progress and self.progress.isVisible():
+                self.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in on_login_failed error handler")
+                app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
         # Do not access thread here either
 
     def closeEvent(self, event):
@@ -2856,34 +2996,34 @@ class PremediaApp(QApplication):
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
             super().__init__()
-            # check_single_instance()
             self.app = QApplication.instance() or QApplication(sys.argv)
             self.app.setQuitOnLastWindowClosed(False)
             self.app.setWindowIcon(load_icon(ICON_PATH, "application"))
 
             # Prevent multiple instances using a lock file
-            # self.lock_file = "/tmp/premedia_app.lock"
             self.lock_file = os.path.join(tempfile.gettempdir(), "premedia_app.lock")
-            
             try:
                 self.lock_fd = open(self.lock_file, 'w')
-                # fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except IOError:
                 logger.error("Another instance of PremediaApp is already running")
                 app_signals.append_log.emit("[Init] Failed: Another instance of PremediaApp is already running")
                 sys.exit(1)
 
-            # Initialize system tray icon with explicit check
+            # Initialize system tray icon
+            self.tray_icon = None
             if QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
                 self.tray_icon.setToolTip("PremediaApp")
                 self.tray_icon.show()
-                logger.info(f"System tray icon initialized, available: {QSystemTrayIcon.isSystemTrayAvailable()}")
-                app_signals.append_log.emit(f"[Init] System tray icon initialized, available: {QSystemTrayIcon.isSystemTrayAvailable()}")
+                QApplication.processEvents()  # Ensure initial show is processed
+                logger.info(f"System tray icon initialized, visible: {self.tray_icon.isVisible()}")
+                app_signals.append_log.emit(f"[Init] System tray icon initialized, visible: {self.tray_icon.isVisible()}")
             else:
-                logger.warning("System tray not available on this platform")
-                app_signals.append_log.emit("[Init] System tray not available on this platform")
-                self.tray_icon = None
+                logger.warning("System tray not available, will check during login")
+                app_signals.append_log.emit("[Init] System tray not available, will check during login")
+                if platform.system() == "Linux":
+                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
+                    app_signals.append_log.emit("[Init] On Linux, ensure libappindicator is installed for system tray support")
 
             self.logged_in = False
             load_cache()
@@ -2989,14 +3129,21 @@ class PremediaApp(QApplication):
                             "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
                         }
                         save_cache(cache_data)
+                        # Reinitialize tray icon if it wasn't available initially
+                        if not self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
+                            self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
+                            self.tray_icon.setToolTip("PremediaApp")
+                            self.tray_icon.setContextMenu(self.tray_menu)
+                            self.tray_icon.show()
+                            QApplication.processEvents()
+                            logger.info(f"Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
+                            app_signals.append_log.emit(f"[Init] Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
                         self.set_logged_in_state()
                         logger.debug("Calling start_file_watcher after auto-login")
                         app_signals.append_log.emit("[Init] Calling start_file_watcher after auto-login")
                         self.start_file_watcher()
-                        self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
                         self.log_window.status_bar.showMessage(f"Auto-login successful for {cache.get('user')}")
                         self.post_login_processes()
-                        self.show_logs()
                         app_signals.append_log.emit("[Init] Auto-login successful with cached credentials")
                     except Exception as e:
                         logger.error(f"Auto-login failed during user info fetch: {e}")
@@ -3061,11 +3208,21 @@ class PremediaApp(QApplication):
                 self.tray_icon.setContextMenu(self.tray_menu)
                 self.tray_icon.show()
                 QApplication.processEvents()
+                # Additional event processing to ensure tray icon renders
+                for _ in range(2):  # Retry twice to mimic LogWindow's effect
+                    if not self.tray_icon.isVisible():
+                        logger.debug("Tray icon not visible after update_tray_menu, retrying show")
+                        app_signals.append_log.emit("[Tray] Tray icon not visible after update_tray_menu, retrying show")
+                        self.tray_icon.show()
+                        QApplication.processEvents()
                 logger.debug(f"Updated tray menu: logged_in={self.logged_in}, enabled actions: {[action.text() for action in self.tray_menu.actions() if action.isVisible() and action.isEnabled()]}")
                 app_signals.append_log.emit(f"[Tray] Updated menu: Login={self.login_action.isEnabled()}, Logout={self.logout_action.isEnabled()}, Downloaded={self.downloaded_files_action.isEnabled()}, Uploaded={self.uploaded_files_action.isEnabled()}, ClearCache={self.clear_cache_action.isEnabled()}, OpenCache={self.open_cache_action.isEnabled()}")
             else:
                 logger.warning("System tray not available, cannot update tray menu")
                 app_signals.append_log.emit("[Tray] System tray not available")
+                if platform.system() == "Linux":
+                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
+                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
         except Exception as e:
             logger.error(f"Error updating tray menu: {e}")
             app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
@@ -3155,7 +3312,7 @@ class PremediaApp(QApplication):
    
     def cleanup_and_quit(self):
         try:
-            print("[App] Cleanup initiated")
+            # print("[App] Cleanup initiated")
 
             # Stop watcher flag
             global FILE_WATCHER_RUNNING
@@ -3211,18 +3368,33 @@ class PremediaApp(QApplication):
 
 
 
+    # In PremediaApp class
     def set_logged_in_state(self):
         try:
             self.logged_in = True
             logger.debug(f"Setting logged_in state to: {self.logged_in}")
             app_signals.append_log.emit(f"[State] Setting logged_in state to: {self.logged_in}")
             self.update_tray_menu()
-            if self.tray_icon:
+            if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
                 self.tray_icon.show()
-                logger.debug(f"Tray icon visible: {self.tray_icon.isVisible()}")
-                self.tray_icon.setContextMenu(self.tray_menu)
                 QApplication.processEvents()
+                # Additional event processing to ensure tray icon renders
+                for _ in range(2):  # Retry twice to mimic LogWindow's effect
+                    if not self.tray_icon.isVisible():
+                        logger.debug("Tray icon not visible, retrying show")
+                        app_signals.append_log.emit("[Tray] Tray icon not visible, retrying show")
+                        self.tray_icon.show()
+                        QApplication.processEvents()
+                logger.debug(f"Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
+                app_signals.append_log.emit(f"[Tray] Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
+                self.tray_icon.setContextMenu(self.tray_menu)
+            else:
+                logger.warning("Tray icon or system tray not available, cannot set 'logged in' icon")
+                app_signals.append_log.emit("[Tray] Tray icon or system tray not available, cannot set 'logged in' icon")
+                if platform.system() == "Linux":
+                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
+                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
             if hasattr(self, 'login_dialog'):
                 self.login_dialog.is_logged_in = True
                 logger.debug(f"LoginDialog is_logged_in set to: {self.login_dialog.is_logged_in}")
@@ -3567,12 +3739,33 @@ class PremediaApp(QApplication):
             # Start file watcher
             self.start_file_watcher()
 
-            # Update tray menu
+            # Update tray menu and ensure icon visibility
             self.update_tray_menu()
-            if self.tray_icon:
+            if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.show()
+                QApplication.processEvents()
+                # Additional event processing to ensure tray icon renders
+                for _ in range(2):  # Retry twice to mimic LogWindow's effect
+                    if not self.tray_icon.isVisible():
+                        logger.debug("Tray icon not visible after post_login_processes, retrying show")
+                        app_signals.append_log.emit("[Tray] Tray icon not visible after post_login_processes, retrying show")
+                        self.tray_icon.show()
+                        QApplication.processEvents()
                 logger.debug(f"Tray icon visible after post-login: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Login] Tray icon visible after post-login: {self.tray_icon.isVisible()}")
+            else:
+                logger.warning("Tray icon or system tray not available in post_login_processes")
+                app_signals.append_log.emit("[Tray] Tray icon or system tray not available in post_login_processes")
+                if platform.system() == "Linux":
+                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
+                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
+
+            # Close any open progress dialogs from auto-login
+            if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
+                self.login_dialog.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in post_login_processes")
+                app_signals.append_log.emit("[Login] Progress dialog closed in post_login_processes")
 
             # Connect status signal to log window
             try:
@@ -3587,6 +3780,12 @@ class PremediaApp(QApplication):
             logger.error(f"Error in post_login_processes: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Post-login processes error - {str(e)}")
             app_signals.update_status.emit(f"Post-login error: {str(e)}")
+            # Ensure progress dialog is closed on error
+            if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
+                self.login_dialog.progress.close()
+                QApplication.processEvents()
+                logger.debug("Progress dialog closed in post_login_processes error handler")
+                app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
             QMessageBox.critical(self, "Post-Login Error", f"Post-login error: {str(e)}")
             self.set_logged_out_state()
             self.login_dialog.show()
