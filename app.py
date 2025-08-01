@@ -52,8 +52,9 @@ try:
 except ImportError:
     tifffile = None
 import pytz
-import pythoncom
+
 if platform.system() == "Windows":
+    import pythoncom
     import win32com.client
     import win32gui
     import win32con
