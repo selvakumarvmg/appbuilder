@@ -53,9 +53,10 @@ except ImportError:
     tifffile = None
 import pytz
 import pythoncom
-import win32com.client
-import win32gui
-import win32con
+if platform.system() == "Windows":
+    import win32com.client
+    import win32gui
+    import win32con
 SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
     "psd", "psb", "cr2", "nef", "arw", "dng", "raf", "pef", "srw"
