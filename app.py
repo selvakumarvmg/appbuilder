@@ -1352,8 +1352,9 @@ class FileWatcherWorker(QObject):
             self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             raise
 
+
     def open_with_photoshop(self, file_path):
-        """Open a file in Adobe Photoshop across platforms without dialogs except for Photoshop not found."""
+        """Open a file in Adobe Photoshop across Windows, macOS, and Ubuntu/Linux, ensuring it comes to the front and doesn't block other processes. Show error popup if Photoshop fails to open."""
         try:
             system = platform.system()
             file_path = str(Path(file_path).resolve())
@@ -1415,34 +1416,35 @@ class FileWatcherWorker(QObject):
             for attempt in range(max_attempts):
                 try:
                     if system == "Windows":
+                        # Import Windows-specific modules here
+                        import pythoncom
+                        import win32com.client
+                        import win32gui
+                        pythoncom.CoInitialize()  # Initialize COM for thread
                         try:
-                            import win32com.client
-                            import pythoncom
-                            pythoncom.CoInitialize()  # Initialize COM for thread
-                            try:
-                                ps_app = win32com.client.GetActiveObject("Photoshop.Application")
-                                logger.debug("Found existing Photoshop instance via COM")
-                            except Exception:
-                                ps_app = win32com.client.Dispatch("Photoshop.Application")
-                                logger.debug("Started new Photoshop instance via COM")
-                            ps_app.Visible = True  # Ensure Photoshop is visible
-                            ps_app.Open(file_path)
-                            # Maximize and bring to front
-                            try:
-                                ps_app.Application.Windows(1).WindowState = 1  # 1 = maximized
-                                logger.debug("Maximized Photoshop window via COM")
-                            except Exception as e:
-                                logger.debug(f"Failed to maximize via COM: {str(e)}")
-                            pythoncom.CoUninitialize()
-                            logger.info(f"Opened {Path(file_path).name} via COM")
-                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
-                            break
+                            ps_app = win32com.client.GetActiveObject("Photoshop.Application")
+                            logger.debug("Found existing Photoshop instance via COM")
+                        except Exception:
+                            ps_app = win32com.client.Dispatch("Photoshop.Application")
+                            logger.debug("Started new Photoshop instance via COM")
+                        ps_app.Visible = True
+                        ps_app.Open(file_path)
+                        # Maximize and bring to front
+                        try:
+                            ps_app.Application.Windows(1).WindowState = 1  # 1 = maximized
+                            hwnd = win32gui.FindWindow(None, "Adobe Photoshop")
+                            if hwnd:
+                                win32gui.ShowWindow(hwnd, 9)  # SW_RESTORE
+                                win32gui.SetForegroundWindow(hwnd)
+                                logger.debug("Restored and focused Photoshop window via win32gui")
+                            else:
+                                logger.debug("Photoshop window not found for focusing")
                         except Exception as e:
-                            if attempt < max_attempts - 1:
-                                logger.debug(f"COM attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
-                                time.sleep(2)
-                                continue
-                            raise RuntimeError(f"COM failed: {str(e)}")
+                            logger.debug(f"Failed to maximize/focus via COM: {str(e)}")
+                        pythoncom.CoUninitialize()
+                        logger.info(f"Opened {Path(file_path).name} via COM")
+                        self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
+                        break
                     elif system == "Darwin":
                         script = f'''
                         tell application "Adobe Photoshop"
@@ -1451,16 +1453,17 @@ class FileWatcherWorker(QObject):
                             tell application "System Events"
                                 tell process "Photoshop"
                                     set frontmost to true
-                                    set window_state to get properties of window 1
-                                    if minimized of window_state is true then
-                                        set minimized of window 1 to false
+                                    set windows_list to windows
+                                    if (count of windows_list) > 0 then
+                                        set win to item 1 of windows_list
+                                        set properties of win to {{minimized:false}}
                                     end if
                                 end tell
                             end tell
                         end tell
                         '''
                         process = subprocess.Popen(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                        stdout, stderr = process.communicate(timeout=30)
+                        stdout, stderr = process.communicate(timeout=15)
                         if process.returncode == 0:
                             logger.info(f"Opened {Path(file_path).name} via AppleScript")
                             self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
@@ -1468,62 +1471,63 @@ class FileWatcherWorker(QObject):
                         else:
                             logger.debug(f"AppleScript failed: {stderr}, trying open command")
                             process = subprocess.Popen(["open", "-a", photoshop_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                            stdout, stderr = process.communicate(timeout=30)
+                            stdout, stderr = process.communicate(timeout=15)
                             if process.returncode == 0:
-                                # Ensure window is restored and brought to front
                                 restore_script = f'''
                                 tell application "System Events"
                                     tell process "Photoshop"
                                         set frontmost to true
-                                        set window_state to get properties of window 1
-                                        if minimized of window_state is true then
-                                            set minimized of window 1 to false
+                                        set windows_list to windows
+                                        if (count of windows_list) > 0 then
+                                            set win to item 1 of windows_list
+                                            set properties of win to {{minimized:false}}
                                         end if
                                     end tell
                                 end tell
                                 '''
-                                subprocess.run(["osascript", "-e", restore_script], check=True, capture_output=True, text=True)
+                                subprocess.Popen(["osascript", "-e", restore_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                                 logger.info(f"Opened {Path(file_path).name} via open command")
                                 self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
                                 break
                             else:
                                 raise RuntimeError(f"Open command failed: {stderr}")
-                    else:  # Linux
-                        # Check for running Wine Photoshop instance
+                    elif system == "Linux":
                         try:
                             ps_aux = subprocess.run(["ps", "aux"], capture_output=True, text=True, check=True)
                             is_running = "Photoshop.exe" in ps_aux.stdout
                             logger.debug(f"Photoshop running via Wine: {is_running}")
-                            # Use Popen for non-blocking launch
                             process = subprocess.Popen(["wine", photoshop_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                            # Don't wait for completion to avoid blocking
-                            logger.info(f"Opened {Path(file_path).name} via Wine")
-                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
-                            # Attempt to maximize (non-blocking)
+                            time.sleep(1)
                             try:
                                 subprocess.Popen(["wmctrl", "-r", "Photoshop", "-b", "add,maximized_vert,maximized_horz"])
                                 subprocess.Popen(["wmctrl", "-a", "Photoshop"])
                                 logger.debug("Maximized and activated Photoshop via wmctrl")
                             except subprocess.CalledProcessError:
                                 logger.debug("wmctrl not available or failed, window state unchanged")
+                            logger.info(f"Opened {Path(file_path).name} via Wine")
+                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
                             break
                         except subprocess.CalledProcessError as e:
                             if attempt < max_attempts - 1:
-                                logger.debug(f"Wine attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
-                                time.sleep(2)
+                                logger.debug(f"Wine attempt {attempt + 1} failed: {str(e)}, retrying after 1s")
+                                time.sleep(1)
                                 continue
                             raise RuntimeError(f"Wine failed: {str(e)}")
-                    QApplication.processEvents()  # Ensure Qt event loop continues
-                except (subprocess.CalledProcessError, Exception) as e:
+                    QApplication.processEvents()  # Keep Qt responsive
+                except (subprocess.CalledProcessError, RuntimeError) as e:
                     if attempt < max_attempts - 1:
-                        logger.debug(f"Attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
-                        time.sleep(2)
+                        logger.debug(f"Attempt {attempt + 1} failed: {str(e)}, retrying after 1s")
+                        time.sleep(1)
                         continue
-                    raise RuntimeError(f"Failed to open {file_path} after {max_attempts} attempts: {str(e)}")
+                    error_msg = f"Failed to open {Path(file_path).name} in Photoshop after {max_attempts} attempts: {str(e)}"
+                    logger.error(error_msg)
+                    self.log_update.emit(f"[Photoshop] Failed: {error_msg}")
+                    QMessageBox.critical(self, "Photoshop Error", error_msg)  # Show error popup
+                    raise
 
             logger.info(f"Successfully opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             self.log_update.emit(f"[Photoshop] Successfully opened {Path(file_path).name}")
-            QApplication.processEvents()  # Ensure other processes continue
+            QApplication.processEvents()  # Ensure Qt event loop continues
 
         except FileNotFoundError as e:
             if str(e) in [
@@ -1535,15 +1539,18 @@ class FileWatcherWorker(QObject):
                 error_msg = f"Adobe Photoshop is not installed or could not be found: {str(e)}"
                 logger.error(error_msg)
                 self.log_update.emit(f"[Photoshop] Failed: {error_msg}")
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.critical(self, "Photoshop Error", error_msg)
             else:
-                logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
-                self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
-                raise
+                error_msg = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+                logger.error(error_msg)
+                self.log_update.emit(f"[Photoshop] Failed: {error_msg}")
+                QMessageBox.critical(self, "Photoshop Error", error_msg)  # Show error popup for invalid file path
+            raise
         except Exception as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
-            self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
+            error_msg = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+            logger.error(error_msg)
+            self.log_update.emit(f"[Photoshop] Failed: {error_msg}")
+            QMessageBox.critical(self, "Photoshop Error", error_msg)  # Show error popup for unexpected errors
             raise
 
 
@@ -1780,6 +1787,238 @@ class FileWatcherWorker(QObject):
             raise
 
     def run(self):
+        with self._lock:
+            current_time = datetime.now(timezone.utc)
+            logger.debug(f"[{current_time.isoformat()}] run method started: running={self.running}, timer_active={self.timer.isActive()}, instance: {id(self)}")
+            self.log_update.emit(f"[FileWatcher] run method started: running={self.running}, timer_active={self.timer.isActive()}")
+
+            if self._is_running:
+                logger.debug(f"[{current_time.isoformat()}] File watcher already running, skipping this cycle, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Skipped: Already running")
+                return
+
+            if hasattr(self, 'next_api_hit_time') and self.next_api_hit_time and current_time < self.next_api_hit_time:
+                logger.debug(f"[{current_time.isoformat()}] API call skipped: current_time={current_time.isoformat()}, next_api_hit_time={self.next_api_hit_time.isoformat()}, instance: {id(self)}")
+                self.log_update.emit(f"[FileWatcher] Skipped: Too soon since last API call (next: {self.next_api_hit_time.isoformat()})")
+                return
+
+            self._is_running = True
+            try:
+                if not self.running:
+                    logger.info(f"[{current_time.isoformat()}] File watcher stopped, instance: {id(self)}")
+                    self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
+                    return
+
+                logger.debug(f"[{current_time.isoformat()}] Starting file watcher run, instance: {id(self)}")
+                self.log_update.emit("[API Scan] Starting file watcher run")
+
+                if not self.check_connectivity():
+                    logger.warning(f"[{current_time.isoformat()}] Connectivity check failed, will retry on next run, instance: {id(self)}")
+                    self.status_update.emit("Connectivity check failed, will retry")
+                    self.log_update.emit("[API Scan] Connectivity check failed")
+                    return
+
+                cache = load_cache()
+                user_id = cache.get('user_id', '')
+                token = cache.get('token', '')
+                cache.setdefault('user_type', 'operator')
+                save_cache(cache)
+
+                if not user_id or not token:
+                    logger.error(f"[{current_time.isoformat()}] No user_id or token found in cache, instance: {id(self)}")
+                    self.status_update.emit("No user_id or token found in cache")
+                    self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
+                    self.request_reauth.emit()
+                    logger.debug(f"[{current_time.isoformat()}] Timer will restart after re-authentication, instance: {id(self)}")
+                    self.log_update.emit("[FileWatcher] Timer will restart after re-authentication")
+                    self.timer.start(self.api_poll_interval)  # Restart timer to retry
+                    return
+
+                self.status_update.emit("Checking for file tasks...")
+                self.log_update.emit("[API Scan] Starting file task check")
+                app_signals.append_log.emit("[API Scan] Initiating file task check")
+
+                self.last_api_hit_time = current_time
+                self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
+                logger.debug(f"[{current_time.isoformat()}] Updated API hit times: last={self.last_api_hit_time.isoformat()}, next={self.next_api_hit_time.isoformat()}")
+                app_signals.update_timer_status.emit(
+                    f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                    f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                    f"Interval: {self.api_poll_interval/1000:.1f}s"
+                )
+
+                headers = {"Authorization": f"Bearer {token}"}
+                max_retries = 3
+                tasks = []
+                api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+                for attempt in range(max_retries):
+                    try:
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
+                        response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
+                        app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
+                        if response.status_code == 401:
+                            logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Unauthorized: Token may be invalid, instance: {id(self)}")
+                            self.log_update.emit("[API Scan] Unauthorized: Token invalid")
+                            self.status_update.emit("Unauthorized: Token invalid")
+                            self.request_reauth.emit()
+                            self.timer.start(self.api_poll_interval)  # Restart timer to retry
+                            return
+                        response.raise_for_status()
+                        response_data = response.json()
+                        tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
+                        if not isinstance(tasks, list):
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] API returned non-list tasks: {type(tasks)}, data: {tasks}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
+                            return
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrieved {len(tasks)} tasks, instance: {id(self)}")
+                        app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
+                        break
+                    except RequestException as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
+                        if attempt < max_retries - 1:
+                            time.sleep(2 ** attempt)
+                            continue
+                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Max retries reached for task fetch, will retry on next run, instance: {id(self)}")
+                        self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
+                        self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
+                        app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
+                        return
+
+                # Process tasks (same as original code)
+                unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
+                download_tasks = [
+                    {
+                        "task_id": str(item.get('id', '')),
+                        "action_type": item.get('request_type', '').lower(),
+                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        "file_path": item.get('file_path', ''),
+                        "status": "Queued",
+                        "thumbnail": item.get('thumbnail', ''),
+                        "job_id": item.get('job_id', ''),
+                        "project_id": item.get('project_id', ''),
+                        "task_type": "download"
+                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+                ]
+                upload_tasks = [
+                    {
+                        "task_id": str(item.get('id', '')),
+                        "action_type": item.get('request_type', '').lower(),
+                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        "file_path": item.get('file_path', ''),
+                        "status": "Queued",
+                        "thumbnail": item.get('thumbnail', ''),
+                        "job_id": item.get('job_id', ''),
+                        "project_id": item.get('project_id', ''),
+                        "task_type": "upload"
+                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
+                ]
+                self.task_list_update.emit(download_tasks + upload_tasks)
+                self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
+                updates = []
+                self._clean_processed_tasks()
+
+                max_download_retries = 3
+                for item in unprocessed_tasks:
+                    try:
+                        if not isinstance(item, dict):
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
+                            updates.append(("", f"Invalid task: {type(item)}", "unknown", 0, False))
+                            continue
+                        task_id = str(item.get('id', ''))
+                        file_path = item.get('file_path', '')
+                        file_name = item.get('file_name', Path(file_path).name)
+                        action_type = item.get('request_type', '').lower()
+                        task_key = f"{task_id}:{action_type}"
+                        is_online = 'http' in file_path.lower()
+                        local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
+                        if action_type == "download":
+                            self.status_update.emit(f"Downloading {file_name}")
+                            self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
+                            app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
+                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                            for attempt in range(max_download_retries):
+                                try:
+                                    self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
+                                    if os.path.exists(local_path):
+                                        self.processed_tasks.add(task_key)
+                                        updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
+                                        update_download_upload_metadata(task_id, "completed")
+                                        break
+                                    else:
+                                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
+                                        updates.append((local_path, f"Download Failed: File not found", action_type, 0, not is_online))
+                                except Exception as e:
+                                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path} (Task {task_id}): {str(e)}, instance: {id(self)}")
+                                    self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
+                                    updates.append((local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online))
+                                    if attempt < max_download_retries - 1:
+                                        delay = 2 ** attempt
+                                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrying download after {delay}s, instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
+                                        time.sleep(delay)
+                                    else:
+                                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id}), instance: {id(self)}")
+                                        self.log_update.emit(f"[API Scan] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
+                                        break
+                        elif action_type.lower() in ("upload", "replace"):
+                            self.status_update.emit(f"Uploading {file_name}")
+                            self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
+                            app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
+                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                            client_name = item.get("client_name", "").strip().replace(" ", "_") or None
+                            project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
+                            if not client_name or not project_name:
+                                try:
+                                    parts = Path(file_path).parts
+                                    if len(parts) >= 3:
+                                        client_name = client_name or parts[1]
+                                        project_name = project_name or parts[2]
+                                    else:
+                                        client_name = client_name or "default_client"
+                                        project_name = project_name or "default_project"
+                                except Exception as e:
+                                    self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
+                                    client_name = client_name or "default_client"
+                                    project_name = project_name or "default_project"
+                            original_nas_path = item.get('file_path', file_path)
+                            self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
+                            updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
+                            self.processed_tasks.add(task_key)
+                    except Exception as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, traceback: {traceback.format_exc()}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
+                        updates.append((file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in file_path.lower())))
+                        continue
+
+                if updates:
+                    for update in updates:
+                        app_signals.update_file_list.emit(*update)
+                self.status_update.emit("File tasks check completed")
+                self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
+                app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
+            except Exception as e:
+                logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Critical error in file watcher run: {str(e)}, traceback: {traceback.format_exc()}, instance: {id(self)}")
+                self.status_update.emit(f"Critical error processing tasks: {str(e)}")
+                self.log_update.emit(f"[API Scan] Failed: Critical error processing tasks - {str(e)}")
+                app_signals.append_log.emit(f"[API Scan] Failed: Critical task processing error - {str(e)}")
+            finally:
+                self._is_running = False
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher cycle completed, will run again on next timer tick, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Cycle completed, awaiting next timer tick")
+                if self.running:
+                    logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Restarting timer with interval {self.api_poll_interval}ms")
+                    self.timer.start(self.api_poll_interval)
+                else:
+                    logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Timer not restarted because worker is stopped")
+                    self.log_update.emit("[FileWatcher] Timer not restarted because worker is stopped")
         with self._lock:
             if self._is_running:
                 logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher already running, skipping this cycle, instance: {id(self)}")
@@ -2995,10 +3234,9 @@ def check_single_instance():
 class PremediaApp(QApplication):
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
-            super().__init__()
-            self.app = QApplication.instance() or QApplication(sys.argv)
-            self.app.setQuitOnLastWindowClosed(False)
-            self.app.setWindowIcon(load_icon(ICON_PATH, "application"))
+            super().__init__(sys.argv)
+            self.setQuitOnLastWindowClosed(False)
+            self.setWindowIcon(load_icon(ICON_PATH, "application"))
 
             # Prevent multiple instances using a lock file
             self.lock_file = os.path.join(tempfile.gettempdir(), "premedia_app.lock")
@@ -3014,16 +3252,14 @@ class PremediaApp(QApplication):
             if QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
                 self.tray_icon.setToolTip("PremediaApp")
+                self.tray_icon.activated.connect(self.handle_tray_icon_activated)
                 self.tray_icon.show()
-                QApplication.processEvents()  # Ensure initial show is processed
+                QApplication.processEvents()
                 logger.info(f"System tray icon initialized, visible: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Init] System tray icon initialized, visible: {self.tray_icon.isVisible()}")
             else:
-                logger.warning("System tray not available, will check during login")
-                app_signals.append_log.emit("[Init] System tray not available, will check during login")
-                if platform.system() == "Linux":
-                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
-                    app_signals.append_log.emit("[Init] On Linux, ensure libappindicator is installed for system tray support")
+                logger.warning("System tray not available")
+                app_signals.append_log.emit("[Init] System tray not available")
 
             self.logged_in = False
             load_cache()
@@ -3129,11 +3365,11 @@ class PremediaApp(QApplication):
                             "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
                         }
                         save_cache(cache_data)
-                        # Reinitialize tray icon if it wasn't available initially
                         if not self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                             self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
                             self.tray_icon.setToolTip("PremediaApp")
                             self.tray_icon.setContextMenu(self.tray_menu)
+                            self.tray_icon.activated.connect(self.handle_tray_icon_activated)
                             self.tray_icon.show()
                             QApplication.processEvents()
                             logger.info(f"Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
@@ -3230,30 +3466,60 @@ class PremediaApp(QApplication):
             QMessageBox.critical(self, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
 
 
+    def handle_tray_icon_activated(self, reason):
+        try:
+            logger.debug(f"Tray icon activated with reason: {reason}")
+            app_signals.append_log.emit(f"[Tray] Tray icon activated with reason: {reason}")
+            if reason == QSystemTrayIcon.Trigger:
+                if not self.logged_in:
+                    self.show_login()
+                else:
+                    self.show_logs()
+                logger.debug("Tray icon left-click: Showing login or log window")
+                app_signals.append_log.emit("[Tray] Left-click: Showing login or log window")
+            elif reason == QSystemTrayIcon.DoubleClick:
+                self.show_logs()
+                logger.debug("Tray icon double-click: Showing log window")
+                app_signals.append_log.emit("[Tray] Double-click: Showing log window")
+            elif reason == QSystemTrayIcon.Context:
+                logger.debug("Tray icon right-click: Showing context menu")
+                app_signals.append_log.emit("[Tray] Right-click: Showing context menu")
+            elif reason == QSystemTrayIcon.MiddleClick:
+                logger.debug("Tray icon middle-click: No action defined")
+                app_signals.append_log.emit("[Tray] Middle-click: No action defined")
+            else:
+                logger.debug(f"Tray icon activated with unknown reason: {reason}")
+                app_signals.append_log.emit(f"[Tray] Unknown activation reason: {reason}")
+            app_signals.update_status.emit("Tray icon activated")
+        except Exception as e:
+            logger.error(f"Error in handle_tray_icon_activated: {e}")
+            app_signals.append_log.emit(f"[Tray] Failed: Error handling tray icon activation - {str(e)}")
+            app_signals.update_status.emit(f"Error handling tray icon activation: {str(e)}")
+            QMessageBox.critical(None, "Tray Icon Error", f"Error handling tray icon activation: {str(e)}")
+
     def start_file_watcher(self):
         global FILE_WATCHER_RUNNING
         try:
             logger.info("Attempting to start FileWatcherWorker")
             app_signals.append_log.emit("[App] Attempting to start FileWatcherWorker")
 
-            # Log cache contents for debugging
             cache = load_cache()
             logger.debug(f"Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[App] Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
 
-            # Stop any existing file watcher
+            # Stop existing file watcher
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 logger.warning("FileWatcherWorker already running, stopping it")
                 app_signals.append_log.emit("[App] FileWatcherWorker already running, stopping it")
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(2000)
+                self.file_watcher_thread.wait(5000)  # Increased wait time
                 if self.file_watcher_thread.isRunning():
                     logger.error("Failed to stop existing file watcher thread")
                     app_signals.append_log.emit("[App] Failed to stop existing file watcher thread")
                     app_signals.update_status.emit("Failed to stop existing file watcher thread")
                     return
 
-            # Stop existing poll timer if active
+            # Stop existing poll timer
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped existing poll timer")
@@ -3265,7 +3531,7 @@ class PremediaApp(QApplication):
             logger.debug(f"FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
             app_signals.append_log.emit(f"[App] FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
 
-            # Initialize FileWatcherWorker without a parent
+            # Initialize FileWatcherWorker
             self.file_watcher = FileWatcherWorker.get_instance(parent=None)
             self.file_watcher_thread = QThread()
 
@@ -3274,7 +3540,7 @@ class PremediaApp(QApplication):
             logger.debug("Moved FileWatcherWorker to QThread")
             app_signals.append_log.emit("[App] Moved FileWatcherWorker to QThread")
 
-            # Connect signals with explicit QueuedConnection
+            # Connect signals
             self.file_watcher_thread.started.connect(self.file_watcher.run, Qt.QueuedConnection)
             self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
             self.file_watcher.log_update.connect(app_signals.append_log, Qt.QueuedConnection)
@@ -3282,8 +3548,8 @@ class PremediaApp(QApplication):
             logger.debug("Connected FileWatcherWorker signals")
             app_signals.append_log.emit("[App] Connected FileWatcherWorker signals")
 
-            # Start poll timer
-            self.poll_timer = QTimer()
+            # Create poll timer in the main thread
+            self.poll_timer = QTimer(self)  # Set parent to self to ensure main thread ownership
             self.poll_timer.timeout.connect(self.file_watcher.run, Qt.QueuedConnection)
             self.poll_timer.start(API_POLL_INTERVAL)
             logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
@@ -3295,7 +3561,6 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit("[App] FileWatcherWorker thread started successfully")
             app_signals.update_status.emit("File watcher started")
 
-            # Verify thread is running
             if self.file_watcher_thread.isRunning():
                 logger.debug("Confirmed FileWatcherWorker thread is running")
                 app_signals.append_log.emit("[App] Confirmed FileWatcherWorker thread is running")
@@ -3309,40 +3574,63 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit(f"FileWatcherWorker start error: {str(e)}")
             QMessageBox.critical(None, "File Watcher Error", f"Failed to start file watcher: {str(e)}")
 
-   
     def cleanup_and_quit(self):
         try:
-            # print("[App] Cleanup initiated")
+            logger.debug("Cleanup initiated")
+            app_signals.append_log.emit("[App] Cleanup initiated")
 
             # Stop watcher flag
             global FILE_WATCHER_RUNNING
             FILE_WATCHER_RUNNING = False
             FILE_WATCHER_STOP_QUEUE.put(True)
 
-            # Try stopping file watcher thread
-            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread:
+            # Stop poll timer in the main thread
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                logger.debug("Stopping poll_timer")
+                app_signals.append_log.emit("[App] Stopping poll_timer")
+                self.poll_timer.stop()
+
+            # Stop file watcher thread
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                logger.debug("Requesting file_watcher_thread to quit")
+                app_signals.append_log.emit("[App] Requesting file_watcher_thread to quit")
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait(5000)  # Increased wait time
                 if self.file_watcher_thread.isRunning():
-                    self.file_watcher_thread.quit()
-                    self.file_watcher_thread.wait(3000)
-                    if self.file_watcher_thread.isRunning():
-                        print("[App] Forcing thread termination")
-                        self.file_watcher_thread.terminate()
-                        self.file_watcher_thread.wait(1000)
+                    logger.warning("File watcher thread did not stop gracefully, terminating")
+                    app_signals.append_log.emit("[App] File watcher thread did not stop gracefully, terminating")
+                    self.file_watcher_thread.terminate()
+                    self.file_watcher_thread.wait(1000)
 
             # Close all windows
             for w in QApplication.topLevelWidgets():
+                logger.debug(f"Closing widget: {w}")
+                app_signals.append_log.emit(f"[App] Closing widget: {w}")
                 w.close()
 
             # Close tray icon
             if hasattr(self, 'tray_icon') and self.tray_icon:
+                logger.debug("Hiding tray_icon")
+                app_signals.append_log.emit("[App] Hiding tray_icon")
                 self.tray_icon.hide()
                 self.tray_icon.deleteLater()
 
-            # Exit cleanly
-            QApplication.quit()
+            # Close HTTP session
+            logger.debug("Closing HTTP_SESSION")
+            app_signals.append_log.emit("[App] Closing HTTP_SESSION")
+            HTTP_SESSION.close()
 
+            # Stop logging
+            stop_logging()
+            app_signals.update_status.emit("Application quitting")
+            app_signals.append_log.emit("[App] Application quitting")
+            logger.info("Application quitting")
+
+            # Quit application
+            self.quit()
         except Exception as e:
-            print(f"[App] Cleanup error: {e}")
+            logger.error(f"Error in cleanup_and_quit: {e}")
+            app_signals.append_log.emit(f"[App] Failed: Cleanup error - {str(e)}")
             sys.exit(1)
     
     def logout(self):
@@ -3813,4 +4101,4 @@ class PremediaApp(QApplication):
 if __name__ == "__main__":
     key = parse_custom_url()
     app = PremediaApp(key)
-    sys.exit(app.app.exec())
+    sys.exit(app.exec())
