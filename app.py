@@ -62,7 +62,7 @@ SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
     "psd", "psb", "cr2", "nef", "arw", "dng", "raf", "pef", "srw"
 ]
-
+import shlex
 # Global stop queue for signaling
 FILE_WATCHER_STOP_QUEUE = Queue()
 # Handle paramiko import
@@ -2536,12 +2536,13 @@ class FileWatcherWorker(QObject):
             import platform
             import subprocess
             import time
-            from pathlib import Path
             import logging
+            from pathlib import Path
 
             logger = logging.getLogger(__name__)
             system = platform.system()
             file_path = str(Path(file_path).resolve())
+
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
@@ -2555,132 +2556,137 @@ class FileWatcherWorker(QObject):
                         Path("C:/Program Files (x86)/Adobe")
                     ]
                     for base_dir in search_dirs:
-                        if not base_dir.exists():
-                            continue
-                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
-                        if photoshop_exes:
-                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
-                            photoshop_path = str(photoshop_exes[0])
-                            break
-                    if not photoshop_path:
-                        raise FileNotFoundError("Adobe Photoshop executable not found")
-                elif system == "Darwin":
-                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
-                    if photoshop_apps:
-                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
-                        photoshop_path = str(photoshop_apps[0] / "Contents/MacOS/Photoshop")
-                    if not photoshop_path or not Path(photoshop_path).exists():
-                        raise FileNotFoundError("Adobe Photoshop not found in /Applications")
-                elif system == "Linux":
-                    try:
-                        subprocess.run(["wine", "--version"], capture_output=True, check=True)
-                        wine_dirs = [
-                            Path.home() / ".wine/drive_c/Program Files/Adobe",
-                            Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
-                        ]
-                        for base_dir in wine_dirs:
-                            if not base_dir.exists():
-                                continue
+                        if base_dir.exists():
                             photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
                             if photoshop_exes:
                                 photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
                                 photoshop_path = str(photoshop_exes[0])
                                 break
-                        if not photoshop_path:
-                            raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                    if not photoshop_path:
+                        raise FileNotFoundError("Adobe Photoshop executable not found on Windows")
+                
+                elif system == "Darwin":
+                    photoshop_app_path = "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"
+
+                    if not Path(photoshop_app_path).exists():
+                        raise FileNotFoundError("Adobe Photoshop 2025 not found in /Applications")
+
+                    # Open file in Photoshop
+                    subprocess.run(["open", "-a", photoshop_app_path, file_path], check=True)
+
+                    # Bring Photoshop to front
+                    applescript = 'tell application "Adobe Photoshop 2025" to activate'
+                    subprocess.run(["osascript", "-e", applescript], check=True)
+
+                    
+
+                elif system == "Linux":
+                    try:
+                        subprocess.run(["wine", "--version"], capture_output=True, check=True)
                     except subprocess.CalledProcessError:
-                        raise FileNotFoundError("Wine is not installed")
+                        raise FileNotFoundError("Wine is not installed or not available on PATH")
+
+                    wine_dirs = [
+                        Path.home() / ".wine/drive_c/Program Files/Adobe",
+                        Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+                    ]
+                    for base_dir in wine_dirs:
+                        if base_dir.exists():
+                            photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                            if photoshop_exes:
+                                photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                                photoshop_path = str(photoshop_exes[0])
+                                break
+                    if not photoshop_path:
+                        raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+                
                 else:
                     raise ValueError(f"Unsupported platform: {system}")
 
-            max_attempts = 3
-            for attempt in range(max_attempts):
+            # Try opening the file
+            for attempt in range(3):
                 try:
                     if system == "Windows":
                         try:
                             import win32com.client
                             import win32gui
                             import win32con
-                            import win32process
                             import win32api
+                            import win32process
                             import ctypes
 
                             ps_app = win32com.client.Dispatch("Photoshop.Application")
                             ps_app.Visible = True
                             ps_app.Open(file_path)
 
-                            def bring_window_to_front(title_keyword="Adobe Photoshop"):
+                            def bring_to_front(title_contains="Adobe Photoshop"):
                                 def enum_handler(hwnd, _):
                                     if win32gui.IsWindowVisible(hwnd):
                                         title = win32gui.GetWindowText(hwnd)
-                                        if title_keyword.lower() in title.lower():
+                                        if title_contains.lower() in title.lower():
                                             try:
                                                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                                                if win32gui.SetForegroundWindow(hwnd):
-                                                    return
-                                                fg_thread = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow())[0]
+                                                fg_thread = win32process.GetWindowThreadProcessId(
+                                                    win32gui.GetForegroundWindow())[0]
                                                 target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
-                                                current_thread = win32api.GetCurrentThreadId()
-                                                if ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, True):
+                                                this_thread = win32api.GetCurrentThreadId()
+                                                if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
                                                     win32gui.SetForegroundWindow(hwnd)
-                                                    ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, False)
+                                                    ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
                                             except Exception as e:
-                                                logger.debug(f"Failed to bring Photoshop to front: {e}")
+                                                logger.debug(f"Window activation failed: {e}")
                                 win32gui.EnumWindows(enum_handler, None)
 
-                            time.sleep(1)
-                            bring_window_to_front()
+                            time.sleep(1.5)
+                            bring_to_front()
                             logger.info(f"Opened {Path(file_path).name} via COM")
                             break
-                        except (ImportError, Exception) as e:
-                            logger.debug(f"COM open failed: {e}, trying subprocess")
-                            subprocess.run([photoshop_path, file_path], check=True, capture_output=True)
+                        except Exception as e:
+                            logger.debug(f"COM method failed: {e}. Falling back to subprocess.")
+                            subprocess.run([photoshop_path, file_path], check=True)
                             time.sleep(2)
-                            logger.info(f"Opened {Path(file_path).name} via subprocess")
                             break
 
                     elif system == "Darwin":
+                        app_name = Path(photoshop_path).name.replace(".app", "")
                         script = f'''
-                        tell application "Adobe Photoshop"
+                        tell application "{app_name}"
                             activate
                             open POSIX file "{file_path}"
                         end tell
                         '''
-                        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+                        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
                         if result.returncode == 0:
                             logger.info(f"Opened {Path(file_path).name} via AppleScript")
                             break
                         else:
-                            logger.debug(f"AppleScript failed: {result.stderr}, trying open command")
-                            subprocess.run(["open", "-a", photoshop_path, file_path], check=True, capture_output=True)
-                            logger.info(f"Opened {Path(file_path).name} via open command")
+                            logger.warning(f"AppleScript failed: {result.stderr.strip()}")
+                            subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+                            logger.info(f"Opened {Path(file_path).name} via open -a fallback")
                             break
 
-                    else:  # Linux + Wine
-                        subprocess.run(["wine", photoshop_path, file_path], check=True, capture_output=True)
-                        logger.info(f"Opened {Path(file_path).name} via Wine")
+                    elif system == "Linux":
+                        subprocess.run(["wine", photoshop_path, file_path], check=True)
                         try:
                             subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
                         except Exception as e:
-                            logger.debug(f"wmctrl failed to bring Photoshop forward: {e}")
+                            logger.debug(f"Could not raise Photoshop window: {e}")
                         break
 
-                except (subprocess.CalledProcessError, Exception) as e:
-                    if attempt < max_attempts - 1:
-                        logger.debug(f"Attempt {attempt + 1} failed: {str(e)}, retrying after 2s")
+                except Exception as e:
+                    if attempt < 2:
+                        logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
                         time.sleep(2)
-                        continue
-                    raise RuntimeError(f"Failed to open {file_path} after {max_attempts} attempts: {str(e)}")
+                    else:
+                        raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
 
-            logger.info(f"Successfully opened {Path(file_path).name} in Photoshop at {photoshop_path}")
             self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
+            logger.info(f"Successfully opened {Path(file_path).name} using Photoshop path: {photoshop_path}")
 
         except Exception as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {str(e)}")
-            self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {str(e)}")
+            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {e}")
             raise
-
-
 
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
