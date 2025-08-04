@@ -2764,35 +2764,35 @@ class FileWatcherWorker(QObject):
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
                 # Handle JPG conversion and upload for supported formats
                 if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
-                    jpg_name = Path(src_path).stem + ".jpg"
-                    client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
-                    project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
-                    jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
-                    try:
-                        os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                        os.chmod(jpg_folder, 0o777)
-                        self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
-                    except OSError as e:
-                        logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
-                        self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
-                        raise
-                    jpg_path = str(jpg_folder / jpg_name)
-                    self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
-                    try:
-                        local_jpg, backup_path = process_single_file(src_path)
-                        logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                        self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                        if local_jpg and os.path.exists(local_jpg):
-                            jpg_path = local_jpg
-                            self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
-                        else:
-                            logger.error(f"Failed to convert to JPG: {jpg_path}")
-                            self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
-                            raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
-                    except Exception as e:
-                        logger.error(f"JPG conversion error for {src_path}: {str(e)}")
-                        self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
-                        raise
+                    # jpg_name = Path(src_path).stem + ".jpg"
+                    # client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
+                    # project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
+                    # jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
+                    # try:
+                    #     os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                    #     os.chmod(jpg_folder, 0o777)
+                    #     self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
+                    # except OSError as e:
+                    #     logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
+                    #     self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
+                    #     raise
+                    # jpg_path = str(jpg_folder / jpg_name)
+                    # self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
+                    # try:
+                    #     local_jpg, backup_path = process_single_file(src_path)
+                    #     logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                    #     self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                    #     if local_jpg and os.path.exists(local_jpg):
+                    #         jpg_path = local_jpg
+                    #         self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
+                    #     else:
+                    #         logger.error(f"Failed to convert to JPG: {jpg_path}")
+                    #         self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
+                    #         raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
+                    # except Exception as e:
+                    #     logger.error(f"JPG conversion error for {src_path}: {str(e)}")
+                    #     self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
+                    #     raise
                     if is_nas_dest:
                         self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
                         self._upload_to_nas(src_path, original_dest_path, item)
@@ -2800,105 +2800,105 @@ class FileWatcherWorker(QObject):
                     else:
                         self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
                         raise NotImplementedError("HTTP upload not implemented")
-                    jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
-                    if is_nas_dest:
-                        self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                        self._upload_to_nas(jpg_path, jpg_nas_path, item)
-                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
-                    else:
-                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
-                        raise NotImplementedError("HTTP upload not implemented")
-                    self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                    self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                    # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+                    # if is_nas_dest:
+                    #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
+                    #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                    #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                    # else:
+                    #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                    #     raise NotImplementedError("HTTP upload not implemented")
+                    # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                    # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
                 # Post-upload API call logic for original file
                
-                # try:
-                #     request_data = {
-                #         'job_id': item.get('job_id'),
-                #         'project_id': item.get("project_id"),
-                #         'file_name': item.get("user_id"),
-                #         'user_id': item.get("user_id"),
-                #         'user_type': item.get("user_type"),
-                #         'spec_id': item.get("spec_id"),
-                #         'creative_id': item.get("creative_id"),
-                #         'inventory_id': item.get("inventory_id"),
-                #         'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
-                #     }
+                try:
+                    request_data = {
+                        'job_id': item.get('job_id'),
+                        'project_id': item.get("project_id"),
+                        'file_name': item.get("user_id"),
+                        'user_id': item.get("user_id"),
+                        'user_type': item.get("user_type"),
+                        'spec_id': item.get("spec_id"),
+                        'creative_id': item.get("creative_id"),
+                        'inventory_id': item.get("inventory_id"),
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                    }
                     
-                #     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
-                #     response = requests.post(
-                #         DRUPAL_DB_ENTRY_API,
-                #         data=request_data,
-                #         headers={},
-                #         verify=False
-                #     )
-                #     update_download_upload_metadata(task_id, "completed")
-                #     logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
-                #     # print("DRUPAL_DB_ENTRY_API data success:", response.text)
-                # except Exception as e:
-                #     logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
-                #     # print("Error in DRUPAL_DB_ENTRY_API data:", e)
-               
-               
-               
-                user_type = cache.get('user_type', '').lower()
-                user_id = cache.get('user_id', '')
-                spec_id = item.get('spec_id', '')
-                creative_id = item.get('creative_id', '')
-                job_id = item.get('job_id', '')
-                original_path = original_dest_path
-                local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
-                if user_type == 'operator':
-                    op_payload = {
-                        'spec_nid': spec_id,
-                        'operator_nid': user_id,
-                        'files_link': original_path,
-                        'notes': '',
-                        'brief_id': job_id,
-                        'business': 'image_retouching'
-                    }
-                    if creative_id:
-                        op_payload['creative_nid'] = creative_id
-                        response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
-                        logger.info(f"Updated API Response: {response}")
-                        self.log_update.emit(f"[API] Updated API Response: {response}")
-                    else:
-                        response = call_api(API_URL_CREATE, op_payload, local_file_path)
-                        post_metadata_to_api_upload(spec_id, user_id)
-                        logger.info(f"Created API Response: {response}")
-                        self.log_update.emit(f"[API] Created API Response: {response}")
-                elif user_type in ['qc', 'qa']:
-                    qc_qa_payload = {
-                        'image_id': spec_id,
-                        'job_id': job_id,
-                        'creative_id': creative_id,
-                        'user_id': user_id,
-                        'files_link': [original_path] if isinstance(original_path, str) else original_path,
-                        'business': 'image_retouching'
-                    }
-                    response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
-                    logger.info(f"QC/QA API Response: {response}")
-                    self.log_update.emit(f"[API] QC/QA API Response: {response}")
-                else:
-                    logger.warning(f"Unknown user_type: {user_type}, skipping API call")
-                    self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
-                try:
+                    # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+                    response = requests.post(
+                        DRUPAL_DB_ENTRY_API,
+                        data=request_data,
+                        headers={},
+                        verify=False
+                    )
                     update_download_upload_metadata(task_id, "completed")
-                    logger.info(f"Updated task {task_id} status to completed")
-                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                    logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
+                    # print("DRUPAL_DB_ENTRY_API data success:", response.text)
                 except Exception as e:
-                    logger.error(f"Failed to update task {task_id} status: {str(e)}")
-                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
+                    logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
+                    # print("Error in DRUPAL_DB_ENTRY_API data:", e)
+               
+               
+               
+                # user_type = cache.get('user_type', '').lower()
+                # user_id = cache.get('user_id', '')
+                # spec_id = item.get('spec_id', '')
+                # creative_id = item.get('creative_id', '')
+                # job_id = item.get('job_id', '')
+                # original_path = original_dest_path
+                # local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
+                # if user_type == 'operator':
+                #     op_payload = {
+                #         'spec_nid': spec_id,
+                #         'operator_nid': user_id,
+                #         'files_link': original_path,
+                #         'notes': '',
+                #         'brief_id': job_id,
+                #         'business': 'image_retouching'
+                #     }
+                #     if creative_id:
+                #         op_payload['creative_nid'] = creative_id
+                #         response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
+                #         logger.info(f"Updated API Response: {response}")
+                #         self.log_update.emit(f"[API] Updated API Response: {response}")
+                #     else:
+                #         response = call_api(API_URL_CREATE, op_payload, local_file_path)
+                #         post_metadata_to_api_upload(spec_id, user_id)
+                #         logger.info(f"Created API Response: {response}")
+                #         self.log_update.emit(f"[API] Created API Response: {response}")
+                # elif user_type in ['qc', 'qa']:
+                #     qc_qa_payload = {
+                #         'image_id': spec_id,
+                #         'job_id': job_id,
+                #         'creative_id': creative_id,
+                #         'user_id': user_id,
+                #         'files_link': [original_path] if isinstance(original_path, str) else original_path,
+                #         'business': 'image_retouching'
+                #     }
+                #     response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
+                #     logger.info(f"QC/QA API Response: {response}")
+                #     self.log_update.emit(f"[API] QC/QA API Response: {response}")
+                # else:
+                #     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
+                #     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+                # try:
+                #     update_download_upload_metadata(task_id, "completed")
+                #     logger.info(f"Updated task {task_id} status to completed")
+                #     self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                # except Exception as e:
+                #     logger.error(f"Failed to update task {task_id} status: {str(e)}")
+                #     self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
 
-                try:
-                    os.remove(local_file_path)
-                    logger.info(f"Deleted local JPG file: {local_file_path}")
-                    self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
-                    self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
+                # try:
+                #     os.remove(local_file_path)
+                #     logger.info(f"Deleted local JPG file: {local_file_path}")
+                #     self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
+                # except Exception as e:
+                #     logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
+                #     self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
         except Exception as e:
             update_download_upload_metadata(task_id, "failed")
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
@@ -3219,7 +3219,6 @@ class FileWatcherWorker(QObject):
         if self.timer.isActive():
             self.timer.stop()
         logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] FileWatcherWorker stopped")
-
 
 
 
