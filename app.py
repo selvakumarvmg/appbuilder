@@ -53,6 +53,11 @@ except ImportError:
     tifffile = None
 import pytz
 
+try:
+    import imagecodecs
+except ImportError:
+    logger.warning("imagecodecs not installed, LZW-compressed TIFFs may not work")
+
 if platform.system() == "Windows":
     import pythoncom
     import win32com.client
@@ -980,41 +985,22 @@ def process_image_in_memory(image_data, ext, full_file_path):
                 return None
             logger.info(f"Processed TIFF, mode: {pil_image.mode}, photometric: {photometric}")
     elif ext in ['psd', 'psb']:
-        if PSDImage is not None:
+            psd = PSDImage.open(stream)
+            if psd is None or not psd.has_preview():
+                logger.error(f"PSD preview not available for {full_file_path}")
+                return None
+
+            pil_image = psd.composite()
+            logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
+
+            # Apply ICC profile if available
             try:
-                psd = PSDImage.open(stream)
-                if psd is None:
-                    logger.error(f"PSDImage.open returned None for {full_file_path}")
-                    stream.seek(0)
-                    pil_image = Image.open(stream)
-                else:
-                    pil_image = psd.composite()
-                logger.info(f"PSD composite result, mode: {pil_image.mode}, size: {pil_image.size}")
-                if pil_image.mode != 'RGB':
-                    pil_image = pil_image.convert('RGB')
-                    logger.info("Converted PSD to RGB")
-                try:
-                    if hasattr(psd, 'has_icc_profile') and psd.has_icc_profile():
-                        pil_image.info['icc_profile'] = psd.get_icc_profile()
-                        logger.info(f"Applied ICC profile, size: {pil_image.size}")
-                    else:
-                        logger.warning(f"No ICC profile or method unavailable for {full_file_path}")
-                except AttributeError:
-                    logger.warning(f"ICC profile handling not supported for {full_file_path}")
-                if pil_image.size[0] <= 0 or pil_image.size[1] <= 0:
-                    logger.error(f"Invalid image size {pil_image.size} for {full_file_path}")
-                    return None
-                if pil_image.getpixel((0, 0)) is None:
-                    logger.error(f"Invalid pixel data at (0, 0) for {full_file_path}")
-                    return None
+                icc = psd.image_resources.get("icc_profile")
+                if icc:
+                    pil_image.info["icc_profile"] = icc.data
+                    logger.info(f"Applied ICC profile to PSD: {full_file_path}")
             except Exception as e:
-                logger.error(f"PSD processing error with psd-tools for {full_file_path}: {str(e)}")
-                stream.seek(0)
-                pil_image = Image.open(stream)
-        else:
-            logger.warning(f"Falling back to PIL for PSD processing of {full_file_path}")
-            pil_image = Image.open(stream)
-        logger.info(f"Processed PSD with {pil_image.mode}")
+                logger.warning(f"Error extracting ICC profile: {e}")
     elif ext in ['cr2', 'nef', 'arw', 'dng', 'raf', 'pef', 'srw']:
         with rawpy.imread(stream) as raw:
             rgb = raw.postprocess()
@@ -2778,35 +2764,35 @@ class FileWatcherWorker(QObject):
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
                 # Handle JPG conversion and upload for supported formats
                 if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
-                    # jpg_name = Path(src_path).stem + ".jpg"
-                    # client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
-                    # project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
-                    # jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
-                    # try:
-                    #     os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                    #     os.chmod(jpg_folder, 0o777)
-                    #     self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
-                    # except OSError as e:
-                    #     logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
-                    #     self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
-                    #     raise
-                    # jpg_path = str(jpg_folder / jpg_name)
-                    # self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
-                    # try:
-                    #     local_jpg, backup_path = process_single_file(src_path)
-                    #     logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                    #     self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                    #     if local_jpg and os.path.exists(local_jpg):
-                    #         jpg_path = local_jpg
-                    #         self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
-                    #     else:
-                    #         logger.error(f"Failed to convert to JPG: {jpg_path}")
-                    #         self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
-                    #         raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
-                    # except Exception as e:
-                    #     logger.error(f"JPG conversion error for {src_path}: {str(e)}")
-                    #     self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
-                    #     raise
+                    jpg_name = Path(src_path).stem + ".jpg"
+                    client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
+                    project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
+                    jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
+                    try:
+                        os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+                        os.chmod(jpg_folder, 0o777)
+                        self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
+                    except OSError as e:
+                        logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
+                        self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
+                        raise
+                    jpg_path = str(jpg_folder / jpg_name)
+                    self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
+                    try:
+                        local_jpg, backup_path = process_single_file(src_path)
+                        logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                        self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+                        if local_jpg and os.path.exists(local_jpg):
+                            jpg_path = local_jpg
+                            self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
+                        else:
+                            logger.error(f"Failed to convert to JPG: {jpg_path}")
+                            self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
+                            raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
+                    except Exception as e:
+                        logger.error(f"JPG conversion error for {src_path}: {str(e)}")
+                        self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
+                        raise
                     if is_nas_dest:
                         self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
                         self._upload_to_nas(src_path, original_dest_path, item)
@@ -2814,105 +2800,105 @@ class FileWatcherWorker(QObject):
                     else:
                         self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
                         raise NotImplementedError("HTTP upload not implemented")
-                    # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
-                    # if is_nas_dest:
-                    #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                    #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
-                    #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
-                    # else:
-                    #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
-                    #     raise NotImplementedError("HTTP upload not implemented")
-                    # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                    # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                    jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+                    if is_nas_dest:
+                        self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
+                        self._upload_to_nas(jpg_path, jpg_nas_path, item)
+                        self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+                    else:
+                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+                        raise NotImplementedError("HTTP upload not implemented")
+                    self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+                    self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
                 # Post-upload API call logic for original file
                
-                try:
-                    request_data = {
-                        'job_id': item.get('job_id'),
-                        'project_id': item.get("project_id"),
-                        'file_name': item.get("user_id"),
-                        'user_id': item.get("user_id"),
-                        'user_type': item.get("user_type"),
-                        'spec_id': item.get("spec_id"),
-                        'creative_id': item.get("creative_id"),
-                        'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
-                    }
+                # try:
+                #     request_data = {
+                #         'job_id': item.get('job_id'),
+                #         'project_id': item.get("project_id"),
+                #         'file_name': item.get("user_id"),
+                #         'user_id': item.get("user_id"),
+                #         'user_type': item.get("user_type"),
+                #         'spec_id': item.get("spec_id"),
+                #         'creative_id': item.get("creative_id"),
+                #         'inventory_id': item.get("inventory_id"),
+                #         'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                #     }
                     
-                    # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
-                    response = requests.post(
-                        DRUPAL_DB_ENTRY_API,
-                        data=request_data,
-                        headers={},
-                        verify=False
-                    )
-                    update_download_upload_metadata(task_id, "completed")
-                    logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
-                    # print("DRUPAL_DB_ENTRY_API data success:", response.text)
-                except Exception as e:
-                    logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
-                    # print("Error in DRUPAL_DB_ENTRY_API data:", e)
-               
-               
-               
-                # user_type = cache.get('user_type', '').lower()
-                # user_id = cache.get('user_id', '')
-                # spec_id = item.get('spec_id', '')
-                # creative_id = item.get('creative_id', '')
-                # job_id = item.get('job_id', '')
-                # original_path = original_dest_path
-                # local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
-                # if user_type == 'operator':
-                #     op_payload = {
-                #         'spec_nid': spec_id,
-                #         'operator_nid': user_id,
-                #         'files_link': original_path,
-                #         'notes': '',
-                #         'brief_id': job_id,
-                #         'business': 'image_retouching'
-                #     }
-                #     if creative_id:
-                #         op_payload['creative_nid'] = creative_id
-                #         response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
-                #         logger.info(f"Updated API Response: {response}")
-                #         self.log_update.emit(f"[API] Updated API Response: {response}")
-                #     else:
-                #         response = call_api(API_URL_CREATE, op_payload, local_file_path)
-                #         post_metadata_to_api_upload(spec_id, user_id)
-                #         logger.info(f"Created API Response: {response}")
-                #         self.log_update.emit(f"[API] Created API Response: {response}")
-                # elif user_type in ['qc', 'qa']:
-                #     qc_qa_payload = {
-                #         'image_id': spec_id,
-                #         'job_id': job_id,
-                #         'creative_id': creative_id,
-                #         'user_id': user_id,
-                #         'files_link': [original_path] if isinstance(original_path, str) else original_path,
-                #         'business': 'image_retouching'
-                #     }
-                #     response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
-                #     logger.info(f"QC/QA API Response: {response}")
-                #     self.log_update.emit(f"[API] QC/QA API Response: {response}")
-                # else:
-                #     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
-                #     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
-                # try:
+                #     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+                #     response = requests.post(
+                #         DRUPAL_DB_ENTRY_API,
+                #         data=request_data,
+                #         headers={},
+                #         verify=False
+                #     )
                 #     update_download_upload_metadata(task_id, "completed")
-                #     logger.info(f"Updated task {task_id} status to completed")
-                #     self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                #     logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
+                #     # print("DRUPAL_DB_ENTRY_API data success:", response.text)
                 # except Exception as e:
-                #     logger.error(f"Failed to update task {task_id} status: {str(e)}")
-                #     self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
+                #     logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
+                #     # print("Error in DRUPAL_DB_ENTRY_API data:", e)
+               
+               
+               
+                user_type = cache.get('user_type', '').lower()
+                user_id = cache.get('user_id', '')
+                spec_id = item.get('spec_id', '')
+                creative_id = item.get('creative_id', '')
+                job_id = item.get('job_id', '')
+                original_path = original_dest_path
+                local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
+                if user_type == 'operator':
+                    op_payload = {
+                        'spec_nid': spec_id,
+                        'operator_nid': user_id,
+                        'files_link': original_path,
+                        'notes': '',
+                        'brief_id': job_id,
+                        'business': 'image_retouching'
+                    }
+                    if creative_id:
+                        op_payload['creative_nid'] = creative_id
+                        response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
+                        logger.info(f"Updated API Response: {response}")
+                        self.log_update.emit(f"[API] Updated API Response: {response}")
+                    else:
+                        response = call_api(API_URL_CREATE, op_payload, local_file_path)
+                        post_metadata_to_api_upload(spec_id, user_id)
+                        logger.info(f"Created API Response: {response}")
+                        self.log_update.emit(f"[API] Created API Response: {response}")
+                elif user_type in ['qc', 'qa']:
+                    qc_qa_payload = {
+                        'image_id': spec_id,
+                        'job_id': job_id,
+                        'creative_id': creative_id,
+                        'user_id': user_id,
+                        'files_link': [original_path] if isinstance(original_path, str) else original_path,
+                        'business': 'image_retouching'
+                    }
+                    response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
+                    logger.info(f"QC/QA API Response: {response}")
+                    self.log_update.emit(f"[API] QC/QA API Response: {response}")
+                else:
+                    logger.warning(f"Unknown user_type: {user_type}, skipping API call")
+                    self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+                try:
+                    update_download_upload_metadata(task_id, "completed")
+                    logger.info(f"Updated task {task_id} status to completed")
+                    self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+                except Exception as e:
+                    logger.error(f"Failed to update task {task_id} status: {str(e)}")
+                    self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
 
-                # try:
-                #     os.remove(local_file_path)
-                #     logger.info(f"Deleted local JPG file: {local_file_path}")
-                #     self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
-                # except Exception as e:
-                #     logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
-                #     self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
+                try:
+                    os.remove(local_file_path)
+                    logger.info(f"Deleted local JPG file: {local_file_path}")
+                    self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
+                    self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
         except Exception as e:
             update_download_upload_metadata(task_id, "failed")
             logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
@@ -4136,6 +4122,186 @@ def check_single_instance():
 
 
 class PremediaApp(QApplication):
+    # def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
+    #     try:
+    #         super().__init__(sys.argv)
+    #         self.setQuitOnLastWindowClosed(False)
+    #         self.setWindowIcon(load_icon(ICON_PATH, "application"))
+
+    #         # Prevent multiple instances using a lock file
+    #         self.lock_file = os.path.join(tempfile.gettempdir(), "premedia_app.lock")
+    #         try:
+    #             self.lock_fd = open(self.lock_file, 'w')
+    #         except IOError:
+    #             logger.error("Another instance of PremediaApp is already running")
+    #             app_signals.append_log.emit("[Init] Failed: Another instance of PremediaApp is already running")
+    #             sys.exit(1)
+
+    #         # Initialize system tray icon
+    #         self.tray_icon = None
+    #         if QSystemTrayIcon.isSystemTrayAvailable():
+    #             self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
+    #             self.tray_icon.setToolTip("PremediaApp")
+    #             self.tray_icon.activated.connect(self.handle_tray_icon_activated)
+    #             self.tray_icon.show()
+    #             QApplication.processEvents()
+    #             logger.info(f"System tray icon initialized, visible: {self.tray_icon.isVisible()}")
+    #             app_signals.append_log.emit(f"[Init] System tray icon initialized, visible: {self.tray_icon.isVisible()}")
+    #         else:
+    #             logger.warning("System tray not available")
+    #             app_signals.append_log.emit("[Init] System tray not available")
+
+    #         self.logged_in = False
+    #         load_cache()
+
+    #         # Set up tray menu
+    #         self.tray_menu = QMenu()
+    #         self.login_action = QAction("Login")
+    #         self.logout_action = QAction("Logout")
+    #         self.quit_action = QAction("Quit")
+    #         self.log_action = QAction("View Log Window")
+    #         self.downloaded_files_action = QAction("Downloaded Files")
+    #         self.uploaded_files_action = QAction("Uploaded Files")
+    #         self.clear_cache_action = QAction("Clear Cache")
+    #         self.open_cache_action = QAction("Open Cache File")
+    #         self.tray_menu.addAction(self.log_action)
+    #         self.tray_menu.addAction(self.downloaded_files_action)
+    #         self.tray_menu.addAction(self.uploaded_files_action)
+    #         self.tray_menu.addAction(self.open_cache_action)
+    #         self.tray_menu.addAction(self.login_action)
+    #         self.tray_menu.addAction(self.logout_action)
+    #         self.tray_menu.addAction(self.clear_cache_action)
+    #         self.tray_menu.addAction(self.quit_action)
+    #         if self.tray_icon:
+    #             self.tray_icon.setContextMenu(self.tray_menu)
+    #             self.tray_icon.show()
+    #             QApplication.processEvents()
+
+    #         # Connect actions to slots
+    #         self.login_action.triggered.connect(self.show_login)
+    #         self.logout_action.triggered.connect(self.logout)
+    #         self.quit_action.triggered.connect(self.cleanup_and_quit)
+    #         self.log_action.triggered.connect(self.show_logs)
+    #         self.downloaded_files_action.triggered.connect(self.show_downloaded_files)
+    #         self.uploaded_files_action.triggered.connect(self.show_uploaded_files)
+    #         self.clear_cache_action.triggered.connect(self.clear_cache)
+    #         self.open_cache_action.triggered.connect(self.open_cache_file)
+
+    #         self.log_window = LogWindow()
+    #         self.downloaded_files_window = None
+    #         self.uploaded_files_window = None
+    #         try:
+    #             self.login_dialog = LoginDialog(parent=None, app=self)
+    #         except Exception as e:
+    #             logger.error(f"Failed to initialize LoginDialog: {e}")
+    #             app_signals.append_log.emit(f"[Init] Failed to initialize LoginDialog: {str(e)}")
+    #             self.login_dialog = None
+    #             QMessageBox.critical(None, "Initialization Error", f"Failed to initialize login dialog: {str(e)}")
+    #             self.cleanup_and_quit()
+    #             return
+
+    #         # Connect signals to log window
+    #         try:
+    #             app_signals.update_status.disconnect(self.log_window.handle_update_status)
+    #         except Exception:
+    #             logger.debug("No existing update_status connection to disconnect")
+    #         app_signals.update_status.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
+    #         setup_logger(self.log_window)
+
+    #         if not log_thread.is_alive():
+    #             log_thread.start()
+
+    #         logger.debug(f"Initializing with key: {key[:8]}...")
+    #         app_signals.append_log.emit(f"[Init] Initializing with key: {key[:8]}...")
+    #         cache = load_cache()
+    #         logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
+    #         app_signals.append_log.emit(f"[Init] Cache contents: {json.dumps(cache, indent=2)}")
+
+    #         # Auto-login logic
+    #         if cache.get("token") and cache.get("user") and cache.get("user_id") and not self.logged_in:
+    #             logger.debug("Attempting auto-login with cached credentials")
+    #             app_signals.append_log.emit("[Init] Attempting auto-login with cached credentials")
+    #             validation_result = validate_user(key, self.log_window.status_bar)
+    #             if validation_result.get("uuid"):
+    #                 try:
+    #                     info_resp = HTTP_SESSION.get(
+    #                         f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
+    #                         headers={"Authorization": f"Bearer {cache.get('token')}"},
+    #                         verify=False,
+    #                         timeout=30
+    #                     )
+    #                     app_signals.api_call_status.emit(
+    #                         f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
+    #                         f"Status: {info_resp.status_code}, Response: {info_resp.text}",
+    #                         info_resp.status_code
+    #                     )
+    #                     app_signals.append_log.emit(f"[Init] User info API response: {info_resp.status_code}")
+    #                     info_resp.raise_for_status()
+    #                     user_info = info_resp.json()
+    #                     cache_data = {
+    #                         "token": cache.get("token", ""),
+    #                         "user": cache.get("user", ""),
+    #                         "user_id": user_info.get("uid", cache.get("user_id", "")),
+    #                         "user_info": user_info,
+    #                         "info_resp": validation_result,
+    #                         "user_data": cache.get("user_data", {}),
+    #                         "data": key,
+    #                         "downloaded_files": cache.get("downloaded_files", []),
+    #                         "downloaded_files_with_metadata": cache.get("downloaded_files_with_metadata", {}),
+    #                         "uploaded_files": cache.get("uploaded_files", []),
+    #                         "timer_responses": cache.get("timer_responses", {}),
+    #                         "saved_username": cache.get("saved_username", ""),
+    #                         "saved_password": cache.get("saved_password", ""),
+    #                         "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+    #                     }
+    #                     save_cache(cache_data)
+    #                     if not self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
+    #                         self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
+    #                         self.tray_icon.setToolTip("PremediaApp")
+    #                         self.tray_icon.setContextMenu(self.tray_menu)
+    #                         self.tray_icon.activated.connect(self.handle_tray_icon_activated)
+    #                         self.tray_icon.show()
+    #                         QApplication.processEvents()
+    #                         logger.info(f"Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
+    #                         app_signals.append_log.emit(f"[Init] Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
+    #                     self.set_logged_in_state()
+    #                     logger.debug("Calling start_file_watcher after auto-login")
+    #                     app_signals.append_log.emit("[Init] Calling start_file_watcher after auto-login")
+    #                     self.start_file_watcher()
+    #                     self.log_window.status_bar.showMessage(f"Auto-login successful for {cache.get('user')}")
+    #                     self.post_login_processes()
+    #                     app_signals.append_log.emit("[Init] Auto-login successful with cached credentials")
+    #                 except Exception as e:
+    #                     logger.error(f"Auto-login failed during user info fetch: {e}")
+    #                     app_signals.append_log.emit(f"[Init] Auto-login failed during user info fetch: {str(e)}")
+    #                     self.set_logged_out_state()
+    #                     self.show_login()
+    #             else:
+    #                 logger.warning(f"Auto-login failed: {validation_result.get('message', 'Unknown error')}")
+    #                 app_signals.append_log.emit(f"[Init] Auto-login failed: {validation_result.get('message', 'Unknown error')}")
+    #                 self.set_logged_out_state()
+    #                 self.show_login()
+    #         elif cache.get("saved_username") and cache.get("saved_password"):
+    #             logger.debug("Attempting auto-login with saved credentials")
+    #             app_signals.append_log.emit("[Init] Attempting auto-login with saved credentials")
+    #             self.login_dialog.perform_login(cache["saved_username"], cache["saved_password"])
+    #         else:
+    #             logger.debug("No valid cached credentials, showing login dialog")
+    #             app_signals.append_log.emit("[Init] No valid cached credentials, showing login dialog")
+    #             self.set_logged_out_state()
+    #             self.show_login()
+
+    #         logger.info("PremediaApp initialized")
+    #         app_signals.append_log.emit("[Init] PremediaApp initialized")
+    #     except Exception as e:
+    #         logger.error(f"Initialization error: {e}")
+    #         app_signals.append_log.emit(f"[Init] Failed: Initialization error - {str(e)}")
+    #         if self.login_dialog:
+    #             app_signals.update_status.emit(f"Initialization error: {str(e)}")
+    #             self.show_login()
+    #         else:
+    #             QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
+    #         self.cleanup_and_quit()
     def __init__(self, key="e0d6aa4baffc84333faa65356d78e439"):
         try:
             super().__init__(sys.argv)
@@ -4188,7 +4354,7 @@ class PremediaApp(QApplication):
             self.tray_menu.addAction(self.quit_action)
             if self.tray_icon:
                 self.tray_icon.setContextMenu(self.tray_menu)
-                self.tray_icon.show()
+                # Remove redundant show() call
                 QApplication.processEvents()
 
             # Connect actions to slots
@@ -4269,15 +4435,6 @@ class PremediaApp(QApplication):
                             "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
                         }
                         save_cache(cache_data)
-                        if not self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
-                            self.tray_icon = QSystemTrayIcon(load_icon(ICON_PATH, "system tray"))
-                            self.tray_icon.setToolTip("PremediaApp")
-                            self.tray_icon.setContextMenu(self.tray_menu)
-                            self.tray_icon.activated.connect(self.handle_tray_icon_activated)
-                            self.tray_icon.show()
-                            QApplication.processEvents()
-                            logger.info(f"Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
-                            app_signals.append_log.emit(f"[Init] Reinitialized system tray icon during auto-login, visible: {self.tray_icon.isVisible()}")
                         self.set_logged_in_state()
                         logger.debug("Calling start_file_watcher after auto-login")
                         app_signals.append_log.emit("[Init] Calling start_file_watcher after auto-login")
@@ -4701,6 +4858,9 @@ class PremediaApp(QApplication):
                 self.login_dialog.show()
                 self.login_dialog.raise_()
                 self.login_dialog.activateWindow()
+                # Ensure the window is visible and brought to front
+                self.login_dialog.setWindowState(Qt.WindowActive)
+                self.login_dialog.showNormal()  # Restore to normal state if minimized
                 app_signals.update_status.emit("Login dialog opened")
                 app_signals.append_log.emit("[Login] Login dialog opened")
             else:
@@ -4718,6 +4878,9 @@ class PremediaApp(QApplication):
             self.log_window.show()
             self.log_window.raise_()
             self.log_window.activateWindow()
+            # Ensure the window is visible and brought to front
+            self.log_window.setWindowState(Qt.WindowActive)
+            self.log_window.showNormal()  # Restore to normal state if minimized
             app_signals.update_status.emit("Log window opened")
             app_signals.append_log.emit("[Log] Log window opened")
         except Exception as e:
@@ -4733,6 +4896,9 @@ class PremediaApp(QApplication):
                 self.downloaded_files_window.show()
                 self.downloaded_files_window.raise_()
                 self.downloaded_files_window.activateWindow()
+                # Ensure the window is visible and brought to front
+                self.downloaded_files_window.setWindowState(Qt.WindowActive)
+                self.downloaded_files_window.showNormal()  # Restore to normal state if minimized
                 app_signals.update_status.emit("Downloaded files window opened")
                 app_signals.append_log.emit("[Files] Downloaded files window opened")
         except Exception as e:
@@ -4748,6 +4914,9 @@ class PremediaApp(QApplication):
                 self.uploaded_files_window.show()
                 self.uploaded_files_window.raise_()
                 self.uploaded_files_window.activateWindow()
+                # Ensure the window is visible and brought to front
+                self.uploaded_files_window.setWindowState(Qt.WindowActive)
+                self.uploaded_files_window.showNormal()  # Restore to normal state if minimized
                 app_signals.update_status.emit("Uploaded files window opened")
                 app_signals.append_log.emit("[Files] Uploaded files window opened")
         except Exception as e:
