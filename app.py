@@ -3069,7 +3069,7 @@ class FileWatcherWorker(QObject):
                                     if os.path.exists(local_path):
                                         self.processed_tasks.add(task_key)
                                         updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
-                                        update_download_upload_metadata(task_id, "completed")
+                                        # update_download_upload_metadata(task_id, "completed")
                                         break
                                     else:
                                         logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
@@ -4289,12 +4289,12 @@ class PremediaApp(QApplication):
                         logger.error(f"Auto-login failed during user info fetch: {e}")
                         app_signals.append_log.emit(f"[Init] Auto-login failed during user info fetch: {str(e)}")
                         self.set_logged_out_state()
-                        self.login_dialog.show()
+                        self.show_login()
                 else:
                     logger.warning(f"Auto-login failed: {validation_result.get('message', 'Unknown error')}")
                     app_signals.append_log.emit(f"[Init] Auto-login failed: {validation_result.get('message', 'Unknown error')}")
                     self.set_logged_out_state()
-                    self.login_dialog.show()
+                    self.show_login()
             elif cache.get("saved_username") and cache.get("saved_password"):
                 logger.debug("Attempting auto-login with saved credentials")
                 app_signals.append_log.emit("[Init] Attempting auto-login with saved credentials")
@@ -4303,7 +4303,7 @@ class PremediaApp(QApplication):
                 logger.debug("No valid cached credentials, showing login dialog")
                 app_signals.append_log.emit("[Init] No valid cached credentials, showing login dialog")
                 self.set_logged_out_state()
-                self.login_dialog.show()
+                self.show_login()
 
             logger.info("PremediaApp initialized")
             app_signals.append_log.emit("[Init] PremediaApp initialized")
@@ -4312,10 +4312,59 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit(f"[Init] Failed: Initialization error - {str(e)}")
             if self.login_dialog:
                 app_signals.update_status.emit(f"Initialization error: {str(e)}")
-                self.login_dialog.show()
+                self.show_login()
             else:
                 QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
             self.cleanup_and_quit()
+
+    def event(self, event):
+        try:
+            if event.type() == QEvent.ApplicationActivate:
+                logger.debug("Application activated via taskbar/dock")
+                app_signals.append_log.emit("[App] Application activated via taskbar/dock")
+                for window in [self.log_window, self.downloaded_files_window, self.uploaded_files_window, self.login_dialog]:
+                    if window and window.isVisible():
+                        window.raise_()
+                        window.activateWindow()
+                        logger.debug(f"Restored window: {window.windowTitle()}")
+                        app_signals.append_log.emit(f"[App] Restored window: {window.windowTitle()}")
+            return super().event(event)
+        except Exception as e:
+            logger.error(f"Error in event handler: {e}")
+            app_signals.append_log.emit(f"[App] Failed: Error in event handler - {str(e)}")
+            return super().event(event)
+
+    def handle_tray_icon_activated(self, reason):
+        try:
+            logger.debug(f"Tray icon activated with reason: {reason}")
+            app_signals.append_log.emit(f"[Tray] Tray icon activated with reason: {reason}")
+            if reason == QSystemTrayIcon.Trigger:
+                if not self.logged_in:
+                    self.show_login()
+                    logger.debug("Tray icon left-click: Showing login dialog")
+                    app_signals.append_log.emit("[Tray] Left-click: Showing login dialog")
+                else:
+                    logger.debug("Tray icon left-click: Logged in, no action")
+                    app_signals.append_log.emit("[Tray] Left-click: Logged in, no action")
+            elif reason == QSystemTrayIcon.DoubleClick:
+                self.show_logs()
+                logger.debug("Tray icon double-click: Showing log window")
+                app_signals.append_log.emit("[Tray] Double-click: Showing log window")
+            elif reason == QSystemTrayIcon.Context:
+                logger.debug("Tray icon right-click: Showing context menu")
+                app_signals.append_log.emit("[Tray] Right-click: Showing context menu")
+            elif reason == QSystemTrayIcon.MiddleClick:
+                logger.debug("Tray icon middle-click: No action defined")
+                app_signals.append_log.emit("[Tray] Middle-click: No action defined")
+            else:
+                logger.debug(f"Tray icon activated with unknown reason: {reason}")
+                app_signals.append_log.emit(f"[Tray] Unknown activation reason: {reason}")
+            app_signals.update_status.emit("Tray icon activated")
+        except Exception as e:
+            logger.error(f"Error in handle_tray_icon_activated: {e}")
+            app_signals.append_log.emit(f"[Tray] Failed: Error handling tray icon activation - {str(e)}")
+            app_signals.update_status.emit(f"Error handling tray icon activation: {str(e)}")
+            QMessageBox.critical(None, "Tray Icon Error", f"Error handling tray icon activation: {str(e)}")
 
     def update_tray_menu(self):
         try:
@@ -4348,8 +4397,7 @@ class PremediaApp(QApplication):
                 self.tray_icon.setContextMenu(self.tray_menu)
                 self.tray_icon.show()
                 QApplication.processEvents()
-                # Additional event processing to ensure tray icon renders
-                for _ in range(2):  # Retry twice to mimic LogWindow's effect
+                for _ in range(2):
                     if not self.tray_icon.isVisible():
                         logger.debug("Tray icon not visible after update_tray_menu, retrying show")
                         app_signals.append_log.emit("[Tray] Tray icon not visible after update_tray_menu, retrying show")
@@ -4369,38 +4417,6 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
             QMessageBox.critical(self, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
 
-
-    def handle_tray_icon_activated(self, reason):
-        try:
-            logger.debug(f"Tray icon activated with reason: {reason}")
-            app_signals.append_log.emit(f"[Tray] Tray icon activated with reason: {reason}")
-            if reason == QSystemTrayIcon.Trigger:
-                if not self.logged_in:
-                    self.show_login()
-                else:
-                    self.show_logs()
-                logger.debug("Tray icon left-click: Showing login or log window")
-                app_signals.append_log.emit("[Tray] Left-click: Showing login or log window")
-            elif reason == QSystemTrayIcon.DoubleClick:
-                self.show_logs()
-                logger.debug("Tray icon double-click: Showing log window")
-                app_signals.append_log.emit("[Tray] Double-click: Showing log window")
-            elif reason == QSystemTrayIcon.Context:
-                logger.debug("Tray icon right-click: Showing context menu")
-                app_signals.append_log.emit("[Tray] Right-click: Showing context menu")
-            elif reason == QSystemTrayIcon.MiddleClick:
-                logger.debug("Tray icon middle-click: No action defined")
-                app_signals.append_log.emit("[Tray] Middle-click: No action defined")
-            else:
-                logger.debug(f"Tray icon activated with unknown reason: {reason}")
-                app_signals.append_log.emit(f"[Tray] Unknown activation reason: {reason}")
-            app_signals.update_status.emit("Tray icon activated")
-        except Exception as e:
-            logger.error(f"Error in handle_tray_icon_activated: {e}")
-            app_signals.append_log.emit(f"[Tray] Failed: Error handling tray icon activation - {str(e)}")
-            app_signals.update_status.emit(f"Error handling tray icon activation: {str(e)}")
-            QMessageBox.critical(None, "Tray Icon Error", f"Error handling tray icon activation: {str(e)}")
-
     def start_file_watcher(self):
         global FILE_WATCHER_RUNNING
         try:
@@ -4411,40 +4427,33 @@ class PremediaApp(QApplication):
             logger.debug(f"Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[App] Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
 
-            # Stop existing file watcher
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 logger.warning("FileWatcherWorker already running, stopping it")
                 app_signals.append_log.emit("[App] FileWatcherWorker already running, stopping it")
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(5000)  # Increased wait time
+                self.file_watcher_thread.wait(5000)
                 if self.file_watcher_thread.isRunning():
                     logger.error("Failed to stop existing file watcher thread")
                     app_signals.append_log.emit("[App] Failed to stop existing file watcher thread")
                     app_signals.update_status.emit("Failed to stop existing file watcher thread")
                     return
 
-            # Stop existing poll timer
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped existing poll timer")
                 app_signals.append_log.emit("[App] Stopped existing poll timer")
 
-            # Reset singleton and global flag
             FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
             logger.debug(f"FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
             app_signals.append_log.emit(f"[App] FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
 
-            # Initialize FileWatcherWorker
             self.file_watcher = FileWatcherWorker.get_instance(parent=None)
             self.file_watcher_thread = QThread()
-
-            # Move to thread
             self.file_watcher.moveToThread(self.file_watcher_thread)
             logger.debug("Moved FileWatcherWorker to QThread")
             app_signals.append_log.emit("[App] Moved FileWatcherWorker to QThread")
 
-            # Connect signals
             self.file_watcher_thread.started.connect(self.file_watcher.run, Qt.QueuedConnection)
             self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
             self.file_watcher.log_update.connect(app_signals.append_log, Qt.QueuedConnection)
@@ -4452,14 +4461,12 @@ class PremediaApp(QApplication):
             logger.debug("Connected FileWatcherWorker signals")
             app_signals.append_log.emit("[App] Connected FileWatcherWorker signals")
 
-            # Create poll timer in the main thread
-            self.poll_timer = QTimer(self)  # Set parent to self to ensure main thread ownership
+            self.poll_timer = QTimer(self)
             self.poll_timer.timeout.connect(self.file_watcher.run, Qt.QueuedConnection)
             self.poll_timer.start(API_POLL_INTERVAL)
             logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
             app_signals.append_log.emit(f"[App] Poll timer started with interval: {API_POLL_INTERVAL}ms")
 
-            # Start thread
             self.file_watcher_thread.start()
             logger.info("FileWatcherWorker thread started successfully")
             app_signals.append_log.emit("[App] FileWatcherWorker thread started successfully")
@@ -4483,62 +4490,53 @@ class PremediaApp(QApplication):
             logger.debug("Cleanup initiated")
             app_signals.append_log.emit("[App] Cleanup initiated")
 
-            # Stop watcher flag
             global FILE_WATCHER_RUNNING
             FILE_WATCHER_RUNNING = False
             FILE_WATCHER_STOP_QUEUE.put(True)
 
-            # Stop poll timer in the main thread
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 logger.debug("Stopping poll_timer")
                 app_signals.append_log.emit("[App] Stopping poll_timer")
                 self.poll_timer.stop()
 
-            # Stop file watcher thread
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 logger.debug("Requesting file_watcher_thread to quit")
                 app_signals.append_log.emit("[App] Requesting file_watcher_thread to quit")
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(5000)  # Increased wait time
+                self.file_watcher_thread.wait(5000)
                 if self.file_watcher_thread.isRunning():
                     logger.warning("File watcher thread did not stop gracefully, terminating")
                     app_signals.append_log.emit("[App] File watcher thread did not stop gracefully, terminating")
                     self.file_watcher_thread.terminate()
                     self.file_watcher_thread.wait(1000)
 
-            # Close all windows
             for w in QApplication.topLevelWidgets():
                 logger.debug(f"Closing widget: {w}")
                 app_signals.append_log.emit(f"[App] Closing widget: {w}")
                 w.close()
 
-            # Close tray icon
             if hasattr(self, 'tray_icon') and self.tray_icon:
                 logger.debug("Hiding tray_icon")
                 app_signals.append_log.emit("[App] Hiding tray_icon")
                 self.tray_icon.hide()
                 self.tray_icon.deleteLater()
 
-            # Close HTTP session
             logger.debug("Closing HTTP_SESSION")
             app_signals.append_log.emit("[App] Closing HTTP_SESSION")
             HTTP_SESSION.close()
 
-            # Stop logging
             stop_logging()
             app_signals.update_status.emit("Application quitting")
             app_signals.append_log.emit("[App] Application quitting")
             logger.info("Application quitting")
 
-            # Quit application
             self.quit()
         except Exception as e:
             logger.error(f"Error in cleanup_and_quit: {e}")
             app_signals.append_log.emit(f"[App] Failed: Cleanup error - {str(e)}")
             sys.exit(1)
-    
+
     def logout(self):
-        """Handle logout action."""
         try:
             self.logged_in = False
             cache = load_cache()
@@ -4558,9 +4556,6 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit(f"Logout error: {str(e)}")
             QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
 
-
-
-    # In PremediaApp class
     def set_logged_in_state(self):
         try:
             self.logged_in = True
@@ -4571,8 +4566,7 @@ class PremediaApp(QApplication):
                 self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
                 self.tray_icon.show()
                 QApplication.processEvents()
-                # Additional event processing to ensure tray icon renders
-                for _ in range(2):  # Retry twice to mimic LogWindow's effect
+                for _ in range(2):
                     if not self.tray_icon.isVisible():
                         logger.debug("Tray icon not visible, retrying show")
                         app_signals.append_log.emit("[Tray] Tray icon not visible, retrying show")
@@ -4594,15 +4588,15 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit("[State] Set to logged-in state")
             app_signals.update_status.emit("Logged in state set")
         except Exception as e:
-            logger.error(f"Error in set_logged_in_state: {str(e)}")
+            logger.error(f"Error in set_logged_in_state: {e}")
             app_signals.append_log.emit(f"[State] Failed: Error setting logged-in state - {str(e)}")
             app_signals.update_status.emit(f"Error setting logged-in state: {str(e)}")
             QMessageBox.critical(None, "State Error", f"Failed to set logged-in state: {str(e)}")
-   
+
     def set_logged_out_state(self):
         try:
             self.logged_in = False
-            self.update_tray_menu()  # Manage tray menu in PremediaApp
+            self.update_tray_menu()
             if hasattr(self, 'login_dialog'):
                 self.login_dialog.is_logged_in = False
             logger.info("Set logged out state")
@@ -4636,8 +4630,9 @@ class PremediaApp(QApplication):
             layout = QVBoxLayout()
             layout.addWidget(text_edit)
             dialog.setLayout(layout)
-            dialog.exec_()
-
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
             app_signals.update_status.emit("Opened cache file")
             app_signals.append_log.emit(f"[Cache] Opened cache file: {cache_file}")
         except Exception as e:
@@ -4667,7 +4662,6 @@ class PremediaApp(QApplication):
         global HTTP_SESSION, FILE_WATCHER_RUNNING
         try:
             logger.debug("Quit initiated")
-            
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 logger.debug("Stopping poll_timer")
                 self.poll_timer.stop()
@@ -4693,10 +4687,7 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit("Application quitting")
             app_signals.append_log.emit("[App] Application quitting")
             logger.info("Application quitting")
-
-            logger.debug("Calling self.app.quit()")
             self.app.quit()
-            
         except Exception as e:
             logger.error(f"Error in quit: {e}")
             app_signals.append_log.emit(f"[App] Failed: Quit error - {str(e)}")
@@ -4704,11 +4695,12 @@ class PremediaApp(QApplication):
             stop_logging()
             self.app.quit()
 
-
     def show_login(self):
         try:
             if not self.logged_in:
                 self.login_dialog.show()
+                self.login_dialog.raise_()
+                self.login_dialog.activateWindow()
                 app_signals.update_status.emit("Login dialog opened")
                 app_signals.append_log.emit("[Login] Login dialog opened")
             else:
@@ -4724,6 +4716,8 @@ class PremediaApp(QApplication):
         try:
             self.log_window.load_logs()
             self.log_window.show()
+            self.log_window.raise_()
+            self.log_window.activateWindow()
             app_signals.update_status.emit("Log window opened")
             app_signals.append_log.emit("[Log] Log window opened")
         except Exception as e:
@@ -4737,6 +4731,8 @@ class PremediaApp(QApplication):
             if not self.downloaded_files_window or not self.downloaded_files_window.isVisible():
                 self.downloaded_files_window = FileListWindow("downloaded")
                 self.downloaded_files_window.show()
+                self.downloaded_files_window.raise_()
+                self.downloaded_files_window.activateWindow()
                 app_signals.update_status.emit("Downloaded files window opened")
                 app_signals.append_log.emit("[Files] Downloaded files window opened")
         except Exception as e:
@@ -4750,6 +4746,8 @@ class PremediaApp(QApplication):
             if not self.uploaded_files_window or not self.uploaded_files_window.isVisible():
                 self.uploaded_files_window = FileListWindow("uploaded")
                 self.uploaded_files_window.show()
+                self.uploaded_files_window.raise_()
+                self.uploaded_files_window.activateWindow()
                 app_signals.update_status.emit("Uploaded files window opened")
                 app_signals.append_log.emit("[Files] Uploaded files window opened")
         except Exception as e:
@@ -4897,9 +4895,9 @@ class PremediaApp(QApplication):
                 logger.debug(f"Updated LogWindow status bar with progress: {value}%")
                 app_signals.update_status.emit(f"File operation progress: {value}%")
         except Exception as e:
-            logger.error(f"Error in update_progress: {str(e)}")
+            logger.error(f"Error in update_progress: {e}")
             app_signals.append_log.emit(f"[App] Error in update_progress: {str(e)}")
-            
+
     def post_login_processes(self):
         global FILE_WATCHER_RUNNING
         try:
@@ -4910,10 +4908,9 @@ class PremediaApp(QApplication):
                 logger.error("No token or user_id for post-login processes")
                 app_signals.append_log.emit("[Login] Failed: No token or user_id for post-login processes")
                 self.set_logged_out_state()
-                self.login_dialog.show()
+                self.show_login()
                 return
 
-            # Stop any existing file watcher
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped existing poll timer")
@@ -4924,25 +4921,15 @@ class PremediaApp(QApplication):
                 logger.debug("Stopped existing file watcher thread")
                 app_signals.append_log.emit("[Login] Stopped existing file watcher thread")
 
-            # Reset FileWatcherWorker singleton
             FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
 
-            # Start file watcher
             self.start_file_watcher()
 
-            # Update tray menu and ensure icon visibility
             self.update_tray_menu()
             if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.show()
                 QApplication.processEvents()
-                # Additional event processing to ensure tray icon renders
-                for _ in range(2):  # Retry twice to mimic LogWindow's effect
-                    if not self.tray_icon.isVisible():
-                        logger.debug("Tray icon not visible after post_login_processes, retrying show")
-                        app_signals.append_log.emit("[Tray] Tray icon not visible after post_login_processes, retrying show")
-                        self.tray_icon.show()
-                        QApplication.processEvents()
                 logger.debug(f"Tray icon visible after post-login: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Login] Tray icon visible after post-login: {self.tray_icon.isVisible()}")
             else:
@@ -4952,14 +4939,12 @@ class PremediaApp(QApplication):
                     logger.warning("On Linux, ensure libappindicator is installed for system tray support")
                     app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
 
-            # Close any open progress dialogs from auto-login
             if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
                 self.login_dialog.progress.close()
                 QApplication.processEvents()
                 logger.debug("Progress dialog closed in post_login_processes")
                 app_signals.append_log.emit("[Login] Progress dialog closed in post_login_processes")
 
-            # Connect status signal to log window
             try:
                 app_signals.update_status.disconnect(self.log_window.status_bar.showMessage)
             except Exception:
@@ -4972,7 +4957,6 @@ class PremediaApp(QApplication):
             logger.error(f"Error in post_login_processes: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Post-login processes error - {str(e)}")
             app_signals.update_status.emit(f"Post-login error: {str(e)}")
-            # Ensure progress dialog is closed on error
             if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
                 self.login_dialog.progress.close()
                 QApplication.processEvents()
@@ -4980,10 +4964,9 @@ class PremediaApp(QApplication):
                 app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
             QMessageBox.critical(self, "Post-Login Error", f"Post-login error: {str(e)}")
             self.set_logged_out_state()
-            self.login_dialog.show()
+            self.show_login()
 
     def show_dialog(self, title, message, dialog_type):
-        
         try:
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle(title)
