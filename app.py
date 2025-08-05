@@ -2537,6 +2537,17 @@ class FileWatcherWorker(QObject):
             photoshop_path = self.config.get("photoshop_path")
             if not photoshop_path or not Path(photoshop_path).exists():
                 if system == "Windows":
+                    try:
+                        import win32gui
+                        import win32con
+                        import win32com.client
+                        import win32api
+                        import win32process
+                        import ctypes
+                    except ImportError as e:
+                        raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
+                    photoshop_path = None
                     search_dirs = [
                         Path("C:/Program Files/Adobe"),
                         Path("C:/Program Files (x86)/Adobe")
@@ -2548,8 +2559,25 @@ class FileWatcherWorker(QObject):
                                 photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
                                 photoshop_path = str(photoshop_exes[0])
                                 break
+
                     if not photoshop_path:
                         raise FileNotFoundError("Adobe Photoshop executable not found on Windows")
+
+                    # ✅ Open the file in Photoshop
+                    subprocess.Popen([photoshop_path, file_path])
+                    time.sleep(5)  # Give Photoshop time to open the file
+
+                    # ✅ Bring Photoshop window to front
+                    def enum_windows_callback(hwnd, hwnds):
+                        if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+                            hwnds.append(hwnd)
+
+                    hwnds = []
+                    win32gui.EnumWindows(enum_windows_callback, hwnds)
+                    if hwnds:
+                        win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)     # Restore if minimized
+                        win32gui.SetForegroundWindow(hwnds[0])                 # Bring to front
+
                 
                 elif system == "Darwin":
                     photoshop_app_path = "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"
