@@ -2366,7 +2366,7 @@ class FileWatcherWorker(QObject):
         self._lock = Lock()  # Initialize the lock
         self.last_api_hit_time = None
         self.next_api_hit_time = None
-        self.api_poll_interval = 20000
+        self.api_poll_interval = 15000
         self.config = {
             "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
             "max_processed_tasks": 1000,
@@ -2662,22 +2662,19 @@ class FileWatcherWorker(QObject):
                             break
 
                     elif system == "Darwin":
-                        app_name = Path(photoshop_path).name.replace(".app", "")
-                        script = f'''
-                        tell application "{app_name}"
-                            activate
-                            open POSIX file "{file_path}"
-                        end tell
-                        '''
-                        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            logger.info(f"Opened {Path(file_path).name} via AppleScript")
+                        if not photoshop_path or not os.path.exists(photoshop_path):
+                            logger.warning("Photoshop path is missing or invalid on macOS.")
                             break
-                        else:
-                            logger.warning(f"AppleScript failed: {result.stderr.strip()}")
+
+                        try:
                             subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
-                            logger.info(f"Opened {Path(file_path).name} via open -a fallback")
+                            logger.info(f"Opened {Path(file_path).name} via open -a")
                             break
+                        except subprocess.CalledProcessError as e:
+                            logger.warning(f"Failed to open file with Photoshop: {e}")
+                            continue
+
+
 
                     elif system == "Linux":
                         subprocess.run(["wine", photoshop_path, file_path], check=True)
@@ -4915,7 +4912,7 @@ class PremediaApp(QApplication):
             logger.error(f"Error in show_logs: {e}")
             app_signals.append_log.emit(f"[Log] Failed: Error opening log window - {str(e)}")
             app_signals.update_status.emit(f"Error opening log window: {str(e)}")
-        QMessageBox.critical(self, "Log Error", f"Failed to open log window: {str(e)}")
+            QMessageBox.critical(self, "Log Error", f"Failed to open log window: {str(e)}")
 
     def show_downloaded_files(self):
         try:
