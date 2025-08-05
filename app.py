@@ -175,7 +175,7 @@ NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
-
+log_window_handler = None
 # === Global State ===
 GLOBAL_CACHE = None
 CACHE_WRITE_LOCK = threading.Lock()
@@ -220,28 +220,29 @@ class AppSignals(QObject):
 app_signals = AppSignals()
 
 # === Custom Log Handler ===
-class LogWindowHandler(logging.Handler, QObject):
+class LogWindowHandler(logging.Handler):
     def __init__(self):
-        logging.Handler.__init__(self)
-        QObject.__init__(self)
-        self.setLevel(logging.INFO)
-        self.setFormatter(formatter)
-        self.log_buffer = []  # Buffer for batch logging
+        super().__init__()
+        self.log_queue = []
+        self.log_window = None
+
+    def set_log_window(self, log_window):
+        self.log_window = log_window
+        # Flush queued logs
+        for record in self.log_queue:
+            self.emit(record)
+        self.log_queue.clear()
 
     def emit(self, record):
-        global LOGGING_ACTIVE
-        if not LOGGING_ACTIVE:
-            return
-        try:
-            msg = self.format(record)
-            self.log_buffer.append(msg)
-            if len(self.log_buffer) >= 10:  # Batch every 10 logs
-                for buffered_msg in self.log_buffer:
-                    app_signals.append_log.emit(buffered_msg)
-                self.log_buffer.clear()
-        except Exception as e:
-            logger.error(f"Log signal emission error: {e}")
-            self.log_buffer.append(f"[Log] Log signal emission error: {str(e)}")
+        msg = self.format(record)
+        if self.log_window and hasattr(app_signals, 'append_log'):
+            try:
+                app_signals.append_log.emit(msg)
+            except Exception as e:
+                self.log_queue.append(record)
+                logging.getLogger("PremediaApp").warning(f"Failed to emit log to LogWindow: {e}")
+        else:
+            self.log_queue.append(record)
 
 # === Async Logging ===
 log_queue = Queue()
@@ -256,38 +257,37 @@ def async_log_worker():
 
 log_thread = threading.Thread(target=async_log_worker, daemon=True)
 
+# log_window_handler = None  # Global variable to store LogWindowHandler
+
 def setup_logger(log_window=None):
     logger = logging.getLogger("PremediaApp")
-    logger.setLevel(logging.INFO)  # Only INFO and higher allowed
+    logger.setLevel(logging.INFO)
     logger.handlers.clear()
-    logger.propagate = False  # Prevent log from bubbling up to root logger
+    logger.propagate = False
 
-    async_handler = LogWindowHandler()
-    async_handler.setLevel(logging.INFO)
+    # Add StreamHandler for fallback logging
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(stream_handler)
 
-    logger.addHandler(async_handler)
+    # Add LogWindowHandler
+    global log_window_handler
+    log_window_handler = LogWindowHandler()
+    log_window_handler.setLevel(logging.INFO)
+    logger.addHandler(log_window_handler)
 
-    # Connect UI signals
+    # Connect signals if log_window is provided
     if log_window:
+        log_window_handler.set_log_window(log_window)
         app_signals.append_log.connect(log_window.append_log, Qt.QueuedConnection)
         app_signals.api_call_status.connect(log_window.append_api_status, Qt.QueuedConnection)
         app_signals.update_timer_status.connect(log_window.update_timer_status, Qt.QueuedConnection)
-
-    # Trim log file
-    try:
-        log_file = log_dir / "app.log"
-        if log_file.exists():
-            with log_file.open('r') as f:
-                lines = f.readlines()
-            if len(lines) > 200:
-                with log_file.open('w') as f:
-                    f.writelines(lines[-200:])
-    except Exception as e:
-        logger.error(f"Error managing log file: {e}")
-        app_signals.append_log.emit(f"[Log] Error managing log file: {str(e)}")
+        logger.info("Connected logger signals to LogWindow")
+    else:
+        logger.info("No LogWindow provided; using StreamHandler for logging")
 
     return logger
-
 
 
 def stop_logging():
@@ -2494,18 +2494,18 @@ class FileWatcherWorker(QObject):
             if action_type.lower() == "download":
                 cache["downloaded_files"][task_id] = local_path
                 cache["downloaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
-                timer_response = start_timer_api(src_path, cache.get('token', ''))
-                if timer_response:
-                    cache["timer_responses"][local_path] = timer_response
+                # timer_response = start_timer_api(src_path, cache.get('token', ''))
+                # if timer_response:
+                #     cache["timer_responses"][local_path] = timer_response
                 app_signals.update_file_list.emit(local_path, f"{action_type} Completed", action_type.lower(), 100, is_nas)
                 logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
                 self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
             elif action_type.lower() in ("upload", "replace"):
                 cache["uploaded_files"].append(dest_path)
                 cache["uploaded_files_with_metadata"][f"{task_id}:{file_type}"] = {"local_path": local_path, "api_response": item}
-                timer_response = cache.get("timer_responses", {}).get(local_path)
-                if timer_response:
-                    end_timer_api(src_path, timer_response, cache.get('token', ''))
+                # timer_response = cache.get("timer_responses", {}).get(local_path)
+                # if timer_response:
+                #     end_timer_api(src_path, timer_response, cache.get('token', ''))
                 app_signals.update_file_list.emit(local_path, f"{action_type} Completed ({file_type.capitalize()})", action_type.lower(), 100, is_nas)
                 logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
                 self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
@@ -3418,9 +3418,9 @@ class LogWindow(QDialog):
             app_signals.append_log.emit(f"[Log] Failed to append API status: {str(e)}")
 
     def closeEvent(self, event):
-        """Handle window close event by disconnecting signals."""
         logger.debug("LogWindow is closing. Disconnecting signals.")
         self.disconnect_signals()
+        self._connected_signals.clear()  # Allow reconnection
         super().closeEvent(event)
 
 
@@ -4874,19 +4874,20 @@ class PremediaApp(QApplication):
     def show_logs(self):
         try:
             self.log_window.load_logs()
+            setup_logger(self.log_window)  # Reconnect logger signals
+            self.log_window.connect_signals()  # Reconnect LogWindow signals
             self.log_window.show()
             self.log_window.raise_()
             self.log_window.activateWindow()
-            # Ensure the window is visible and brought to front
             self.log_window.setWindowState(Qt.WindowActive)
-            self.log_window.showNormal()  # Restore to normal state if minimized
+            self.log_window.showNormal()
             app_signals.update_status.emit("Log window opened")
             app_signals.append_log.emit("[Log] Log window opened")
         except Exception as e:
             logger.error(f"Error in show_logs: {e}")
             app_signals.append_log.emit(f"[Log] Failed: Error opening log window - {str(e)}")
             app_signals.update_status.emit(f"Error opening log window: {str(e)}")
-            QMessageBox.critical(self, "Log Error", f"Failed to open log window: {str(e)}")
+        QMessageBox.critical(self, "Log Error", f"Failed to open log window: {str(e)}")
 
     def show_downloaded_files(self):
         try:
