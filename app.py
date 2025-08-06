@@ -97,7 +97,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -169,11 +169,11 @@ API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
 NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irnasappprod"
-NAS_PASSWORD = "D&*qmn012@12"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
@@ -519,7 +519,7 @@ def validate_user(access_key, status_bar=None):
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
         cache = load_cache()
-        validation_url = "https://app.vmgpremedia.com/api/user/validate"
+        validation_url = "https://app-uat.vmgpremedia.com/api/user/validate"
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
         
@@ -618,41 +618,55 @@ def end_timer_api(file_path, timer_response, token):
         app_signals.append_log.emit(f"[API Scan] Failed to end timer: {str(e)}")
         return None
 
+# def connect_to_nas():
+#     if not NAS_AVAILABLE:
+#         logger.warning("NAS functionality disabled")
+#         app_signals.append_log.emit("[API Scan] NAS functionality disabled")
+#         return None
+
+#     max_retries = 2  # reduce retries
+#     delay = 2
+
+#     for attempt in range(max_retries):
+#         try:
+#             transport = paramiko.Transport((NAS_IP, 22))
+#             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+#             sftp = paramiko.SFTPClient.from_transport(transport)
+#             sftp.stat(NAS_SHARE)
+#             logger.info(f"Connected to NAS at {NAS_IP}/{NAS_SHARE}")
+#             app_signals.append_log.emit(f"[API Scan] Connected to NAS at {NAS_IP}/{NAS_SHARE}")
+#             return (transport, sftp)
+#         except paramiko.AuthenticationException as e:
+#             logger.error(f"NAS authentication failed: {e}")
+#             app_signals.append_log.emit(f"[API Scan] Failed: NAS authentication error - {str(e)}")
+#             # Don't retry on auth error — likely invalid credentials
+#             return None
+#         except paramiko.SSHException as e:
+#             logger.error(f"NAS SSH error (attempt {attempt + 1}): {e}")
+#             app_signals.append_log.emit(f"[API Scan] Failed: NAS SSH error (attempt {attempt + 1}) - {str(e)}")
+#         except Exception as e:
+#             logger.error(f"Failed to connect to NAS (attempt {attempt + 1}): {e}")
+#             app_signals.append_log.emit(f"[API Scan] Failed: NAS connection error (attempt {attempt + 1}) - {str(e)}")
+
+#         # Exponential backoff
+#         time.sleep(delay)
+#         delay *= 2
+
+#     return None
+
 def connect_to_nas():
     if not NAS_AVAILABLE:
-        logger.warning("NAS functionality disabled")
-        app_signals.append_log.emit("[API Scan] NAS functionality disabled")
-        return None
-
-    max_retries = 2  # reduce retries
-    delay = 2
-
-    for attempt in range(max_retries):
-        try:
-            transport = paramiko.Transport((NAS_IP, 22))
-            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-            sftp = paramiko.SFTPClient.from_transport(transport)
-            sftp.stat(NAS_SHARE)
-            logger.info(f"Connected to NAS at {NAS_IP}/{NAS_SHARE}")
-            app_signals.append_log.emit(f"[API Scan] Connected to NAS at {NAS_IP}/{NAS_SHARE}")
-            return (transport, sftp)
-        except paramiko.AuthenticationException as e:
-            logger.error(f"NAS authentication failed: {e}")
-            app_signals.append_log.emit(f"[API Scan] Failed: NAS authentication error - {str(e)}")
-            # Don't retry on auth error — likely invalid credentials
-            return None
-        except paramiko.SSHException as e:
-            logger.error(f"NAS SSH error (attempt {attempt + 1}): {e}")
-            app_signals.append_log.emit(f"[API Scan] Failed: NAS SSH error (attempt {attempt + 1}) - {str(e)}")
-        except Exception as e:
-            logger.error(f"Failed to connect to NAS (attempt {attempt + 1}): {e}")
-            app_signals.append_log.emit(f"[API Scan] Failed: NAS connection error (attempt {attempt + 1}) - {str(e)}")
-
-        # Exponential backoff
-        time.sleep(delay)
-        delay *= 2
-
-    return None
+        raise Exception("NAS functionality disabled")
+    start = time.perf_counter()
+    try:
+        transport = paramiko.Transport((NAS_IP, 22))
+        transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        print(f"Connection time: {(time.perf_counter() - start)*1000:.1f}ms")
+        return (transport, sftp)
+    except (paramiko.AuthenticationException, paramiko.SSHException, Exception) as e:
+        print(f"Connection failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
+        raise Exception(f"NAS connection failed: {str(e)}")
 
 def check_nas_write_permission(sftp, nas_path):
     """Verify and set write permission for NAS directory and file."""
@@ -856,29 +870,43 @@ def post_api(api_url,payload):
 #             logger.error(f"Unexpected error: {e}")
 #             return {"error": "Unexpected error", "details": str(e)}
 
-def update_download_upload_metadata(task_id, request_status):
+# def update_download_upload_metadata(task_id, request_status):
    
+#     try:
+#         payload = {
+#             'id': task_id,
+#             'request_status': request_status
+#         }
+#         response = requests.post(API_URL_UPLOAD_DOWNLOAD_UPDATE, json=payload, verify=False)
+#         logger.info(response)
+#         if response.status_code == 200:
+#             return response.json()
+#         else:
+#             return {"error": "Failed to update metadata", "details": f"{response.status_code} {response.text}"}
+#     except requests.RequestException as e:
+#         logger.error(f"Error updating metadata: {e}")
+#         return {"error": "Request failed", "details": str(e)}
+#     except httpx.RequestError as req_err:
+#         logger.error(f"Request error while updating metadata: {req_err}")
+#         return {"error": "Request error", "details": str(req_err)}
+#     except Exception as e:
+#         logger.error(f"Failed to post metadata to API (Upload): {response.status_code} {response.text}")
+#         return {"error": "Unexpected error", "details": str(e)}
+   
+   
+def update_download_upload_metadata(task_id, request_status):
     try:
-        payload = {
-            'id': task_id,
-            'request_status': request_status
-        }
-        response = requests.post(API_URL_UPLOAD_DOWNLOAD_UPDATE, json=payload, verify=False)
-        logger.info(response)
+        response = httpx.post(API_URL_UPLOAD_DOWNLOAD_UPDATE, data=json.dumps({'id': task_id, 'request_status': request_status}), headers={"Content-Type": "application/json"}, verify=False, timeout=1.0)
         if response.status_code == 200:
             return response.json()
-        else:
-            return {"error": "Failed to update metadata", "details": f"{response.status_code} {response.text}"}
-    except requests.RequestException as e:
-        logger.error(f"Error updating metadata: {e}")
-        return {"error": "Request failed", "details": str(e)}
-    except httpx.RequestError as req_err:
-        logger.error(f"Request error while updating metadata: {req_err}")
-        return {"error": "Request error", "details": str(req_err)}
-    except Exception as e:
-        logger.error(f"Failed to post metadata to API (Upload): {response.status_code} {response.text}")
-        return {"error": "Unexpected error", "details": str(e)}
-   
+        logger.error(f"Failed: {response.status_code}")
+        return {"error": "Failed", "status": response.status_code}
+    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+        logger.error(f"Request error")
+        return {"error": "Request failed"}
+    except Exception:
+        logger.error("Unexpected error")
+        return {"error": "Unexpected error"}
 
 # ===================== image convertion logic =====================
 
@@ -2366,7 +2394,7 @@ class FileWatcherWorker(QObject):
         self._lock = Lock()  # Initialize the lock
         self.last_api_hit_time = None
         self.next_api_hit_time = None
-        self.api_poll_interval = 15000
+        self.api_poll_interval = 10000
         self.config = {
             "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
             "max_processed_tasks": 1000,
@@ -2412,76 +2440,141 @@ class FileWatcherWorker(QObject):
         self.log_update.emit(f"[Transfer] Prepared local path: {resolved_dest_path}")
         return resolved_dest_path
 
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     nas_connection = connect_to_nas()
+    #     if not nas_connection:
+    #         raise Exception(f"NAS connection failed to {NAS_IP}")
+    #     transport, sftp = nas_connection
+    #     try:
+    #         nas_path = item.get('file_path', src_path)
+    #         logger.debug(f"Checking NAS file at: {nas_path}")
+    #         self.log_update.emit(f"[Transfer] Checking NAS file at: {nas_path}")
+    #         sftp.stat(nas_path)
+    #         logger.debug(f"Found NAS file at: {nas_path}")
+    #         self.log_update.emit(f"[Transfer] Found NAS file at: {nas_path}")
+    #         sftp.chdir('/')
+    #         logger.debug(f"Attempting NAS download: {nas_path} to {dest_path}")
+    #         self.log_update.emit(f"[Transfer] Attempting NAS download: {nas_path} to {dest_path}")
+    #         file_attr = sftp.stat(nas_path)
+    #         logger.debug(f"File permissions: {oct(file_attr.st_mode)}")
+    #         self.log_update.emit(f"[Transfer] File permissions: {oct(file_attr.st_mode)}")
+    #         if not (file_attr.st_mode & 0o400):
+    #             raise PermissionError(f"File {nas_path} is not readable")
+    #         dest_dir = os.path.dirname(dest_path)
+    #         if not os.access(dest_dir, os.W_OK | os.X_OK):
+    #             raise PermissionError(f"No write permission for destination directory: {dest_dir}")
+    #         sftp.get(nas_path, dest_path)
+    #         os.chmod(dest_path, 0o666)
+    #     finally:
+    #         transport.close()
+    
     def _download_from_nas(self, src_path, dest_path, item):
-        nas_connection = connect_to_nas()
-        if not nas_connection:
-            raise Exception(f"NAS connection failed to {NAS_IP}")
-        transport, sftp = nas_connection
+        start = time.perf_counter()
         try:
-            nas_path = item.get('file_path', src_path)
-            logger.debug(f"Checking NAS file at: {nas_path}")
-            self.log_update.emit(f"[Transfer] Checking NAS file at: {nas_path}")
-            sftp.stat(nas_path)
-            logger.debug(f"Found NAS file at: {nas_path}")
-            self.log_update.emit(f"[Transfer] Found NAS file at: {nas_path}")
-            sftp.chdir('/')
-            logger.debug(f"Attempting NAS download: {nas_path} to {dest_path}")
-            self.log_update.emit(f"[Transfer] Attempting NAS download: {nas_path} to {dest_path}")
-            file_attr = sftp.stat(nas_path)
-            logger.debug(f"File permissions: {oct(file_attr.st_mode)}")
-            self.log_update.emit(f"[Transfer] File permissions: {oct(file_attr.st_mode)}")
-            if not (file_attr.st_mode & 0o400):
-                raise PermissionError(f"File {nas_path} is not readable")
-            dest_dir = os.path.dirname(dest_path)
-            if not os.access(dest_dir, os.W_OK | os.X_OK):
-                raise PermissionError(f"No write permission for destination directory: {dest_dir}")
-            sftp.get(nas_path, dest_path)
-            os.chmod(dest_path, 0o666)
-        finally:
-            transport.close()
-
+            transport, sftp = connect_to_nas()  # ~645.4ms based on prior measurement
+            try:
+                nas_path = item.get('file_path', src_path)
+                for attempt in range(2):  # Reduced to 2 retries
+                    try:
+                        sftp.get(nas_path, dest_path)
+                        os.chmod(dest_path, 0o666)
+                        print(f"Download time: {(time.perf_counter() - start)*1000:.1f}ms")
+                        file_size = os.path.getsize(dest_path) / (1024 * 1024)  # Size in MB
+                        print(f"Download time: {(time.perf_counter() - start)*1000:.1f}ms, File size: {file_size:.2f}MB")
+                        return
+                    except (OSError, IOError) as e:
+                        if attempt == 1:  # Last attempt
+                            raise
+                        time.sleep(0.05)  # Fixed 0.05s delay
+            finally:
+                transport.close()
+        except Exception as e:
+            print(f"Download failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
+            raise
+    # def _upload_to_nas(self, src_path, dest_path, item):
+    #     if not Path(src_path).exists():
+    #         raise FileNotFoundError(f"Source file does not exist: {src_path}")
+    #     nas_connection = connect_to_nas()
+    #     if not nas_connection:
+    #         raise Exception(f"NAS connection failed to {NAS_IP}")
+    #     transport, sftp = nas_connection
+    #     try:
+    #         dest_path = item.get('file_path', dest_path)
+    #         dest_dir = "/".join(dest_path.split("/")[:-1])
+    #         try:
+    #             sftp.stat(dest_dir)
+    #             self.log_update.emit(f"[Transfer] NAS parent directory exists: {dest_dir}")
+    #         except FileNotFoundError:
+    #             self.log_update.emit(f"[Transfer] Creating NAS parent directory: {dest_dir}")
+    #             sftp.makedirs(dest_dir, mode=0o777)
+    #         try:
+    #             sftp.chmod(dest_dir, 0o777)
+    #             self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
+    #         except Exception as e:
+    #             self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
+    #         try:
+    #             file_attr = sftp.stat(dest_path)
+    #             if file_attr:
+    #                 sftp.chmod(dest_path, 0o777)
+    #                 self.log_update.emit(f"[Transfer] Set permissions to 777 for existing file: {dest_path}")
+    #         except FileNotFoundError:
+    #             self.log_update.emit(f"[Transfer] No existing file at {dest_path}, proceeding with upload")
+    #         temp_test_file = f"{dest_dir}/test_permissions_{int(time.time())}.tmp"
+    #         try:
+    #             sftp.putfo(io.BytesIO(b"test"), temp_test_file)
+    #             sftp.remove(temp_test_file)
+    #         except Exception as e:
+    #             raise PermissionError(f"No write permission for NAS directory {dest_dir}: {str(e)}")
+    #         logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
+    #         self.log_update.emit(f"[Transfer] Uploading {src_path} to NAS path {dest_path}")
+    #         sftp.put(src_path, dest_path)
+    #         sftp.chmod(dest_path, 0o777)
+    #         self.log_update.emit(f"[Transfer] Set permissions to 777 for uploaded file: {dest_path}")
+    #     finally:
+    #         transport.close()
+    
+    
     def _upload_to_nas(self, src_path, dest_path, item):
-        if not Path(src_path).exists():
+  
+        start_time = time.time()
+        src_path = Path(src_path)
+        
+        if not src_path.exists():
             raise FileNotFoundError(f"Source file does not exist: {src_path}")
-        nas_connection = connect_to_nas()
-        if not nas_connection:
+        
+        file_size = src_path.stat().st_size
+        size_units = ("B", "KB", "MB", "GB", "TB")
+        i = int(file_size and __import__('math').floor(__import__('math').log(file_size, 1024)))
+        human_size = f"{round(file_size / __import__('math').pow(1024, i), 2)} {size_units[i]}"
+        
+        transport, sftp = connect_to_nas()
+        if not transport:
             raise Exception(f"NAS connection failed to {NAS_IP}")
-        transport, sftp = nas_connection
+        
         try:
             dest_path = item.get('file_path', dest_path)
             dest_dir = "/".join(dest_path.split("/")[:-1])
             try:
                 sftp.stat(dest_dir)
-                self.log_update.emit(f"[Transfer] NAS parent directory exists: {dest_dir}")
             except FileNotFoundError:
-                self.log_update.emit(f"[Transfer] Creating NAS parent directory: {dest_dir}")
                 sftp.makedirs(dest_dir, mode=0o777)
-            try:
-                sftp.chmod(dest_dir, 0o777)
-                self.log_update.emit(f"[Transfer] Set permissions to 777 for directory: {dest_dir}")
-            except Exception as e:
-                self.log_update.emit(f"[Transfer] Warning: Failed to set directory permissions to 777 for {dest_dir}: {str(e)}")
-            try:
-                file_attr = sftp.stat(dest_path)
-                if file_attr:
+            
+            for attempt in range(3):
+                try:
+                    sftp.put(src_path, dest_path, callback=None)
                     sftp.chmod(dest_path, 0o777)
-                    self.log_update.emit(f"[Transfer] Set permissions to 777 for existing file: {dest_path}")
-            except FileNotFoundError:
-                self.log_update.emit(f"[Transfer] No existing file at {dest_path}, proceeding with upload")
-            temp_test_file = f"{dest_dir}/test_permissions_{int(time.time())}.tmp"
-            try:
-                sftp.putfo(io.BytesIO(b"test"), temp_test_file)
-                sftp.remove(temp_test_file)
-            except Exception as e:
-                raise PermissionError(f"No write permission for NAS directory {dest_dir}: {str(e)}")
-            logger.debug(f"Attempting NAS upload: {src_path} to {dest_path}")
-            self.log_update.emit(f"[Transfer] Uploading {src_path} to NAS path {dest_path}")
-            sftp.put(src_path, dest_path)
-            sftp.chmod(dest_path, 0o777)
-            self.log_update.emit(f"[Transfer] Set permissions to 777 for uploaded file: {dest_path}")
+                    upload_time = time.time() - start_time
+                    speed = file_size / upload_time / 1024 / 1024 if upload_time > 0 else 0
+                    print(f"Uploaded {src_path} ({human_size}) to {dest_path} in {upload_time:.2f}s ({speed:.2f} MB/s)")
+                    return
+                except (OSError, IOError) as e:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.05 * (2 ** attempt))  # Reduced backoff: 0.05s, 0.1s, 0.2s
         finally:
             transport.close()
-
+            
+        
     def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas, file_type="original"):
         cache = load_cache()
         cache.setdefault("downloaded_files", {})
@@ -2840,31 +2933,55 @@ class FileWatcherWorker(QObject):
                 # Post-upload API call logic for original file
                
                 try:
+                    start_time = time.time()
+
                     request_data = {
                         'job_id': item.get('job_id'),
                         'project_id': item.get("project_id"),
-                        'file_name': item.get("user_id"),
+                        'file_name': item.get("user_id"),  # <-- Confirm this is correct
                         'user_id': item.get("user_id"),
                         'user_type': item.get("user_type"),
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
                     }
-                    
-                    # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
-                    response = requests.post(
-                        DRUPAL_DB_ENTRY_API,
-                        data=request_data,
-                        headers={},
-                        verify=False
-                    )
-                    update_download_upload_metadata(task_id, "completed")
-                    logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
-                    # print("DRUPAL_DB_ENTRY_API data success:", response.text)
+
+                    headers = {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    }
+
+                    logging.info(f"Request payload: {request_data}")
+
+                    with httpx.Client(timeout=Timeout(3.0, read=10.0), http2=True) as client:
+                        for attempt in range(3):
+                            try:
+                                response = client.post(
+                                    DRUPAL_DB_ENTRY_API,
+                                    data=request_data,
+                                    headers=headers,
+                                    verify=False
+                                )
+                                response.raise_for_status()
+                                process_time = time.time() - start_time
+                                logging.info(f"API call success: {response.text} (Time: {process_time:.2f}s)")
+                                update_download_upload_metadata(task_id, "completed")
+                                break
+                            except httpx.HTTPStatusError as e:
+                                logging.warning(f"Attempt {attempt+1} failed with HTTP error: {e.response.status_code} - {e.response.text}")
+                                if attempt == 2 or e.response.status_code not in {500, 502, 503, 504}:
+                                    raise
+                                time.sleep(0.1 * (2 ** attempt))
+                            except httpx.RequestError as e:
+                                logging.warning(f"Attempt {attempt+1} failed with Request error: {str(e)}")
+                                if attempt == 2:
+                                    raise
+                                time.sleep(0.1 * (2 ** attempt))
+
                 except Exception as e:
-                    logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
-                    # print("Error in DRUPAL_DB_ENTRY_API data:", e)
+                    process_time = time.time() - start_time
+                    logging.error(f"Final API call failed after 3 attempts: {str(e)} (Time: {process_time:.2f}s)")
+
                
                
                
@@ -4425,7 +4542,9 @@ class PremediaApp(QApplication):
             if cache.get("token") and cache.get("user") and cache.get("user_id") and not self.logged_in:
                 logger.debug("Attempting auto-login with cached credentials")
                 app_signals.append_log.emit("[Init] Attempting auto-login with cached credentials")
-                validation_result = validate_user(key, self.log_window.status_bar)
+                user_info = cache.get("user_info", {})
+                access_key = user_info.get("access_key", "")
+                validation_result = validate_user(access_key, self.log_window.status_bar)
                 if validation_result.get("uuid"):
                     try:
                         info_resp = HTTP_SESSION.get(
