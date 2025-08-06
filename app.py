@@ -57,7 +57,7 @@ try:
     import imagecodecs
 except ImportError:
     logger.warning("imagecodecs not installed, LZW-compressed TIFFs may not work")
-
+from httpx import Timeout
 if platform.system() == "Windows":
     import pythoncom
     import win32com.client
@@ -97,7 +97,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
+BASE_DOMAIN = "https://app.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -169,11 +169,11 @@ API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
 NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irdev"
-NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_USERNAME = "irnasappprod"
+NAS_PASSWORD = "D&*qmn012@12"
 NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
@@ -519,7 +519,7 @@ def validate_user(access_key, status_bar=None):
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
         cache = load_cache()
-        validation_url = "https://app-uat.vmgpremedia.com/api/user/validate"
+        validation_url = "https://app.vmgpremedia.com/api/user/validate"
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
         
@@ -2931,8 +2931,11 @@ class FileWatcherWorker(QObject):
                 else:
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
                 # Post-upload API call logic for original file
-               
                 try:
+                    import time
+                    import httpx
+                    from httpx import Timeout
+                    
                     start_time = time.time()
 
                     request_data = {
@@ -2944,7 +2947,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
                     }
 
                     headers = {
@@ -2953,17 +2956,17 @@ class FileWatcherWorker(QObject):
 
                     logging.info(f"Request payload: {request_data}")
 
-                    with httpx.Client(timeout=Timeout(3.0, read=10.0), http2=True) as client:
+                    with httpx.Client(timeout=Timeout(3.0, read=10.0), verify=False) as client:
                         for attempt in range(3):
                             try:
                                 response = client.post(
                                     DRUPAL_DB_ENTRY_API,
                                     data=request_data,
-                                    headers=headers,
-                                    verify=False
+                                    headers=headers
                                 )
                                 response.raise_for_status()
                                 process_time = time.time() - start_time
+                                print(f"API call completed in {process_time:.2f}s")
                                 logging.info(f"API call success: {response.text} (Time: {process_time:.2f}s)")
                                 update_download_upload_metadata(task_id, "completed")
                                 break
@@ -2981,7 +2984,6 @@ class FileWatcherWorker(QObject):
                 except Exception as e:
                     process_time = time.time() - start_time
                     logging.error(f"Final API call failed after 3 attempts: {str(e)} (Time: {process_time:.2f}s)")
-
                
                
                
