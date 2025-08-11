@@ -97,7 +97,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
+BASE_DOMAIN = "https://app.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -169,11 +169,11 @@ API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
 NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irdev"
-NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_USERNAME = "irnasappprod"
+NAS_PASSWORD = "D&*qmn012@12"
 NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
@@ -519,7 +519,7 @@ def validate_user(access_key, status_bar=None):
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
         cache = load_cache()
-        validation_url = "https://app-uat.vmgpremedia.com/api/user/validate"
+        validation_url = "https://app.vmgpremedia.com/api/user/validate"
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
         
@@ -2491,6 +2491,7 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             print(f"Download failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
             raise
+
     # def _upload_to_nas(self, src_path, dest_path, item):
     #     if not Path(src_path).exists():
     #         raise FileNotFoundError(f"Source file does not exist: {src_path}")
@@ -2932,59 +2933,31 @@ class FileWatcherWorker(QObject):
                     self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
                 # Post-upload API call logic for original file
                 try:
-                    import time
-                    import httpx
-                    from httpx import Timeout
-                    
-                    start_time = time.time()
-
                     request_data = {
                         'job_id': item.get('job_id'),
                         'project_id': item.get("project_id"),
-                        'file_name': item.get("user_id"),  # <-- Confirm this is correct
+                        'file_name': item.get("user_id"),
                         'user_id': item.get("user_id"),
                         'user_type': item.get("user_type"),
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
                     }
-
-                    headers = {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    }
-
-                    logging.info(f"Request payload: {request_data}")
-
-                    with httpx.Client(timeout=Timeout(3.0, read=10.0), verify=False) as client:
-                        for attempt in range(3):
-                            try:
-                                response = client.post(
-                                    DRUPAL_DB_ENTRY_API,
-                                    data=request_data,
-                                    headers=headers
-                                )
-                                response.raise_for_status()
-                                process_time = time.time() - start_time
-                                print(f"API call completed in {process_time:.2f}s")
-                                logging.info(f"API call success: {response.text} (Time: {process_time:.2f}s)")
-                                update_download_upload_metadata(task_id, "completed")
-                                break
-                            except httpx.HTTPStatusError as e:
-                                logging.warning(f"Attempt {attempt+1} failed with HTTP error: {e.response.status_code} - {e.response.text}")
-                                if attempt == 2 or e.response.status_code not in {500, 502, 503, 504}:
-                                    raise
-                                time.sleep(0.1 * (2 ** attempt))
-                            except httpx.RequestError as e:
-                                logging.warning(f"Attempt {attempt+1} failed with Request error: {str(e)}")
-                                if attempt == 2:
-                                    raise
-                                time.sleep(0.1 * (2 ** attempt))
-
+                    
+                    # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+                    response = requests.post(
+                        DRUPAL_DB_ENTRY_API,
+                        data=request_data,
+                        headers={},
+                        verify=False
+                    )
+                    update_download_upload_metadata(task_id, "completed")
+                    logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
+                    # print("DRUPAL_DB_ENTRY_API data success:", response.text)
                 except Exception as e:
-                    process_time = time.time() - start_time
-                    logging.error(f"Final API call failed after 3 attempts: {str(e)} (Time: {process_time:.2f}s)")
-               
+                    logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
+                    # print("Error in DRUPAL_DB_ENTRY_API data:", e)
                
                
                 # user_type = cache.get('user_type', '').lower()
