@@ -2394,7 +2394,7 @@ class FileWatcherWorker(QObject):
         self._lock = Lock()  # Initialize the lock
         self.last_api_hit_time = None
         self.next_api_hit_time = None
-        self.api_poll_interval = 10000
+        self.api_poll_interval = 3000
         self.config = {
             "photoshop_path": os.getenv("PHOTOSHOP_PATH", ""),
             "max_processed_tasks": 1000,
@@ -4783,7 +4783,7 @@ class PremediaApp(QApplication):
                     logger.warning("File watcher thread did not stop gracefully, terminating")
                     app_signals.append_log.emit("[App] File watcher thread did not stop gracefully, terminating")
                     self.file_watcher_thread.terminate()
-                    self.file_watcher_thread.wait(1000)
+                    self.file_watcher_thread.wait(500)
 
             for w in QApplication.topLevelWidgets():
                 logger.debug(f"Closing widget: {w}")
