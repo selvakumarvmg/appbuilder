@@ -2813,7 +2813,7 @@ class FileWatcherWorker(QObject):
                             update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
-                            update_download_upload_metadata(task_id, "failed")
+                            # update_download_upload_metadata(task_id, "failed open in photoshop")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
@@ -2830,7 +2830,7 @@ class FileWatcherWorker(QObject):
                             update_download_upload_metadata(task_id, "completed")
                             self.open_with_photoshop(dest_path)
                         except Exception as e:
-                            update_download_upload_metadata(task_id, "failed")
+                            # update_download_upload_metadata(task_id, "failed open in photoshop")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
@@ -2952,7 +2952,7 @@ class FileWatcherWorker(QObject):
                         headers={},
                         verify=False
                     )
-                    update_download_upload_metadata(task_id, "completed")
+                    update_download_upload_metadata(task_id, "Convertion Started")
                     logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
                     # print("DRUPAL_DB_ENTRY_API data success:", response.text)
                 except Exception as e:
