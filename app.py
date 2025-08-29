@@ -2793,8 +2793,7 @@ class FileWatcherWorker(QObject):
     #         self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {e}")
     #         raise
 
-
-    def open_with_photoshop(self, file_path):
+    def open_with_photoshop(self, file_path, key_val):
         """Open a file in Adobe Photoshop across platforms and bring it to the front if minimized."""
         try:
             import platform
@@ -2802,49 +2801,24 @@ class FileWatcherWorker(QObject):
             import time
             import logging
             from pathlib import Path
-
+            
             logger = logging.getLogger(__name__)
             system = platform.system()
             file_path = str(Path(file_path).resolve())
+            try:
+                key_val_int = int(key_val)
+            except (TypeError, ValueError):
+                key_val_int = 0  # fallback if conversion fails
 
+            if key_val_int >= 1:
+                self.log_update.emit("[Photoshop] Skipping photoshop file open")
+                logger.info("Skipping photoshop file open")
+                return True
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            # Check if Photoshop is running and has open documents
-            if system == "Windows":
-                try:
-                    import win32com.client
-                    ps_app = win32com.client.Dispatch("Photoshop.Application")
-                    if ps_app.Documents.Count > 0:
-                        logger.info("Photoshop already has open documents. Skipping file opening.")
-                        self.log_update.emit(f"[Photoshop] Skipped opening {Path(file_path).name}: Photoshop already has open documents")
-                        return
-                except Exception as e:
-                    logger.debug(f"Failed to check Photoshop documents on Windows: {e}")
-            elif system == "Darwin":
-                try:
-                    applescript = '''
-                    tell application "Adobe Photoshop 2025"
-                        if (count of documents) > 0 then
-                            return "has_documents"
-                        else
-                            return "no_documents"
-                        end if
-                    end tell
-                    '''
-                    result = subprocess.run(["osascript", "-e", applescript], capture_output=True, text=True, check=True)
-                    if result.stdout.strip() == "has_documents":
-                        logger.info("Photoshop already has open documents. Skipping file opening.")
-                        self.log_update.emit(f"[Photoshop] Skipped opening {Path(file_path).name}: Photoshop already has open documents")
-                        return
-                except subprocess.CalledProcessError as e:
-                    logger.debug(f"Failed to check Photoshop documents on macOS: {e}")
-            elif system == "Linux":
-                # Note: Checking open documents in Photoshop via Wine is complex and may not be reliable.
-                logger.warning("Cannot reliably check for open documents in Photoshop on Linux/Wine. Proceeding with file opening.")
-
             logger.debug(f"System: {system}, File path: {file_path}")
-
+        
             photoshop_path = self.config.get("photoshop_path")
             if not photoshop_path or not Path(photoshop_path).exists():
                 if system == "Windows":
@@ -2902,6 +2876,8 @@ class FileWatcherWorker(QObject):
                     # Bring Photoshop to front
                     applescript = 'tell application "Adobe Photoshop 2025" to activate'
                     subprocess.run(["osascript", "-e", applescript], check=True)
+
+                    
 
                 elif system == "Linux":
                     try:
@@ -2983,6 +2959,8 @@ class FileWatcherWorker(QObject):
                             logger.warning(f"Failed to open file with Photoshop: {e}")
                             continue
 
+
+
                     elif system == "Linux":
                         subprocess.run(["wine", photoshop_path, file_path], check=True)
                         try:
@@ -3023,7 +3001,9 @@ class FileWatcherWorker(QObject):
                         app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
                         try:
                             update_download_upload_metadata(task_id, "completed")
-                            self.open_with_photoshop(dest_path)
+                            key_val = item.get("key_val")
+                            print(key_val)
+                            self.open_with_photoshop(dest_path, key_val)
                         except Exception as e:
                             # update_download_upload_metadata(task_id, "failed open in photoshop")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
@@ -3040,7 +3020,9 @@ class FileWatcherWorker(QObject):
                         app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
                         try:
                             update_download_upload_metadata(task_id, "completed")
-                            self.open_with_photoshop(dest_path)
+                            key_val = item.get("key_val")
+                            print(key_val)
+                            self.open_with_photoshop(dest_path, key_val)
                         except Exception as e:
                             # update_download_upload_metadata(task_id, "failed open in photoshop")
                             logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
