@@ -2980,7 +2980,7 @@ class FileWatcherWorker(QObject):
             logger.info(f"Successfully opened {Path(file_path).name} using Photoshop path: {photoshop_path}")
 
         except Exception as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
+            logger.error(f"Fddddailed to open {file_path} in Photoshop: {e}")
             self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {e}")
             raise
 
@@ -3006,8 +3006,8 @@ class FileWatcherWorker(QObject):
                             self.open_with_photoshop(dest_path, key_val)
                         except Exception as e:
                             # update_download_upload_metadata(task_id, "failed open in photoshop")
-                            logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
-                            self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
+                            logger.warning(f"Failed. to open {dest_path} with Photoshop: {str(e)}")
+                            self.log_update.emit(f"[Transfer] Warning: Failed. to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
                         app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
@@ -3025,7 +3025,7 @@ class FileWatcherWorker(QObject):
                             self.open_with_photoshop(dest_path, key_val)
                         except Exception as e:
                             # update_download_upload_metadata(task_id, "failed open in photoshop")
-                            logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
+                            logger.warning(f"Failed- to open {dest_path} with Photoshop: {str(e)}")
                             self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
                         self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
                         self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
@@ -3841,7 +3841,20 @@ class FileListWindow(QDialog):
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
+            import platform
+            import subprocess
+            import logging
+            from pathlib import Path
+            logger = logging.getLogger(__name__)
             system = platform.system()
+            file_path = str(Path(file_path).resolve())
+
+            if not Path(file_path).is_file():
+                logger.error(f"File not found: {file_path}")
+                app_signals.append_log.emit(f"[Photoshop] File not found: {file_path}")
+                app_signals.update_status.emit(f"File not found: {file_path}")
+                return
+
             photoshop_path = None
 
             if system == "Windows":
@@ -3861,20 +3874,18 @@ class FileListWindow(QDialog):
                     raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
             elif system == "Darwin":
-                try:
-                    result = subprocess.run(
-                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
-                        capture_output=True, text=True, check=True
-                    )
-                    if result.stdout.strip():
-                        photoshop_path = result.stdout.strip().split("\n")[0]
-                except subprocess.CalledProcessError:
+                photoshop_app_path = "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"
+                if not Path(photoshop_app_path).exists():
+                    logger.debug("Checking fallback paths for Photoshop")
                     photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
                     if photoshop_apps:
                         photoshop_apps.sort(key=lambda x: x.name, reverse=True)
                         photoshop_path = str(photoshop_apps[0])
-                if not photoshop_path:
-                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+                        logger.debug(f"Found Photoshop via glob: {photoshop_path}")
+                    else:
+                        raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+                else:
+                    photoshop_path = photoshop_app_path
 
             elif system == "Linux":
                 try:
@@ -3904,6 +3915,8 @@ class FileListWindow(QDialog):
 
             if system == "Darwin":
                 subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+                applescript = 'tell application "Adobe Photoshop 2025" to activate'
+                subprocess.run(["osascript", "-e", applescript], check=True)
             else:
                 subprocess.run([photoshop_path, file_path], check=True)
 
@@ -5369,8 +5382,7 @@ class PremediaApp(QApplication):
     #         QMessageBox.critical(self, "Photoshop Error", error_msg)
 
 
-
-    def open_with_photoshop(self, file_path):
+    def open_with_photoshop(self, file_path, key_val):
         """Open a file in Adobe Photoshop across platforms and bring it to the front if minimized."""
         try:
             import platform
@@ -5381,6 +5393,16 @@ class PremediaApp(QApplication):
             logger = logging.getLogger(__name__)
             system = platform.system()
             file_path = str(Path(file_path).resolve())
+
+            try:
+                key_val_int = int(key_val)
+            except (TypeError, ValueError):
+                key_val_int = 0  # fallback if conversion fails
+
+            if key_val_int >= 1:
+                logger.info("Skipping photoshop file open")
+                app_signals.append_log.emit("[Photoshop] Skipping photoshop file open")
+                return True
 
             if not Path(file_path).is_file():
                 error_msg = f"File not found: {file_path}"
@@ -5427,25 +5449,24 @@ class PremediaApp(QApplication):
                         return
 
                 elif system == "Darwin":
-                    try:
-                        result = subprocess.run(
-                            ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
-                            capture_output=True, text=True, check=True
-                        )
-                        if result.stdout.strip():
-                            photoshop_path = result.stdout.strip().split("\n")[0]
-                    except subprocess.CalledProcessError:
+                    photoshop_app_path = "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"
+                    if not Path(photoshop_app_path).exists():
+                        # Fallback to searching for other Photoshop versions
+                        logger.debug(f"Checking fallback paths for Photoshop")
                         photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
                         if photoshop_apps:
                             photoshop_apps.sort(key=lambda x: x.name, reverse=True)
                             photoshop_path = str(photoshop_apps[0])
-                    if not photoshop_path:
-                        error_msg = "Adobe Photoshop application not found in /Applications"
-                        logger.error(error_msg)
-                        app_signals.append_log.emit(f"[Photoshop] {error_msg}")
-                        app_signals.update_status.emit(error_msg)
-                        QMessageBox.critical(self, "Photoshop Error", error_msg)
-                        return
+                            logger.debug(f"Found Photoshop via glob: {photoshop_path}")
+                        else:
+                            error_msg = "Adobe Photoshop application not found in /Applications"
+                            logger.error(error_msg)
+                            app_signals.append_log.emit(f"[Photoshop] {error_msg}")
+                            app_signals.update_status.emit(error_msg)
+                            QMessageBox.critical(self, "Photoshop Error", error_msg)
+                            return
+                    else:
+                        photoshop_path = photoshop_app_path
 
                 elif system == "Linux":
                     try:
@@ -5524,7 +5545,7 @@ class PremediaApp(QApplication):
 
                     elif system == "Darwin":
                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
-                        applescript = 'tell application "System Events" to tell process "Adobe Photoshop" to set frontmost to true'
+                        applescript = 'tell application "Adobe Photoshop 2025" to activate'
                         subprocess.run(["osascript", "-e", applescript], check=True)
                         logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
                         app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
@@ -5557,10 +5578,9 @@ class PremediaApp(QApplication):
         except Exception as e:
             error_msg = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
             logger.error(error_msg)
-            app_signals.append_log.emit(f"[Photoshop] {error_msg}")
+            app_signals.append_log.emit(f"[Photoshop]宾(0x7f81cb160ff0) at 0x1174f7d40> error, ignoring new parent=<__main__.FileListWindow object at 0x1174f7d40>")
             app_signals.update_status.emit(error_msg)
-            QMessageBox.critical(self, "Photoshop Error", error_msg)
-
+            QMessageBox.critical(self, "Photoshop Error", error_msg)   
 
     def update_progress(self, value: int):
         try:
