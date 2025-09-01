@@ -151,7 +151,7 @@ def get_cache_file_path():
     except Exception as e:
         logger.error(f"Failed to create cache directory {cache_dir}: {e}")
         app_signals.append_log.emit(f"[Cache] Failed to create cache directory {cache_dir}: {str(e)}")
-    return str(cache_dir / "cache.json")
+    return str(BASE_TARGET_DIR / "cache.json")
 
 CACHE_FILE = get_cache_file_path()
 CACHE_DAYS = 10
