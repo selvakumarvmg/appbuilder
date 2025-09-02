@@ -36,6 +36,7 @@ import warnings
 import tempfile
 import psutil  # To check if Photoshop is running
 from threading import Lock
+from concurrent.futures import ThreadPoolExecutor
 if platform.system() != "Windows":
     import fcntl
 import numpy as np
@@ -97,7 +98,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -168,20 +169,20 @@ API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
-NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irnasappprod"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_USERNAME = "irnasappprod"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -529,7 +530,7 @@ def validate_user(access_key, status_bar=None):
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
         cache = load_cache()
-        validation_url = "https://app.vmgpremedia.com/api/user/validate"
+        validation_url = USER_VALIDATE_URL
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
         app_signals.append_log.emit(f"[API Scan] Validating user with access_key: {access_key[:8]}...")
         
@@ -2495,30 +2496,48 @@ class FileWatcherWorker(QObject):
     #         os.chmod(dest_path, 0o666)
     #     finally:
     #         transport.close()
-    
+
     def _download_from_nas(self, src_path, dest_path, item):
-        start = time.perf_counter()
+        """Download a file from NAS via SFTP and measure speed/time."""
         try:
-            transport, sftp = connect_to_nas()  # ~645.4ms based on prior measurement
-            try:
-                nas_path = item.get('file_path', src_path)
-                for attempt in range(2):  # Reduced to 2 retries
-                    try:
-                        sftp.get(nas_path, dest_path)
-                        os.chmod(dest_path, 0o666)
-                        print(f"Download time: {(time.perf_counter() - start)*1000:.1f}ms")
-                        file_size = os.path.getsize(dest_path) / (1024 * 1024)  # Size in MB
-                        print(f"Download time: {(time.perf_counter() - start)*1000:.1f}ms, File size: {file_size:.2f}MB")
-                        return
-                    except (OSError, IOError) as e:
-                        if attempt == 1:  # Last attempt
-                            raise
-                        time.sleep(0.05)  # Fixed 0.05s delay
-            finally:
-                transport.close()
+            # Measure connection time
+            conn_start = time.time()
+            transport = paramiko.Transport((NAS_IP, 22))
+            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            conn_end = time.time()
+            connection_time = (conn_end - conn_start) * 1000  # ms
+
+            # Pick path: either from item dict or src_path
+            nas_path = item.get("file_path", src_path) if isinstance(item, dict) else src_path
+
+            # Get remote file size
+            file_size = sftp.stat(nas_path).st_size
+            file_size_mb = file_size / (1024 * 1024)
+
+            # Download with timing
+            start_time = time.time()
+            sftp.get(nas_path, dest_path)
+            end_time = time.time()
+
+            # Calculate metrics
+            duration = end_time - start_time
+            speed = file_size_mb / duration if duration > 0 else 0
+
+            print(f"Connection time: {connection_time:.1f} ms")
+            print(f"✅ Downloaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
+
+            # Close connection
+            sftp.close()
+            transport.close()
+
         except Exception as e:
-            print(f"Download failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
+            print(f"❌ Download failed: {e}")
             raise
+
+
+
+
 
     # def _upload_to_nas(self, src_path, dest_path, item):
     #     if not Path(src_path).exists():
@@ -2564,44 +2583,61 @@ class FileWatcherWorker(QObject):
     
     
     def _upload_to_nas(self, src_path, dest_path, item):
-  
-        start_time = time.time()
-        src_path = Path(src_path)
-        
-        if not src_path.exists():
-            raise FileNotFoundError(f"Source file does not exist: {src_path}")
-        
-        file_size = src_path.stat().st_size
-        size_units = ("B", "KB", "MB", "GB", "TB")
-        i = int(file_size and __import__('math').floor(__import__('math').log(file_size, 1024)))
-        human_size = f"{round(file_size / __import__('math').pow(1024, i), 2)} {size_units[i]}"
-        
-        transport, sftp = connect_to_nas()
-        if not transport:
-            raise Exception(f"NAS connection failed to {NAS_IP}")
-        
+        """Upload a file to NAS via SFTP and measure speed/time."""
         try:
-            dest_path = item.get('file_path', dest_path)
-            dest_dir = "/".join(dest_path.split("/")[:-1])
+            src_path = Path(src_path)
+            if not src_path.exists():
+                raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+            # Measure connection time
+            conn_start = time.time()
+            transport = paramiko.Transport((NAS_IP, 22))
+            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            conn_end = time.time()
+            connection_time = (conn_end - conn_start) * 1000  # ms
+
+            # Destination path (from item dict or param)
+            dest_path = item.get("file_path", dest_path) if isinstance(item, dict) else dest_path
+            dest_dir = os.path.dirname(dest_path)
+
+            # Ensure remote directory exists
             try:
                 sftp.stat(dest_dir)
             except FileNotFoundError:
-                sftp.makedirs(dest_dir, mode=0o777)
-            
-            for attempt in range(3):
-                try:
-                    sftp.put(src_path, dest_path, callback=None)
-                    sftp.chmod(dest_path, 0o777)
-                    upload_time = time.time() - start_time
-                    speed = file_size / upload_time / 1024 / 1024 if upload_time > 0 else 0
-                    print(f"Uploaded {src_path} ({human_size}) to {dest_path} in {upload_time:.2f}s ({speed:.2f} MB/s)")
-                    return
-                except (OSError, IOError) as e:
-                    if attempt == 2:
-                        raise
-                    time.sleep(0.05 * (2 ** attempt))  # Reduced backoff: 0.05s, 0.1s, 0.2s
-        finally:
+                parts = dest_dir.strip("/").split("/")
+                current = ""
+                for part in parts:
+                    current += f"/{part}"
+                    try:
+                        sftp.stat(current)
+                    except FileNotFoundError:
+                        sftp.mkdir(current, mode=0o777)
+
+            # Get file size
+            file_size = src_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+
+            # Upload with timing
+            start_time = time.time()
+            sftp.put(str(src_path), dest_path)
+            sftp.chmod(dest_path, 0o777)
+            end_time = time.time()
+
+            # Metrics
+            duration = end_time - start_time
+            speed = file_size_mb / duration if duration > 0 else 0
+
+            print(f"Connection time: {connection_time:.1f} ms")
+            print(f"✅ Uploaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
+
+            # Close connection
+            sftp.close()
             transport.close()
+
+        except Exception as e:
+            print(f"❌ Upload failed: {e}")
+            raise
             
         
     def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas, file_type="original"):
@@ -3164,7 +3200,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
                     }
                     
                     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
