@@ -3906,10 +3906,34 @@ class FileListWindow(QDialog):
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
+            import platform
+            import subprocess
+            import time
+            import logging
+            from pathlib import Path
+
+            logger = logging.getLogger(__name__)
             system = platform.system()
+            file_path = str(Path(file_path).resolve())
+
+            # Validate file existence
+            if not Path(file_path).exists():
+                raise FileNotFoundError(f"File does not exist: {file_path}")
+
+            logger.debug(f"System: {system}, File path: {file_path}")
             photoshop_path = None
 
             if system == "Windows":
+                try:
+                    import win32gui
+                    import win32con
+                    import win32com.client
+                    import win32api
+                    import win32process
+                    import ctypes
+                except ImportError as e:
+                    raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
                 search_dirs = [
                     Path("C:/Program Files/Adobe"),
                     Path("C:/Program Files (x86)/Adobe")
@@ -3925,10 +3949,62 @@ class FileListWindow(QDialog):
                 if not photoshop_path:
                     raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
+                # Try opening via COM first
+                for attempt in range(3):
+                    try:
+                        ps_app = win32com.client.Dispatch("Photoshop.Application")
+                        ps_app.Visible = True
+                        ps_app.Open(file_path)
+
+                        # Bring Photoshop to front
+                        def bring_to_front(title_contains="Adobe Photoshop"):
+                            def enum_handler(hwnd, _):
+                                if win32gui.IsWindowVisible(hwnd):
+                                    title = win32gui.GetWindowText(hwnd)
+                                    if title_contains.lower() in title.lower():
+                                        try:
+                                            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                            fg_thread = win32process.GetWindowThreadProcessId(
+                                                win32gui.GetForegroundWindow())[0]
+                                            target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+                                            this_thread = win32api.GetCurrentThreadId()
+                                            if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+                                                win32gui.SetForegroundWindow(hwnd)
+                                                ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+                                        except Exception as e:
+                                            logger.debug(f"Window activation failed: {e}")
+                            win32gui.EnumWindows(enum_handler, None)
+
+                        time.sleep(1.5)
+                        bring_to_front()
+                        logger.info(f"Opened {Path(file_path).name} via COM")
+                        print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            logger.debug(f"COM attempt {attempt+1} failed: {e}. Retrying...")
+                            time.sleep(2)
+                        else:
+                            logger.debug(f"COM method failed: {e}. Falling back to subprocess.")
+                            subprocess.run([photoshop_path, file_path], check=True)
+                            time.sleep(2)
+                            # Bring Photoshop to front via subprocess fallback
+                            def enum_windows_callback(hwnd, hwnds):
+                                if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+                                    hwnds.append(hwnd)
+                            hwnds = []
+                            win32gui.EnumWindows(enum_windows_callback, hwnds)
+                            if hwnds:
+                                win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+                                win32gui.SetForegroundWindow(hwnds[0])
+                            logger.info(f"Opened {Path(file_path).name} via subprocess")
+                            print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                            break
+
             elif system == "Darwin":
                 try:
                     result = subprocess.run(
-                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop.app'"],
+                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop*.app'"],
                         capture_output=True, text=True, check=True
                     )
                     if result.stdout.strip():
@@ -3940,6 +4016,22 @@ class FileListWindow(QDialog):
                         photoshop_path = str(photoshop_apps[0])
                 if not photoshop_path:
                     raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+
+                # Open file and bring Photoshop to front
+                for attempt in range(3):
+                    try:
+                        subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+                        applescript = f'tell application "{Path(photoshop_path).name}" to activate'
+                        subprocess.run(["osascript", "-e", applescript], check=True)
+                        logger.info(f"Opened {Path(file_path).name} via open -a")
+                        print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                        break
+                    except subprocess.CalledProcessError as e:
+                        if attempt < 2:
+                            logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+                            time.sleep(2)
+                        else:
+                            raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
 
             elif system == "Linux":
                 try:
@@ -3958,28 +4050,38 @@ class FileListWindow(QDialog):
                             break
                     if not photoshop_path:
                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+
+                    # Open file and attempt to bring to front
+                    for attempt in range(3):
+                        try:
+                            subprocess.run(["wine", photoshop_path, file_path], check=True)
+                            try:
+                                subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
+                            except Exception as e:
+                                logger.debug(f"Could not raise Photoshop window: {e}")
+                            logger.info(f"Opened {Path(file_path).name} via wine")
+                            print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                            break
+                        except subprocess.CalledProcessError as e:
+                            if attempt < 2:
+                                logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+                                time.sleep(2)
+                            else:
+                                raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
                 except subprocess.CalledProcessError:
                     raise FileNotFoundError("Wine is not installed or not functioning")
 
             else:
-                logger.warning(f"Unsupported platform for Photoshop: {system}")
-                app_signals.append_log.emit(f"[Photoshop] Unsupported platform: {system}")
-                app_signals.update_status.emit(f"Unsupported platform: {system}")
-                return
-
-            if system == "Darwin":
-                subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
-            else:
-                subprocess.run([photoshop_path, file_path], check=True)
-
-            logger.info(f"Opened {Path(file_path).name} in Photoshop at {photoshop_path}")
-            app_signals.append_log.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
-            app_signals.update_status.emit(f"Opened {Path(file_path).name} in Photoshop")
+                error_message = f"Unsupported platform for Photoshop: {system}"
+                logger.warning(error_message)
+                print(f"[Photoshop] {error_message}")
+                raise ValueError(error_message)
 
         except Exception as e:
-            logger.error(f"Failed to open {file_path} in Photoshop: {e}")
-            app_signals.append_log.emit(f"[Photoshop] Failed: Error opening {Path(file_path).name} - {str(e)}")
-            app_signals.update_status.emit(f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}")
+            error_message = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+            logger.error(error_message)
+            print(f"[Photoshop] {error_message}")
+            raise
 
     def open_folder(self, file_path):
         """Open the folder containing the file."""
