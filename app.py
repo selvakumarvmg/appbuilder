@@ -98,7 +98,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -169,20 +169,20 @@ API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
-NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irnasappprod"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_USERNAME = "irnasappprod"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -3200,7 +3200,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
                     }
                     
                     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
@@ -3371,31 +3371,40 @@ class FileWatcherWorker(QObject):
                         app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
                         return
                 unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
+                # FIX: Validate file_path in list comprehensions to prevent TypeError
                 download_tasks = [
                     {
                         "task_id": str(item.get('id', '')),
                         "action_type": item.get('request_type', '').lower(),
-                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        # Use 'unknown_file' if file_path is None or empty
+                        "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
                         "file_path": item.get('file_path', ''),
                         "status": "Queued",
                         "thumbnail": item.get('thumbnail', ''),
                         "job_id": item.get('job_id', ''),
                         "project_id": item.get('project_id', ''),
                         "task_type": "download"
-                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+                    } for item in unprocessed_tasks 
+                    if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+                    # Log invalid tasks for debugging
+                    and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Download task: {item}, instance: {id(self)}") or True
                 ]
                 upload_tasks = [
                     {
                         "task_id": str(item.get('id', '')),
                         "action_type": item.get('request_type', '').lower(),
-                        "file_name": item.get('file_name', Path(item.get('file_path', '')).name),
+                        # Use 'unknown_file' if file_path is None or empty
+                        "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
                         "file_path": item.get('file_path', ''),
                         "status": "Queued",
                         "thumbnail": item.get('thumbnail', ''),
                         "job_id": item.get('job_id', ''),
                         "project_id": item.get('project_id', ''),
                         "task_type": "upload"
-                    } for item in unprocessed_tasks if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
+                    } for item in unprocessed_tasks 
+                    if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
+                    # Log invalid tasks for debugging
+                    and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Upload task: {item}, instance: {id(self)}") or True
                 ]
                 self.task_list_update.emit(download_tasks + upload_tasks)
                 self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
@@ -3404,7 +3413,6 @@ class FileWatcherWorker(QObject):
                 max_download_retries = 3
                 for item in unprocessed_tasks:
                     try:
-                        
                         if not isinstance(item, dict):
                             logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
                             self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
@@ -3412,6 +3420,12 @@ class FileWatcherWorker(QObject):
                             continue
                         task_id = str(item.get('id', ''))
                         file_path = item.get('file_path', '')
+                        # FIX: Early validation for file_path to prevent TypeError
+                        if not file_path:
+                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task {task_id}: Missing file_path, item: {item}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Failed: Invalid task {task_id} - Missing file_path")
+                            updates.append(("", f"Invalid task {task_id}: Missing file_path", "unknown", 0, False))
+                            continue
                         file_name = item.get('file_name', Path(file_path).name)
                         action_type = item.get('request_type', '').lower()
                         task_key = f"{task_id}:{action_type}"
@@ -3430,7 +3444,6 @@ class FileWatcherWorker(QObject):
                                     if os.path.exists(local_path):
                                         self.processed_tasks.add(task_key)
                                         updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
-                                        # update_download_upload_metadata(task_id, "completed")
                                         break
                                     else:
                                         logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
@@ -3473,57 +3486,11 @@ class FileWatcherWorker(QObject):
                             self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
                             updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
                             self.processed_tasks.add(task_key)
-                        #     try:
-                        #         status_payload = {
-                        #             'id': task_id,
-                        #             'request_status': 'completed'
-                        #         }
-                        #         logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (Original), instance: {id(self)}")
-                        #         self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (Original)")
-                        #     except Exception as e:
-                        #         logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (Original): {str(e)}, instance: {id(self)}")
-                        #         self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (Original): {str(e)}")
-                        #     if not local_path.lower().endswith(".jpg") and local_path.lower().endswith(self.config["supported_image_extensions"]):
-                        #         jpg_name = Path(local_path).stem + ".jpg"
-                        #         jpg_folder = BASE_TARGET_DIR / Path(file_path).parts[0] / client_name / project_name
-                        #         try:
-                        #             os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                        #             os.chmod(jpg_folder, 0o777)
-                        #         except OSError as e:
-                        #             self.log_update.emit(f"[Upload] Cannot write to directory: {jpg_folder} - {e}")
-                        #             updates.append((local_path, f"Upload Failed: Directory not writable - {jpg_folder}", action_type, 0, not is_online))
-                        #             continue
-                        #         jpg_path = str(jpg_folder / jpg_name)
-                        #         local_jpg, backup_path = process_single_file(local_path)
-                        #         if local_jpg:
-                        #             jpg_path = local_jpg
-                        #             self.log_update.emit(f"[Upload] Converted to JPG: {jpg_path}")
-                        #             app_signals.update_file_list.emit(jpg_path, "Conversion Completed", "upload", 100, False)
-                        #             jpg_nas_path = f"{original_nas_path.rsplit('.', 1)[0]}_converted.jpg"
-                        #             self.show_progress(f"Uploading {jpg_name}", jpg_path, jpg_nas_path, action_type, item, False, not is_online)
-                        #             updates.append((jpg_path, "Upload Completed (JPG)", action_type, 100, not is_online))
-                        #             self.processed_tasks.add(f"{task_id}:jpg")
-                        #             try:
-                        #                 status_payload = {
-                        #                     'id': task_id,
-                        #                     'request_status': 'completed'
-                        #                 }
-                        #                 logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Updated task {task_id} status to completed (JPG), instance: {id(self)}")
-                        #                 self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed (JPG)")
-                        #             except Exception as e:
-                        #                 logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Failed to update task {task_id} status (JPG): {str(e)}, instance: {id(self)}")
-                        #                 self.log_update.emit(f"[API Scan] Failed to update task {task_id} status (JPG): {str(e)}")
-                        #         else:
-                        #             self.log_update.emit(f"[Upload] Converted JPG does not exist: {jpg_path}")
-                        #             updates.append((jpg_path, "Upload Failed: Converted JPG not found", action_type, 0, not is_online))
-                        # else:
-                        #     logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid action_type for task {task_id}: {action_type}, instance: {id(self)}")
-                        #     self.log_update.emit(f"[API Scan] Failed: Invalid action_type for task {task_id}: {action_type}")
-                        #     updates.append((file_path, f"Invalid action_type: {action_type}", action_type, 0, not ('http' in file_path.lower())))
                     except Exception as e:
                         logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, instance: {id(self)}")
                         self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
-                        updates.append((file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in file_path.lower())))
+                        safe_file_path = file_path or ""
+                        updates.append((safe_file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in safe_file_path.lower())))
                         continue
                 if updates:
                     for update in updates:
@@ -3811,6 +3778,7 @@ class FileListWindow(QDialog):
         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
 
+        # Initialize table
         self.table = QTableWidget(self)
         self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
         headers = ["File Path", "Open Folder", "Open in Photoshop", "Status", "Progress"]
@@ -3829,35 +3797,50 @@ class FileListWindow(QDialog):
         layout.addWidget(self.table)
         self.setLayout(layout)
 
+        # Load files initially
+        self._load_files_with_logging()
+
+        # Connect signals
+        self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
+        self.file_watcher = FileWatcherWorker.get_instance(parent=self)
+        self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+    def showEvent(self, event):
+        """Reload files when the window is shown."""
+        super().showEvent(event)
+        logger.debug(f"Window shown, reloading files for {self.file_type}")
+        self._load_files_with_logging()
+        app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
+
+    def closeEvent(self, event):
+        """Disconnect signals when the window is closed."""
+        try:
+            app_signals.update_file_list.disconnect(self.app_signals_connection)
+            self.file_watcher.progress_update.disconnect(self.progress_connection)
+            logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
+        except Exception as e:
+            logger.debug(f"Error disconnecting signals: {e}")
+        super().closeEvent(event)
+
+    def _load_files_with_logging(self):
+        """Wrapper for load_files with additional logging for debugging."""
         try:
             self.load_files()
         except Exception as e:
             logger.error(f"Error loading files in FileListWindow: {e}")
             app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
 
-        app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)  # Connect refresh signal
-        self.file_watcher = FileWatcherWorker.get_instance(parent=self)  # Use singleton
-        self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
-
-
-    def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
-        """Refresh the file list if the action_type matches file_type."""
-        try:
-            if action_type == self.file_type:
-                self.load_files()  # Reload the entire table
-                app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
-        except Exception as e:
-            logger.error(f"Error refreshing file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
-
     def load_files(self):
         """Load files into the table based on file_type."""
         try:
-            cache = load_cache()  # Load cache once
-            logger.debug(f"Loading files for {self.file_type}, cache: {json.dumps(cache, indent=2)}")
-            app_signals.append_log.emit(f"[Files] Loading files for {self.file_type}")
+            cache = load_cache()  # Load cache
+            logger.debug(f"Cache contents for {self.file_type}: {json.dumps(cache, indent=2)}")
             files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-            logger.debug(f"Files retrieved: {files}")
+            logger.debug(f"Files retrieved for {self.file_type}: {files}")
+            app_signals.append_log.emit(f"[Files] Loading {len(files)} files for {self.file_type}")
+
+            # Clear the table completely
+            self.table.clearContents()
             self.table.setRowCount(0)
 
             file_list = files.items() if isinstance(files, dict) else enumerate(files)
@@ -3882,10 +3865,14 @@ class FileListWindow(QDialog):
 
                 metadata_key = f"{self.file_type}_files_with_metadata"
                 source = cache.get(metadata_key, {}).get(task_id, {}).get("api_response", {}).get("file_path", file_path)
-                source_item = QTableWidgetItem(source)
-                self.table.setItem(row, 3, source_item)
-                status_col = 4
-                progress_col = 5
+                if self.file_type == "downloaded":
+                    source_item = QTableWidgetItem(source)
+                    self.table.setItem(row, 3, source_item)
+                    status_col = 4
+                    progress_col = 5
+                else:
+                    status_col = 3
+                    progress_col = 4
 
                 status_item = QTableWidgetItem("Completed" if Path(file_path).exists() else "Failed")
                 self.table.setItem(row, status_col, status_item)
@@ -3903,6 +3890,73 @@ class FileListWindow(QDialog):
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
 
+    def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
+        """Refresh the file list if the action_type matches file_type."""
+        try:
+            if action_type == self.file_type:
+                logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
+                self._load_files_with_logging()
+                app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
+        except Exception as e:
+            logger.error(f"Error refreshing file list: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
+
+    def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+        """Update the table with file transfer status."""
+        if action_type != self.file_type or not file_path:
+            return
+        try:
+            logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
+                    status_col = 4 if self.file_type == "downloaded" else 3
+                    progress_col = 5 if self.file_type == "downloaded" else 4
+                    self.table.setItem(row, status_col, QTableWidgetItem(status))
+                    progress_bar = self.table.cellWidget(row, progress_col)
+                    if not progress_bar or isinstance(progress_bar, QWidget):
+                        progress_bar = QProgressBar(self)
+                        progress_bar.setMinimum(0)
+                        progress_bar.setMaximum(100)
+                        progress_bar.setFixedHeight(20)
+                        self.table.setCellWidget(row, progress_col, progress_bar)
+                    progress_bar.setValue(progress)
+                    if self.file_type == "downloaded":
+                        self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+                    self.table.resizeColumnsToContents()
+                    app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+                    return
+
+            # If file not found, reload the entire table
+            logger.debug(f"File {file_path} not found in table, reloading full list")
+            self._load_files_with_logging()
+            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+        except Exception as e:
+            logger.error(f"Error updating file list: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+
+    def update_progress(self, title, file_path, progress):
+        """Update progress for a file in the table."""
+        try:
+            logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
+                    progress_col = 5 if self.file_type == "downloaded" else 4
+                    progress_bar = self.table.cellWidget(row, progress_col)
+                    if not progress_bar or isinstance(progress_bar, QWidget):
+                        progress_bar = QProgressBar(self)
+                        progress_bar.setMinimum(0)
+                        progress_bar.setMaximum(100)
+                        progress_bar.setFixedHeight(20)
+                        self.table.setCellWidget(row, progress_col, progress_bar)
+                    progress_bar.setValue(progress)
+                    app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+                    return
+            logger.debug(f"File {file_path} not found for progress update, reloading table")
+            self._load_files_with_logging()
+        except Exception as e:
+            logger.error(f"Error updating progress: {e}")
+            app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
@@ -3910,6 +3964,7 @@ class FileListWindow(QDialog):
             import subprocess
             import time
             import logging
+            import os
             from pathlib import Path
 
             logger = logging.getLogger(__name__)
@@ -3956,7 +4011,6 @@ class FileListWindow(QDialog):
                         ps_app.Visible = True
                         ps_app.Open(file_path)
 
-                        # Bring Photoshop to front
                         def bring_to_front(title_contains="Adobe Photoshop"):
                             def enum_handler(hwnd, _):
                                 if win32gui.IsWindowVisible(hwnd):
@@ -3988,7 +4042,6 @@ class FileListWindow(QDialog):
                             logger.debug(f"COM method failed: {e}. Falling back to subprocess.")
                             subprocess.run([photoshop_path, file_path], check=True)
                             time.sleep(2)
-                            # Bring Photoshop to front via subprocess fallback
                             def enum_windows_callback(hwnd, hwnds):
                                 if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
                                     hwnds.append(hwnd)
@@ -4002,20 +4055,116 @@ class FileListWindow(QDialog):
                             break
 
             elif system == "Darwin":
-                try:
-                    result = subprocess.run(
-                        ["mdfind", "kMDItemKind == 'Application' && kMDItemFSName == 'Adobe Photoshop*.app'"],
-                        capture_output=True, text=True, check=True
-                    )
-                    if result.stdout.strip():
-                        photoshop_path = result.stdout.strip().split("\n")[0]
-                except subprocess.CalledProcessError:
-                    photoshop_apps = list(Path("/Applications").glob("Adobe Photoshop*.app"))
-                    if photoshop_apps:
-                        photoshop_apps.sort(key=lambda x: x.name, reverse=True)
-                        photoshop_path = str(photoshop_apps[0])
+                # Check environment variable for custom Photoshop path
+                custom_path = os.getenv("PHOTOSHOP_PATH")
+                if custom_path and Path(custom_path).exists():
+                    photoshop_path = str(Path(custom_path).resolve())
+                    logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
+
+                # Try Spotlight search with broader query
                 if not photoshop_path:
-                    raise FileNotFoundError("Adobe Photoshop application not found in /Applications")
+                    try:
+                        result = subprocess.run(
+                            ["mdfind", "kMDItemKind == 'Application' && (kMDItemFSName == 'Adobe Photoshop*.app' || kMDItemFSName == 'Photoshop*.app' || kMDItemFSName == 'Adobe*Photoshop*.app')"],
+                            capture_output=True, text=True, check=True
+                        )
+                        if result.stdout.strip():
+                            photoshop_path = result.stdout.strip().split("\n")[0]
+                            logger.debug(f"Found Photoshop via mdfind: {photoshop_path}")
+                    except subprocess.CalledProcessError as e:
+                        logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
+
+                # Expanded search locations with deeper glob patterns
+                if not photoshop_path:
+                    search_locations = [
+                        Path("/Applications"),
+                        Path("~/Applications").expanduser(),
+                        Path("/Applications/Adobe Creative Cloud"),
+                        Path("~/Applications/Adobe Creative Cloud").expanduser(),
+                        Path("/Applications/Adobe"),
+                        Path("~/Applications/Adobe").expanduser(),
+                        Path("/Applications/Adobe Photoshop*"),
+                        Path("~/Applications/Adobe Photoshop*").expanduser(),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop*"),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop*").expanduser(),
+                    ]
+                    for search_dir in search_locations:
+                        if not search_dir.exists():
+                            logger.debug(f"Search directory does not exist: {search_dir}")
+                            continue
+                        logger.debug(f"Searching for Photoshop in: {search_dir}")
+                        # Search for .app files in the directory and its immediate subdirectories
+                        photoshop_apps = (
+                            list(search_dir.glob("Adobe*Photoshop*.app")) +
+                            list(search_dir.glob("Photoshop*.app")) +
+                            list(search_dir.glob("*/Adobe*Photoshop*.app"))
+                        )
+                        if photoshop_apps:
+                            logger.debug(f"Found potential Photoshop apps: {[str(app) for app in photoshop_apps]}")
+                            photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                            photoshop_path = str(photoshop_apps[0])
+                            logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
+                            break
+
+                # Check versioned paths, including exact match for 2025
+                if not photoshop_path:
+                    versioned_paths = [
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),  # Exact match
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+                    ]
+                    for path in versioned_paths:
+                        if path.exists():
+                            photoshop_path = str(path)
+                            logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
+                            break
+
+                # Fallback to user selection via file dialog (if GUI is available)
+                if not photoshop_path and hasattr(self, 'window'):
+                    from PySide6.QtWidgets import QFileDialog
+                    logger.debug("Prompting user to select Photoshop application")
+                    photoshop_path, _ = QFileDialog.getOpenFileName(
+                        self.window(), "Locate Adobe Photoshop", "/Applications", "Applications (*.app)"
+                    )
+                    if photoshop_path:
+                        logger.debug(f"User-selected Photoshop path: {photoshop_path}")
+                    else:
+                        logger.debug("User cancelled Photoshop path selection")
+
+                if not photoshop_path:
+                    error_msg = (
+                        "Adobe Photoshop application not found in /Applications, ~/Applications, "
+                        "Adobe Creative Cloud, or Adobe directories. Please set PHOTOSHOP_PATH environment variable."
+                    )
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
 
                 # Open file and bring Photoshop to front
                 for attempt in range(3):
@@ -4023,7 +4172,7 @@ class FileListWindow(QDialog):
                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
                         applescript = f'tell application "{Path(photoshop_path).name}" to activate'
                         subprocess.run(["osascript", "-e", applescript], check=True)
-                        logger.info(f"Opened {Path(file_path).name} via open -a")
+                        logger.info(f"Opened {Path(file_path).name} via open -a at {photoshop_path}")
                         print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
                         break
                     except subprocess.CalledProcessError as e:
@@ -4051,7 +4200,6 @@ class FileListWindow(QDialog):
                     if not photoshop_path:
                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
 
-                    # Open file and attempt to bring to front
                     for attempt in range(3):
                         try:
                             subprocess.run(["wine", photoshop_path, file_path], check=True)
@@ -4106,58 +4254,56 @@ class FileListWindow(QDialog):
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
-    def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
-        """Update the table with file transfer status."""
-        if action_type != self.file_type or not file_path:
-            return
-        try:
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
-                    status_col = 4 if self.file_type == "downloaded" else 3
-                    progress_col = 5 if self.file_type == "downloaded" else 4
-                    self.table.setItem(row, status_col, QTableWidgetItem(status))
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not progress_bar or isinstance(progress_bar, QWidget):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    if self.file_type == "downloaded":
-                        self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
-                    self.table.resizeColumnsToContents()
-                    app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
-                    return
+    # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+    #     """Update the table with file transfer status."""
+    #     if action_type != self.file_type or not file_path:
+    #         return
+    #     try:
+    #         for row in range(self.table.rowCount()):
+    #             if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
+    #                 status_col = 4 if self.file_type == "downloaded" else 3
+    #                 progress_col = 5 if self.file_type == "downloaded" else 4
+    #                 self.table.setItem(row, status_col, QTableWidgetItem(status))
+    #                 progress_bar = self.table.cellWidget(row, progress_col)
+    #                 if not progress_bar or isinstance(progress_bar, QWidget):
+    #                     progress_bar = QProgressBar(self)
+    #                     progress_bar.setMinimum(0)
+    #                     progress_bar.setMaximum(100)
+    #                     progress_bar.setFixedHeight(20)
+    #                     self.table.setCellWidget(row, progress_col, progress_bar)
+    #                 progress_bar.setValue(progress)
+    #                 if self.file_type == "downloaded":
+    #                     self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+    #                 self.table.resizeColumnsToContents()
+    #                 app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+    #                 return
 
-            # If file not found, reload the entire table
-            self.load_files()
-            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
-        except Exception as e:
-            logger.error(f"Error updating file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+    #         # If file not found, reload the entire table
+    #         self.load_files()
+    #         app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+    #     except Exception as e:
+    #         logger.error(f"Error updating file list: {e}")
+    #         app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
 
-
-
-    def update_progress(self, title, file_path, progress):
-        """Update progress for a file in the table."""
-        try:
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
-                    progress_col = 5 if self.file_type == "downloaded" else 4
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not progress_bar or isinstance(progress_bar, QWidget):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
-                    return
-        except Exception as e:
-            logger.error(f"Error updating progress: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+    # def update_progress(self, title, file_path, progress):
+    #     """Update progress for a file in the table."""
+    #     try:
+    #         for row in range(self.table.rowCount()):
+    #             if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
+    #                 progress_col = 5 if self.file_type == "downloaded" else 4
+    #                 progress_bar = self.table.cellWidget(row, progress_col)
+    #                 if not progress_bar or isinstance(progress_bar, QWidget):
+    #                     progress_bar = QProgressBar(self)
+    #                     progress_bar.setMinimum(0)
+    #                     progress_bar.setMaximum(100)
+    #                     progress_bar.setFixedHeight(20)
+    #                     self.table.setCellWidget(row, progress_col, progress_bar)
+    #                 progress_bar.setValue(progress)
+    #                 app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+    #                 return
+    #     except Exception as e:
+    #         logger.error(f"Error updating progress: {e}")
+    #         app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
 
 
 # LoginWorker (provided, with fixes)
