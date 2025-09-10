@@ -3989,58 +3989,73 @@ class FileListWindow(QDialog):
                 except ImportError as e:
                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
 
-                search_dirs = [
-                    Path("C:/Program Files/Adobe"),
-                    Path("C:/Program Files (x86)/Adobe")
-                ]
-                for base_dir in search_dirs:
-                    if not base_dir.exists():
-                        continue
-                    photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
-                    if photoshop_exes:
-                        photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
-                        photoshop_path = str(photoshop_exes[0])
-                        break
-                if not photoshop_path:
-                    raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+                # Check environment variable for Photoshop path
+                photoshop_path = os.getenv("PHOTOSHOP_PATH")
+                if photoshop_path and Path(photoshop_path).exists():
+                    logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
+                else:
+                    search_dirs = [
+                        Path("C:/Program Files/Adobe"),
+                        Path("C:/Program Files (x86)/Adobe")
+                    ]
+                    for base_dir in search_dirs:
+                        if not base_dir.exists():
+                            logger.debug(f"Search directory does not exist: {base_dir}")
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            logger.debug(f"Found Photoshop at: {photoshop_path}")
+                            break
+                    if not photoshop_path:
+                        raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
-                # Try opening via COM first
-                for attempt in range(3):
-                    try:
-                        ps_app = win32com.client.Dispatch("Photoshop.Application")
-                        ps_app.Visible = True
-                        ps_app.Open(file_path)
+                # Verify Photoshop executable accessibility
+                if not os.access(photoshop_path, os.X_OK):
+                    raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
 
-                        def bring_to_front(title_contains="Adobe Photoshop"):
-                            def enum_handler(hwnd, _):
-                                if win32gui.IsWindowVisible(hwnd):
-                                    title = win32gui.GetWindowText(hwnd)
-                                    if title_contains.lower() in title.lower():
-                                        try:
-                                            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                                            fg_thread = win32process.GetWindowThreadProcessId(
-                                                win32gui.GetForegroundWindow())[0]
-                                            target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
-                                            this_thread = win32api.GetCurrentThreadId()
-                                            if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
-                                                win32gui.SetForegroundWindow(hwnd)
-                                                ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
-                                        except Exception as e:
-                                            logger.debug(f"Window activation failed: {e}")
-                            win32gui.EnumWindows(enum_handler, None)
+                # Try opening via COM first, skip if not registered
+                com_success = False
+                try:
+                    logger.debug("Attempting to open via COM")
+                    ps_app = win32com.client.Dispatch("Photoshop.Application")
+                    ps_app.Visible = True
+                    ps_app.Open(file_path)
 
-                        time.sleep(1.5)
-                        bring_to_front()
-                        logger.info(f"Opened {Path(file_path).name} via COM")
-                        print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
-                        break
-                    except Exception as e:
-                        if attempt < 2:
-                            logger.debug(f"COM attempt {attempt+1} failed: {e}. Retrying...")
-                            time.sleep(2)
-                        else:
-                            logger.debug(f"COM method failed: {e}. Falling back to subprocess.")
-                            subprocess.run([photoshop_path, file_path], check=True)
+                    def bring_to_front(title_contains="Adobe Photoshop"):
+                        def enum_handler(hwnd, _):
+                            if win32gui.IsWindowVisible(hwnd):
+                                title = win32gui.GetWindowText(hwnd)
+                                if title_contains.lower() in title.lower():
+                                    try:
+                                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                        fg_thread = win32process.GetWindowThreadProcessId(
+                                            win32gui.GetForegroundWindow())[0]
+                                        target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+                                        this_thread = win32api.GetCurrentThreadId()
+                                        if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+                                            win32gui.SetForegroundWindow(hwnd)
+                                            ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+                                    except Exception as e:
+                                        logger.debug(f"Window activation failed: {e}")
+                        win32gui.EnumWindows(enum_handler, None)
+
+                    time.sleep(1.5)
+                    bring_to_front()
+                    logger.info(f"Opened {Path(file_path).name} via COM")
+                    print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                    com_success = True
+                except Exception as e:
+                    logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
+
+                # Try subprocess if COM fails
+                if not com_success:
+                    for attempt in range(3):
+                        try:
+                            cmd = [photoshop_path, file_path]
+                            logger.debug(f"Executing subprocess command: {cmd}")
+                            result = subprocess.run(cmd, check=True, stderr=subprocess.PIPE, text=True)
                             time.sleep(2)
                             def enum_windows_callback(hwnd, hwnds):
                                 if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
@@ -4053,6 +4068,28 @@ class FileListWindow(QDialog):
                             logger.info(f"Opened {Path(file_path).name} via subprocess")
                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
                             break
+                        except subprocess.CalledProcessError as e:
+                            if attempt < 2:
+                                logger.debug(f"Subprocess attempt {attempt+1} failed: {e}, stderr: {e.stderr}. Retrying...")
+                                time.sleep(2)
+                            else:
+                                logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
+                                # Fallback to non-blocking Popen
+                                try:
+                                    process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
+                                    time.sleep(2)
+                                    def enum_windows_callback(hwnd, hwnds):
+                                        if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+                                            hwnds.append(hwnd)
+                                    hwnds = []
+                                    win32gui.EnumWindows(enum_windows_callback, hwnds)
+                                    if hwnds:
+                                        win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+                                        win32gui.SetForegroundWindow(hwnds[0])
+                                    logger.info(f"Opened {Path(file_path).name} via Popen fallback")
+                                    print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                                except Exception as e2:
+                                    raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
 
             elif system == "Darwin":
                 # Check environment variable for custom Photoshop path
