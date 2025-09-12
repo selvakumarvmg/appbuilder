@@ -2629,15 +2629,16 @@ class FileWatcherWorker(QObject):
                 self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
             elif action_type.lower() in ("upload", "replace"):
                 cache["uploaded_files"].append(dest_path)
-                cache["uploaded_files_with_metadata"][f"{task_id}:{file_type}"] = {"local_path": local_path, "api_response": item}
+                cache["uploaded_files_with_metadata"][task_id] = {"local_path": local_path, "api_response": item}
                 # timer_response = cache.get("timer_responses", {}).get(local_path)
                 # if timer_response:
                 #     end_timer_api(src_path, timer_response, cache.get('token', ''))
-                app_signals.update_file_list.emit(local_path, f"{action_type} Completed ({file_type.capitalize()})", action_type.lower(), 100, is_nas)
-                logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
-                self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed ({file_type.capitalize()}), is_nas={is_nas}")
+                # app_signals.update_file_list.emit(local_path, f"{action_type} Completed ({file_type.capitalize()})", action_type.lower(), 100, is_nas)
+                app_signals.update_file_list.emit(local_path, f"{action_type} Completed", action_type.lower(), 100, is_nas)
+                logger.debug(f"Emitted update_file_list signal: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
+                self.log_update.emit(f"[Signal] Emitted update_file_list: dest_path={local_path}, status={action_type} Completed, is_nas={is_nas}")
             save_cache(cache)
-            app_signals.append_log.emit(f"[Transfer] {action_type} completed ({file_type.capitalize()}): {src_path} to {dest_path}")
+            app_signals.append_log.emit(f"[Transfer] {action_type} completed: {src_path} to {dest_path}")
         except Exception as e:
             logger.error(f"Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to update cache and signals for {action_type} ({file_type}, Task {task_id}): {str(e)}")
@@ -3915,6 +3916,7 @@ class FileListWindow(QDialog):
         try:
             cache = load_cache()
             logger.debug(f"Cache contents: {cache}")
+            logger.debug(f"Uploaded files: {cache.get('uploaded_files', [])}")
             metadata_key = f"{self.file_type}_files_with_metadata"
             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
             
@@ -3940,15 +3942,32 @@ class FileListWindow(QDialog):
             # Collect rows
             rows = []
             file_list = files.items() if isinstance(files, dict) else enumerate(files)
+            metadata = cache.get(metadata_key, {})
+            
             for task_id, file_path in file_list:
                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
                 filename = Path(file_path).name
+                # Normalize file_path and extract relative path
+                normalized_file_path = str(Path(file_path)).replace('\\', '/')
+                relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
 
-                metadata_key = f"{self.file_type}_files_with_metadata"
-                meta = cache.get(metadata_key, {}).get(str(task_id), {}) if isinstance(task_id, (str, int)) else {}
-                
-                if not meta:
-                    logger.warning(f"No metadata found for task_id: {task_id}")
+                # Find metadata by matching relative path or filename for "uploaded", else use task_id
+                meta = {}
+                if self.file_type == "uploaded":
+                    logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {[str(Path(data.get('local_path', ''))).replace('\\', '/') for data in metadata.values()]}")
+                    for key, data in metadata.items():
+                        normalized_local_path = str(Path(data.get("local_path", ""))).replace('\\', '/')
+                        relative_local_path = normalized_local_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_local_path else normalized_local_path
+                        if relative_local_path == relative_file_path or Path(data.get("local_path", "")).name == filename:
+                            meta = data
+                            logger.debug(f"Found metadata for file_path: {file_path} with key: {key}")
+                            break
+                    if not meta:
+                        logger.warning(f"No metadata found for file_path: {file_path} (relative: {relative_file_path}, filename: {filename})")
+                else:
+                    meta = metadata.get(str(task_id), {}) if isinstance(task_id, (str, int)) else {}
+                    if not meta:
+                        logger.warning(f"No metadata found for task_id: {task_id}")
                 
                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
@@ -3961,7 +3980,7 @@ class FileListWindow(QDialog):
                     try:
                         ts = int(created_at_raw)
                         if 0 < ts < 4102444800:  # until 2100
-                            dt = datetime.fromtimestamp(ts)
+                            dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()  # UTC to IST
                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
                     except Exception:
                         pass
@@ -4056,12 +4075,12 @@ class FileListWindow(QDialog):
         try:
             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
-                    status_col = 4 if self.file_type == "downloaded" else 3
+                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
+                    status_col = 6 if self.file_type == "downloaded" else 3
                     progress_col = 5 if self.file_type == "downloaded" else 4
                     self.table.setItem(row, status_col, QTableWidgetItem(status))
                     progress_bar = self.table.cellWidget(row, progress_col)
-                    if not progress_bar or isinstance(progress_bar, QWidget):
+                    if not isinstance(progress_bar, QProgressBar):
                         progress_bar = QProgressBar(self)
                         progress_bar.setMinimum(0)
                         progress_bar.setMaximum(100)
@@ -4082,15 +4101,15 @@ class FileListWindow(QDialog):
             logger.error(f"Error updating file list: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
 
-    def update_progress(self, title, file_path, progress):
+    def update_progress(self, file_path, progress):
         """Update progress for a file in the table."""
         try:
             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 0) and self.table.item(row, 0).text() == Path(file_path).name:
+                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
                     progress_col = 5 if self.file_type == "downloaded" else 4
                     progress_bar = self.table.cellWidget(row, progress_col)
-                    if not progress_bar or isinstance(progress_bar, QWidget):
+                    if not isinstance(progress_bar, QProgressBar):
                         progress_bar = QProgressBar(self)
                         progress_bar.setMinimum(0)
                         progress_bar.setMaximum(100)
@@ -5238,6 +5257,7 @@ class PremediaApp(QApplication):
                             "data": key,
                             "downloaded_files": cache.get("downloaded_files", []),
                             "downloaded_files_with_metadata": cache.get("downloaded_files_with_metadata", {}),
+                            "uploaded_files_with_metadata": cache.get("uploaded_files_with_metadata", {}),
                             "uploaded_files": cache.get("uploaded_files", []),
                             "timer_responses": cache.get("timer_responses", {}),
                             "saved_username": cache.get("saved_username", ""),
@@ -5484,17 +5504,17 @@ class PremediaApp(QApplication):
                 "Linux": "clear_cache_icon.png"
             }.get(platform.system(), "clear_cache_icon.png"), visible=True, enabled=self.logged_in)
 
-            setup_action(self.open_cache_action, {
-                "Windows": "cache_icon.ico",
-                "Darwin": "cache_icon.icns",
-                "Linux": "cache_icon.png"
-            }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
+            # setup_action(self.open_cache_action, {
+            #     "Windows": "cache_icon.ico",
+            #     "Darwin": "cache_icon.icns",
+            #     "Linux": "cache_icon.png"
+            # }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
 
-            setup_action(self.log_action, {
-                "Windows": "log_icon.ico",
-                "Darwin": "log_icon.icns",
-                "Linux": "log_icon.png"
-            }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
+            # setup_action(self.log_action, {
+            #     "Windows": "log_icon.ico",
+            #     "Darwin": "log_icon.icns",
+            #     "Linux": "log_icon.png"
+            # }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
 
             setup_action(self.quit_action, {
                 "Windows": "quit_icon.ico",
@@ -5508,7 +5528,7 @@ class PremediaApp(QApplication):
             self.tray_menu.addAction(self.downloaded_files_action)
             self.tray_menu.addAction(self.uploaded_files_action)
             self.tray_menu.addSeparator()
-            self.tray_menu.addAction(self.open_cache_action)
+            # self.tray_menu.addAction(self.open_cache_action)
             self.tray_menu.addAction(self.clear_cache_action)
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.login_action)
