@@ -2833,8 +2833,9 @@ class FileWatcherWorker(QObject):
             import subprocess
             import time
             import logging
+            import os
             from pathlib import Path
-            
+
             logger = logging.getLogger(__name__)
             system = platform.system()
             file_path = str(Path(file_path).resolve())
@@ -2851,171 +2852,275 @@ class FileWatcherWorker(QObject):
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
             logger.debug(f"System: {system}, File path: {file_path}")
-        
-            photoshop_path = self.config.get("photoshop_path")
-            if not photoshop_path or not Path(photoshop_path).exists():
-                if system == "Windows":
-                    try:
-                        import win32gui
-                        import win32con
-                        import win32com.client
-                        import win32api
-                        import win32process
-                        import ctypes
-                    except ImportError as e:
-                        raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+            photoshop_path = None
 
-                    photoshop_path = None
+            if system == "Windows":
+                try:
+                    import win32gui
+                    import win32con
+                    import win32com.client
+                    import win32api
+                    import win32process
+                    import ctypes
+                except ImportError as e:
+                    raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
+                # Check environment variable for Photoshop path
+                photoshop_path = os.getenv("PHOTOSHOP_PATH")
+                if photoshop_path and Path(photoshop_path).exists():
+                    logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
+                else:
                     search_dirs = [
                         Path("C:/Program Files/Adobe"),
                         Path("C:/Program Files (x86)/Adobe")
                     ]
                     for base_dir in search_dirs:
-                        if base_dir.exists():
-                            photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
-                            if photoshop_exes:
-                                photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
-                                photoshop_path = str(photoshop_exes[0])
-                                break
-
+                        if not base_dir.exists():
+                            logger.debug(f"Search directory does not exist: {base_dir}")
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            logger.debug(f"Found Photoshop at: {photoshop_path}")
+                            break
                     if not photoshop_path:
-                        raise FileNotFoundError("Adobe Photoshop executable not found on Windows")
+                        raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
-                    # ✅ Open the file in Photoshop
-                    subprocess.Popen([photoshop_path, file_path])
-                    time.sleep(5)  # Give Photoshop time to open the file
+                # Verify Photoshop executable accessibility
+                if not os.access(photoshop_path, os.X_OK):
+                    raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
 
-                    # ✅ Bring Photoshop window to front
+                # Try opening via COM first
+                try:
+                    logger.debug("Attempting to open via COM")
+                    ps_app = win32com.client.Dispatch("Photoshop.Application")
+                    ps_app.Visible = True
+                    ps_app.Open(file_path)
+
+                    def bring_to_front(title_contains="Adobe Photoshop"):
+                        def enum_handler(hwnd, _):
+                            if win32gui.IsWindowVisible(hwnd):
+                                title = win32gui.GetWindowText(hwnd)
+                                if title_contains.lower() in title.lower():
+                                    try:
+                                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                        fg_thread = win32process.GetWindowThreadProcessId(
+                                            win32gui.GetForegroundWindow())[0]
+                                        target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+                                        this_thread = win32api.GetCurrentThreadId()
+                                        if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+                                            win32gui.SetForegroundWindow(hwnd)
+                                            ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+                                    except Exception as e:
+                                        logger.debug(f"Window activation failed: {e}")
+                        win32gui.EnumWindows(enum_handler, None)
+
+                    time.sleep(1.5)
+                    bring_to_front()
+                    logger.info(f"Opened {Path(file_path).name} via COM")
+                    self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                    return  # Exit after successful COM opening
+                except Exception as e:
+                    logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
+
+                # Try subprocess only if COM fails
+                cmd = [photoshop_path, file_path]
+                logger.debug(f"Executing subprocess command: {cmd}")
+                try:
+                    process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+                    time.sleep(2)  # Wait for Photoshop to open
                     def enum_windows_callback(hwnd, hwnds):
                         if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
                             hwnds.append(hwnd)
-
                     hwnds = []
                     win32gui.EnumWindows(enum_windows_callback, hwnds)
                     if hwnds:
-                        win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)     # Restore if minimized
-                        win32gui.SetForegroundWindow(hwnds[0])                 # Bring to front
+                        win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+                        win32gui.SetForegroundWindow(hwnds[0])
+                    logger.info(f"Opened {Path(file_path).name} via subprocess")
+                    self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                except subprocess.CalledProcessError as e:
+                    logger.debug(f"Subprocess failed: {e}, stderr: {e.stderr}")
+                    raise RuntimeError(f"Failed to open file: {e}")
 
-                
-                elif system == "Darwin":
-                    photoshop_app_path = "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"
+            elif system == "Darwin":
+                # Check environment variable for custom Photoshop path
+                custom_path = os.getenv("PHOTOSHOP_PATH")
+                if custom_path and Path(custom_path).exists():
+                    photoshop_path = str(Path(custom_path).resolve())
+                    logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
 
-                    if not Path(photoshop_app_path).exists():
-                        raise FileNotFoundError("Adobe Photoshop 2025 not found in /Applications")
-
-                    # Open file in Photoshop
-                    subprocess.run(["open", "-a", photoshop_app_path, file_path], check=True)
-
-                    # Bring Photoshop to front
-                    applescript = 'tell application "Adobe Photoshop 2025" to activate'
-                    subprocess.run(["osascript", "-e", applescript], check=True)
-
-                    
-
-                elif system == "Linux":
+                # Try Spotlight search with broader query
+                if not photoshop_path:
                     try:
-                        subprocess.run(["wine", "--version"], capture_output=True, check=True)
-                    except subprocess.CalledProcessError:
-                        raise FileNotFoundError("Wine is not installed or not available on PATH")
+                        result = subprocess.run(
+                            ["mdfind", "kMDItemKind == 'Application' && (kMDItemFSName == 'Adobe Photoshop*.app' || kMDItemFSName == 'Photoshop*.app' || kMDItemFSName == 'Adobe*Photoshop*.app')"],
+                            capture_output=True, text=True, check=True
+                        )
+                        if result.stdout.strip():
+                            photoshop_path = result.stdout.strip().split("\n")[0]
+                            logger.debug(f"Found Photoshop via mdfind: {photoshop_path}")
+                    except subprocess.CalledProcessError as e:
+                        logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
 
+                # Expanded search locations with deeper glob patterns
+                if not photoshop_path:
+                    search_locations = [
+                        Path("/Applications"),
+                        Path("~/Applications").expanduser(),
+                        Path("/Applications/Adobe Creative Cloud"),
+                        Path("~/Applications/Adobe Creative Cloud").expanduser(),
+                        Path("/Applications/Adobe"),
+                        Path("~/Applications/Adobe").expanduser(),
+                        Path("/Applications/Adobe Photoshop*"),
+                        Path("~/Applications/Adobe Photoshop*").expanduser(),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop*"),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop*").expanduser(),
+                    ]
+                    for search_dir in search_locations:
+                        if not search_dir.exists():
+                            logger.debug(f"Search directory does not exist: {search_dir}")
+                            continue
+                        logger.debug(f"Searching for Photoshop in: {search_dir}")
+                        photoshop_apps = (
+                            list(search_dir.glob("Adobe*Photoshop*.app")) +
+                            list(search_dir.glob("Photoshop*.app")) +
+                            list(search_dir.glob("*/Adobe*Photoshop*.app"))
+                        )
+                        if photoshop_apps:
+                            logger.debug(f"Found potential Photoshop apps: {[str(app) for app in photoshop_apps]}")
+                            photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+                            photoshop_path = str(photoshop_apps[0])
+                            logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
+                            break
+
+                # Check versioned paths, including exact match for 2025
+                if not photoshop_path:
+                    versioned_paths = [
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+                        Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop.app"),
+                        Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+                        Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+                        Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+                    ]
+                    for path in versioned_paths:
+                        if path.exists():
+                            photoshop_path = str(path)
+                            logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
+                            break
+
+                # Fallback to user selection via file dialog (if GUI is available)
+                if not photoshop_path and hasattr(self, 'window'):
+                    from PySide6.QtWidgets import QFileDialog
+                    logger.debug("Prompting user to select Photoshop application")
+                    photoshop_path, _ = QFileDialog.getOpenFileName(
+                        self.window(), "Locate Adobe Photoshop", "/Applications", "Applications (*.app)"
+                    )
+                    if photoshop_path:
+                        logger.debug(f"User-selected Photoshop path: {photoshop_path}")
+                    else:
+                        logger.debug("User cancelled Photoshop path selection")
+
+                if not photoshop_path:
+                    error_msg = (
+                        "Adobe Photoshop application not found in /Applications, ~/Applications, "
+                        "Adobe Creative Cloud, or Adobe directories. Please set PHOTOSHOP_PATH environment variable."
+                    )
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+
+                # Open file and bring Photoshop to front
+                for attempt in range(3):
+                    try:
+                        subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+                        applescript = f'tell application "{Path(photoshop_path).name}" to activate'
+                        subprocess.run(["osascript", "-e", applescript], check=True)
+                        logger.info(f"Opened {Path(file_path).name} via open -a at {photoshop_path}")
+                        self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+                        break
+                    except subprocess.CalledProcessError as e:
+                        if attempt < 2:
+                            logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+                            time.sleep(2)
+                        else:
+                            raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+
+            elif system == "Linux":
+                try:
+                    subprocess.run(["wine", "--version"], capture_output=True, check=True)
                     wine_dirs = [
                         Path.home() / ".wine/drive_c/Program Files/Adobe",
                         Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
                     ]
                     for base_dir in wine_dirs:
-                        if base_dir.exists():
-                            photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
-                            if photoshop_exes:
-                                photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
-                                photoshop_path = str(photoshop_exes[0])
-                                break
+                        if not base_dir.exists():
+                            continue
+                        photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+                        if photoshop_exes:
+                            photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+                            photoshop_path = str(photoshop_exes[0])
+                            break
                     if not photoshop_path:
                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
-                
-                else:
-                    raise ValueError(f"Unsupported platform: {system}")
 
-            # Try opening the file
-            for attempt in range(3):
-                try:
-                    if system == "Windows":
+                    for attempt in range(3):
                         try:
-                            import win32com.client
-                            import win32gui
-                            import win32con
-                            import win32api
-                            import win32process
-                            import ctypes
-
-                            ps_app = win32com.client.Dispatch("Photoshop.Application")
-                            ps_app.Visible = True
-                            ps_app.Open(file_path)
-
-                            def bring_to_front(title_contains="Adobe Photoshop"):
-                                def enum_handler(hwnd, _):
-                                    if win32gui.IsWindowVisible(hwnd):
-                                        title = win32gui.GetWindowText(hwnd)
-                                        if title_contains.lower() in title.lower():
-                                            try:
-                                                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                                                fg_thread = win32process.GetWindowThreadProcessId(
-                                                    win32gui.GetForegroundWindow())[0]
-                                                target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
-                                                this_thread = win32api.GetCurrentThreadId()
-                                                if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
-                                                    win32gui.SetForegroundWindow(hwnd)
-                                                    ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
-                                            except Exception as e:
-                                                logger.debug(f"Window activation failed: {e}")
-                                win32gui.EnumWindows(enum_handler, None)
-
-                            time.sleep(1.5)
-                            bring_to_front()
-                            logger.info(f"Opened {Path(file_path).name} via COM")
-                            break
-                        except Exception as e:
-                            logger.debug(f"COM method failed: {e}. Falling back to subprocess.")
-                            subprocess.run([photoshop_path, file_path], check=True)
-                            time.sleep(2)
-                            break
-
-                    elif system == "Darwin":
-                        if not photoshop_path or not os.path.exists(photoshop_path):
-                            logger.warning("Photoshop path is missing or invalid on macOS.")
-                            break
-
-                        try:
-                            subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
-                            logger.info(f"Opened {Path(file_path).name} via open -a")
+                            subprocess.run(["wine", photoshop_path, file_path], check=True)
+                            try:
+                                subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
+                            except Exception as e:
+                                logger.debug(f"Could not raise Photoshop window: {e}")
+                            logger.info(f"Opened {Path(file_path).name} via wine")
+                            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
                             break
                         except subprocess.CalledProcessError as e:
-                            logger.warning(f"Failed to open file with Photoshop: {e}")
-                            continue
+                            if attempt < 2:
+                                logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+                                time.sleep(2)
+                            else:
+                                raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+                except subprocess.CalledProcessError:
+                    raise FileNotFoundError("Wine is not installed or not functioning")
 
-
-
-                    elif system == "Linux":
-                        subprocess.run(["wine", photoshop_path, file_path], check=True)
-                        try:
-                            subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
-                        except Exception as e:
-                            logger.debug(f"Could not raise Photoshop window: {e}")
-                        break
-
-                except Exception as e:
-                    if attempt < 2:
-                        logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
-                        time.sleep(2)
-                    else:
-                        raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
-
-            self.log_update.emit(f"[Photoshop] Opened {Path(file_path).name}")
-            logger.info(f"Successfully opened {Path(file_path).name} using Photoshop path: {photoshop_path}")
+            else:
+                error_message = f"Unsupported platform for Photoshop: {system}"
+                logger.warning(error_message)
+                self.log_update.emit(f"[Photoshop] {error_message}")
+                raise ValueError(error_message)
 
         except Exception as e:
-            logger.error(f"Fddddailed to open {file_path} in Photoshop: {e}")
-            self.log_update.emit(f"[Photoshop] Failed to open {Path(file_path).name}: {e}")
+            error_message = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+            logger.error(error_message)
+            self.log_update.emit(f"[Photoshop] {error_message}")
             raise
+
+
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
      
@@ -3809,8 +3914,12 @@ class FileListWindow(QDialog):
         """Load files into the table based on file_type."""
         try:
             cache = load_cache()
+            logger.debug(f"Cache contents: {cache}")
+            metadata_key = f"{self.file_type}_files_with_metadata"
+            logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+            
             files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-
+            
             # Clear table
             self.table.clearContents()
             self.table.setRowCount(0)
@@ -3824,28 +3933,31 @@ class FileListWindow(QDialog):
                 "Open Folder",
                 "Open in Photoshop",
                 "Status",
-                # "Progress"
             ]
             self.table.setColumnCount(len(headers))
             self.table.setHorizontalHeaderLabels(headers)
+
             # Collect rows
             rows = []
             file_list = files.items() if isinstance(files, dict) else enumerate(files)
             for task_id, file_path in file_list:
+                logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
                 filename = Path(file_path).name
 
                 metadata_key = f"{self.file_type}_files_with_metadata"
-                meta = cache.get(metadata_key, {}).get(task_id, {}) if isinstance(task_id, (str, int)) else {}
-
-                project_name = meta.get("project_name", "") or ""
-                job_name = meta.get("job_name", "") or ""
-                created_at_raw = meta.get("created_at") or meta.get("date") or meta.get("api_response", {}).get("created_on", "")
+                meta = cache.get(metadata_key, {}).get(str(task_id), {}) if isinstance(task_id, (str, int)) else {}
+                
+                if not meta:
+                    logger.warning(f"No metadata found for task_id: {task_id}")
+                
+                project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
+                job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+                created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
 
                 # --- Parse date and format for display ---
                 dt = None
                 display_date = ""
                 if created_at_raw:
-                    # Try UNIX timestamp
                     try:
                         ts = int(created_at_raw)
                         if 0 < ts < 4102444800:  # until 2100
@@ -3854,7 +3966,6 @@ class FileListWindow(QDialog):
                     except Exception:
                         pass
 
-                    # If not timestamp, try ISO / common formats
                     if not dt and isinstance(created_at_raw, str):
                         s = created_at_raw.strip()
                         try:
@@ -3876,18 +3987,16 @@ class FileListWindow(QDialog):
                                     continue
 
                 status = "Completed" if Path(file_path).exists() else "Failed"
-                progress = 100 if Path(file_path).exists() else 0
 
                 rows.append({
                     "project_name": project_name,
                     "job_name": job_name,
                     "file_name": filename,
-                    "created_at": display_date or created_at_raw,  # formatted date for table
+                    "created_at": display_date or created_at_raw,
                     "folder_path": file_path,
                     "photoshop_path": file_path,
                     "status": status,
-                    # "progress": progress,
-                    "dt": dt  # for sorting
+                    "dt": dt
                 })
 
             # Sort descending by dt (latest first), invalid dates at bottom
@@ -3916,16 +4025,6 @@ class FileListWindow(QDialog):
                 self.table.setCellWidget(row, 5, photoshop_btn)
 
                 self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
-
-                # progress_bar = QProgressBar(self)
-                # progress_bar.setMinimum(0)
-                # progress_bar.setMaximum(100)
-                # try:
-                #     progress_bar.setValue(int(row_data["progress"]))
-                # except Exception:
-                #     progress_bar.setValue(0)
-                # progress_bar.setFixedHeight(20)
-                # self.table.setCellWidget(row, 7, progress_bar)
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
@@ -5666,7 +5765,7 @@ class PremediaApp(QApplication):
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Confirm Clear Cache")
         msg_box.setText(
-            "Are you sure you want to clear the cache and delete all files and folders in BASE_DIR? "
+            "Are you sure you want to clear the cache and delete all files and folders in the premedia application directory? "
             "This action cannot be undone, and all data will be permanently lost."
         )
         msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
