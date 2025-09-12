@@ -3824,7 +3824,7 @@ class FileListWindow(QDialog):
                 "Open Folder",
                 "Open in Photoshop",
                 "Status",
-                "Progress"
+                # "Progress"
             ]
             self.table.setColumnCount(len(headers))
             self.table.setHorizontalHeaderLabels(headers)
@@ -3886,7 +3886,7 @@ class FileListWindow(QDialog):
                     "folder_path": file_path,
                     "photoshop_path": file_path,
                     "status": status,
-                    "progress": progress,
+                    # "progress": progress,
                     "dt": dt  # for sorting
                 })
 
@@ -3917,15 +3917,15 @@ class FileListWindow(QDialog):
 
                 self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
 
-                progress_bar = QProgressBar(self)
-                progress_bar.setMinimum(0)
-                progress_bar.setMaximum(100)
-                try:
-                    progress_bar.setValue(int(row_data["progress"]))
-                except Exception:
-                    progress_bar.setValue(0)
-                progress_bar.setFixedHeight(20)
-                self.table.setCellWidget(row, 7, progress_bar)
+                # progress_bar = QProgressBar(self)
+                # progress_bar.setMinimum(0)
+                # progress_bar.setMaximum(100)
+                # try:
+                #     progress_bar.setValue(int(row_data["progress"]))
+                # except Exception:
+                #     progress_bar.setValue(0)
+                # progress_bar.setFixedHeight(20)
+                # self.table.setCellWidget(row, 7, progress_bar)
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
@@ -5349,17 +5349,17 @@ class PremediaApp(QApplication):
                 "Linux": "clear_cache_icon.png"
             }.get(platform.system(), "clear_cache_icon.png"), visible=True, enabled=self.logged_in)
 
-            setup_action(self.open_cache_action, {
-                "Windows": "cache_icon.ico",
-                "Darwin": "cache_icon.icns",
-                "Linux": "cache_icon.png"
-            }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
+            # setup_action(self.open_cache_action, {
+            #     "Windows": "cache_icon.ico",
+            #     "Darwin": "cache_icon.icns",
+            #     "Linux": "cache_icon.png"
+            # }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
 
-            setup_action(self.log_action, {
-                "Windows": "log_icon.ico",
-                "Darwin": "log_icon.icns",
-                "Linux": "log_icon.png"
-            }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
+            # setup_action(self.log_action, {
+            #     "Windows": "log_icon.ico",
+            #     "Darwin": "log_icon.icns",
+            #     "Linux": "log_icon.png"
+            # }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
 
             setup_action(self.quit_action, {
                 "Windows": "quit_icon.ico",
@@ -5368,12 +5368,12 @@ class PremediaApp(QApplication):
             }.get(platform.system(), "quit_icon.png"), visible=True, enabled=True)
 
             # Add actions to tray menu
-            self.tray_menu.addAction(self.log_action)
+            # self.tray_menu.addAction(self.log_action)
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.downloaded_files_action)
             self.tray_menu.addAction(self.uploaded_files_action)
             self.tray_menu.addSeparator()
-            self.tray_menu.addAction(self.open_cache_action)
+            # self.tray_menu.addAction(self.open_cache_action)
             self.tray_menu.addAction(self.clear_cache_action)
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.login_action)
