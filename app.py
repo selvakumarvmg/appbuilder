@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy
 )
-from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor
+from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont
 from PySide6.QtCore import QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
@@ -53,6 +53,7 @@ try:
 except ImportError:
     tifffile = None
 import pytz
+import shutil
 
 try:
     import imagecodecs
@@ -98,7 +99,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -138,21 +139,30 @@ ICON_PATH = get_icon_path({
     "Darwin": "premedia.icns",
     "Linux": "premedia.png"
 }.get(platform.system(), "premedia.png"))
+
+
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 def get_cache_file_path():
-    if platform.system() == "Windows":
-        cache_dir = Path(os.getenv("APPDATA")) / "PremediaApp"
-    elif platform.system() == "Darwin":
-        cache_dir = Path.home() / "Library" / "Caches" / "PremediaApp"
-    else:
-        cache_dir = Path.home() / ".cache" / "PremediaApp"
+    # Use BASE_TARGET_DIR as the base for cache file generation
+    cache_dir = Path(BASE_TARGET_DIR) / "PremediaApp"
     try:
-        cache_dir.mkdir(exist_ok=True)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Ensured cache directory exists: {cache_dir}")
     except Exception as e:
-        logger.error(f"Failed to create cache directory {cache_dir}: {e}")
+        print(f"Failed to create cache directory {cache_dir}: {e}")
         app_signals.append_log.emit(f"[Cache] Failed to create cache directory {cache_dir}: {str(e)}")
-    return str(BASE_TARGET_DIR / "cache.json")
+        # Fallback to a default directory if creation fails
+        cache_dir = Path.home() / ".cache" / "PremediaApp"
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Fell back to default cache directory: {cache_dir}")
+        except Exception as e2:
+            print(f"Failed to create fallback cache directory {cache_dir}: {e2}")
+            app_signals.append_log.emit(f"[Cache] Failed to create fallback cache directory {cache_dir}: {str(e2)}")
+    
+    cache_file = cache_dir / "cache.json"
+    return str(cache_file)
 
 CACHE_FILE = get_cache_file_path()
 CACHE_DAYS = 10
@@ -169,20 +179,20 @@ API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
-NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irnasappprod"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_USERNAME = "irnasappprod"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -324,7 +334,8 @@ def load_icon(path, context=""):
         logger.error(f"Failed to load icon for {context}: {path}")
         app_signals.append_log.emit(f"[Init] Failed to load icon for {context}: {path}")
     return icon
-
+    
+CACHE_DAYS = 7
 # Cache functions
 def get_default_cache():
     return {
@@ -344,148 +355,106 @@ def get_default_cache():
         "saved_password": "",
         "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
     }
-
+   
 def initialize_cache():
-    global GLOBAL_CACHE
     default_cache = get_default_cache()
     cache_dir = Path(CACHE_FILE).parent
     try:
-        # Preserve existing credentials if available
-        if GLOBAL_CACHE is not None:
-            default_cache["saved_username"] = GLOBAL_CACHE.get("saved_username", "")
-            default_cache["saved_password"] = GLOBAL_CACHE.get("saved_password", "")
-            default_cache["user"] = GLOBAL_CACHE.get("user", "")
-            default_cache["user_id"] = GLOBAL_CACHE.get("user_id", "")
-        
-        cache_dir.mkdir(exist_ok=True)
+        cache_dir.mkdir(exist_ok=True, parents=True)
         with CACHE_WRITE_LOCK:
-            with open(CACHE_FILE, "w") as f:
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(default_cache, f, indent=2)
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
-        GLOBAL_CACHE = default_cache
-        logger.info("Initialized cache file with preserved credentials")
-        app_signals.append_log.emit("[Cache] Initialized cache file with preserved credentials")
+        logger.info("Initialized cache file")
+        app_signals.append_log.emit("[Cache] Initialized cache file")
         return True
     except Exception as e:
         logger.error(f"Error initializing cache: {e}")
         app_signals.append_log.emit(f"[Cache] Error initializing cache: {str(e)}")
-        GLOBAL_CACHE = default_cache
         return False
 
-def save_cache(data):
-    global GLOBAL_CACHE
-    if data == GLOBAL_CACHE:  # Skip if cache hasn't changed
-        return
+
+def save_cache(data, significant_change=False):
     data_copy = data.copy()
     data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
     cache_dir = Path(CACHE_FILE).parent
     try:
-        cache_dir.mkdir(exist_ok=True)
-        if Path(CACHE_FILE).exists():
-            backup_file = str(cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json")
-            with open(CACHE_FILE, "r") as f, open(backup_file, "w") as bf:
+        cache_dir.mkdir(exist_ok=True, parents=True)
+
+        # Backup only for significant changes
+        if Path(CACHE_FILE).exists() and significant_change:
+            backup_file = cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json"
+            with open(CACHE_FILE, "r", encoding="utf-8") as f, open(backup_file, "w", encoding="utf-8") as bf:
                 bf.write(f.read())
+
         with CACHE_WRITE_LOCK:
-            with open(CACHE_FILE, "w", encoding='utf-8') as f:
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data_copy, f, indent=2)
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
-        GLOBAL_CACHE = data_copy
-        logger.info("Cache saved successfully")
-        app_signals.append_log.emit("[Cache] Cache saved successfully")
+
+        logger.info("Cache saved to file")
+        app_signals.append_log.emit("[Cache] Cache saved to file")
+
     except Exception as e:
         logger.error(f"Error saving cache: {e}")
         app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
 
+
 def load_cache():
-    global GLOBAL_CACHE
-    if GLOBAL_CACHE is not None:
-        return GLOBAL_CACHE
     default_cache = get_default_cache()
     cache_file = Path(CACHE_FILE)
-    
+
     if not cache_file.exists():
         logger.warning("Cache file does not exist, initializing new cache")
         app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
         initialize_cache()
-        return GLOBAL_CACHE
-    
+        return default_cache
+
     try:
-        with open(CACHE_FILE, "r", encoding='utf-8') as f:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
-        # Log missing keys for debugging
-        required_keys = default_cache.keys()
-        missing_keys = [key for key in required_keys if key not in data]
+
+        # Ensure required keys exist
+        missing_keys = [k for k in default_cache.keys() if k not in data]
         if missing_keys:
-            logger.warning(f"Cache is missing required keys: {missing_keys}, preserving credentials")
-            app_signals.append_log.emit(f"[Cache] Cache is missing required keys: {missing_keys}, preserving credentials")
-            data.update({key: default_cache[key] for key in missing_keys})
-            data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-            GLOBAL_CACHE = data
-            save_cache(GLOBAL_CACHE)
-            return GLOBAL_CACHE
-        
-        # Check cache expiration
+            logger.warning(f"Cache missing keys {missing_keys}, updating...")
+            app_signals.append_log.emit(f"[Cache] Cache missing keys {missing_keys}, updating...")
+            data.update({k: default_cache[k] for k in missing_keys})
+            save_cache(data)
+            return data
+
+        # Expiration check: 7 days (1 week)
         cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
         try:
             cached_time = datetime.fromisoformat(cached_time_str)
-            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=CACHE_DAYS):
-                logger.warning("Cache is expired, preserving credentials and updating timestamp")
-                app_signals.append_log.emit("[Cache] Cache is expired, preserving credentials and updating timestamp")
+            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=7):
+                logger.warning("Cache expired, refreshing...")
+                app_signals.append_log.emit("[Cache] Cache expired, refreshing...")
                 data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-                GLOBAL_CACHE = data
-                save_cache(GLOBAL_CACHE)
-                return GLOBAL_CACHE
+                save_cache(data)
         except ValueError as e:
-            logger.error(f"Invalid cached_at format: {e}, preserving credentials and updating timestamp")
-            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, preserving credentials and updating timestamp")
+            logger.error(f"Invalid cached_at format: {e}, refreshing...")
+            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, refreshing...")
             data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-            GLOBAL_CACHE = data
-            save_cache(GLOBAL_CACHE)
-            return GLOBAL_CACHE
-        
-        # Validate token if present
-        token = data.get("token", "")
-        if token:
-            try:
-                resp = HTTP_SESSION.get(
-                    USER_VALIDATE_URL,
-                    headers={"Authorization": f"Bearer {token}"},
-                    verify=False,
-                    timeout=10
-                )
-                if resp.status_code != 200 or not resp.json().get("status"):
-                    logger.warning(f"Cached token invalid (status: {resp.status_code}), clearing token")
-                    app_signals.append_log.emit(f"[Cache] Cached token invalid (status: {resp.status_code}), clearing token")
-                    data["token"] = ""
-                    GLOBAL_CACHE = data
-                    save_cache(GLOBAL_CACHE)
-                    return GLOBAL_CACHE
-            except RequestException as e:
-                logger.error(f"Token validation failed: {e}, keeping cache but marking token as invalid")
-                app_signals.append_log.emit(f"[Cache] Token validation failed: {str(e)}, keeping cache but marking token as invalid")
-                data["token"] = ""
-                GLOBAL_CACHE = data
-                save_cache(GLOBAL_CACHE)
-                return GLOBAL_CACHE
-        
-        GLOBAL_CACHE = data
+            save_cache(data)
+
         logger.info("Cache loaded successfully")
         app_signals.append_log.emit("[Cache] Cache loaded successfully")
-        return GLOBAL_CACHE
-    
+        return data
+
     except json.JSONDecodeError as e:
-        logger.error(f"Corrupted cache file: {e}, initializing new cache")
-        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, initializing new cache")
+        logger.error(f"Corrupted cache file: {e}, reinitializing")
+        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, reinitializing")
         initialize_cache()
-        return GLOBAL_CACHE
+        return default_cache
     except Exception as e:
-        logger.error(f"Error loading cache: {e}, initializing new cache")
-        app_signals.append_log.emit(f"[Cache] Failed to load cache: {str(e)}, initializing new cache")
+        logger.error(f"Error loading cache: {e}, reinitializing")
+        app_signals.append_log.emit(f"[Cache] Error loading cache: {str(e)}, reinitializing")
         initialize_cache()
-        return GLOBAL_CACHE
+        return default_cache
+
 
 def parse_custom_url():
     try:
@@ -3200,7 +3169,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
                     }
                     
                     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
@@ -3382,8 +3351,11 @@ class FileWatcherWorker(QObject):
                         "status": "Queued",
                         "thumbnail": item.get('thumbnail', ''),
                         "job_id": item.get('job_id', ''),
+                        "job_name": item.get('job_name', ''),
                         "project_id": item.get('project_id', ''),
-                        "task_type": "download"
+                        "project_name": item.get('project_name', ''),
+                        "task_type": "download",
+                        "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
                     } for item in unprocessed_tasks 
                     if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
                     # Log invalid tasks for debugging
@@ -3399,8 +3371,11 @@ class FileWatcherWorker(QObject):
                         "status": "Queued",
                         "thumbnail": item.get('thumbnail', ''),
                         "job_id": item.get('job_id', ''),
+                        "job_name": item.get('job_name', ''),
                         "project_id": item.get('project_id', ''),
-                        "task_type": "upload"
+                        "project_name": item.get('project_name', ''),
+                        "task_type": "upload",
+                        "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
                     } for item in unprocessed_tasks 
                     if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
                     # Log invalid tasks for debugging
@@ -3781,9 +3756,9 @@ class FileListWindow(QDialog):
         # Initialize table
         self.table = QTableWidget(self)
         self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
-        headers = ["File Path", "Open Folder", "Open in Photoshop", "Status", "Progress"]
-        if self.file_type == "downloaded":
-            headers.insert(3, "Source")
+        headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        # if self.file_type == "downloaded":
+        #     headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
         header = self.table.horizontalHeader()
         header.setSectionsMovable(True)
@@ -3833,62 +3808,136 @@ class FileListWindow(QDialog):
     def load_files(self):
         """Load files into the table based on file_type."""
         try:
-            cache = load_cache()  # Load cache
-            logger.debug(f"Cache contents for {self.file_type}: {json.dumps(cache, indent=2)}")
+            cache = load_cache()
             files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-            logger.debug(f"Files retrieved for {self.file_type}: {files}")
-            app_signals.append_log.emit(f"[Files] Loading {len(files)} files for {self.file_type}")
 
-            # Clear the table completely
+            # Clear table
             self.table.clearContents()
             self.table.setRowCount(0)
 
+            # Set headers
+            headers = [
+                "Project Name",
+                "Job Name",
+                "File Name",
+                "Date",
+                "Open Folder",
+                "Open in Photoshop",
+                "Status",
+                "Progress"
+            ]
+            self.table.setColumnCount(len(headers))
+            self.table.setHorizontalHeaderLabels(headers)
+            # Collect rows
+            rows = []
             file_list = files.items() if isinstance(files, dict) else enumerate(files)
             for task_id, file_path in file_list:
+                filename = Path(file_path).name
+
+                metadata_key = f"{self.file_type}_files_with_metadata"
+                meta = cache.get(metadata_key, {}).get(task_id, {}) if isinstance(task_id, (str, int)) else {}
+
+                project_name = meta.get("project_name", "") or ""
+                job_name = meta.get("job_name", "") or ""
+                created_at_raw = meta.get("created_at") or meta.get("date") or meta.get("api_response", {}).get("created_on", "")
+
+                # --- Parse date and format for display ---
+                dt = None
+                display_date = ""
+                if created_at_raw:
+                    # Try UNIX timestamp
+                    try:
+                        ts = int(created_at_raw)
+                        if 0 < ts < 4102444800:  # until 2100
+                            dt = datetime.fromtimestamp(ts)
+                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+                    except Exception:
+                        pass
+
+                    # If not timestamp, try ISO / common formats
+                    if not dt and isinstance(created_at_raw, str):
+                        s = created_at_raw.strip()
+                        try:
+                            dt = datetime.fromisoformat(s)
+                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+                        except Exception:
+                            fmts = [
+                                "%d-%b-%Y %I:%M %p",
+                                "%Y-%m-%d %H:%M:%S",
+                                "%Y-%m-%dT%H:%M:%S%z",
+                                "%Y-%m-%dT%H:%M:%S",
+                            ]
+                            for f in fmts:
+                                try:
+                                    dt = datetime.strptime(s, f)
+                                    display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+                                    break
+                                except Exception:
+                                    continue
+
+                status = "Completed" if Path(file_path).exists() else "Failed"
+                progress = 100 if Path(file_path).exists() else 0
+
+                rows.append({
+                    "project_name": project_name,
+                    "job_name": job_name,
+                    "file_name": filename,
+                    "created_at": display_date or created_at_raw,  # formatted date for table
+                    "folder_path": file_path,
+                    "photoshop_path": file_path,
+                    "status": status,
+                    "progress": progress,
+                    "dt": dt  # for sorting
+                })
+
+            # Sort descending by dt (latest first), invalid dates at bottom
+            rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+
+            # Insert rows into table
+            for row_data in rows:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
-                filename = Path(file_path).name
-                path_item = QTableWidgetItem(filename)
-                self.table.setItem(row, 0, path_item)
+
+                self.table.setItem(row, 0, QTableWidgetItem(row_data["project_name"]))
+                self.table.setItem(row, 1, QTableWidgetItem(row_data["job_name"]))
+                self.table.setItem(row, 2, QTableWidgetItem(row_data["file_name"]))
+                self.table.setItem(row, 3, QTableWidgetItem(row_data["created_at"]))
 
                 folder_btn = QPushButton()
                 folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
                 folder_btn.setIconSize(QSize(24, 24))
-                folder_btn.clicked.connect(lambda _, p=file_path: self.open_folder(p))
-                self.table.setCellWidget(row, 1, folder_btn)
+                folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+                self.table.setCellWidget(row, 4, folder_btn)
 
                 photoshop_btn = QPushButton()
                 photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
                 photoshop_btn.setIconSize(QSize(24, 24))
-                photoshop_btn.clicked.connect(lambda _, p=file_path: self.open_with_photoshop(p))
-                self.table.setCellWidget(row, 2, photoshop_btn)
+                photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+                self.table.setCellWidget(row, 5, photoshop_btn)
 
-                metadata_key = f"{self.file_type}_files_with_metadata"
-                source = cache.get(metadata_key, {}).get(task_id, {}).get("api_response", {}).get("file_path", file_path)
-                if self.file_type == "downloaded":
-                    source_item = QTableWidgetItem(source)
-                    self.table.setItem(row, 3, source_item)
-                    status_col = 4
-                    progress_col = 5
-                else:
-                    status_col = 3
-                    progress_col = 4
+                self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
 
-                status_item = QTableWidgetItem("Completed" if Path(file_path).exists() else "Failed")
-                self.table.setItem(row, status_col, status_item)
                 progress_bar = QProgressBar(self)
                 progress_bar.setMinimum(0)
                 progress_bar.setMaximum(100)
-                progress_bar.setValue(100 if Path(file_path).exists() else 0)
+                try:
+                    progress_bar.setValue(int(row_data["progress"]))
+                except Exception:
+                    progress_bar.setValue(0)
                 progress_bar.setFixedHeight(20)
-                self.table.setCellWidget(row, progress_col, progress_bar)
+                self.table.setCellWidget(row, 7, progress_bar)
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
+
         except Exception as e:
             logger.error(f"Error in load_files for {self.file_type}: {e}")
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
+
+
+
+
 
     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
         """Refresh the file list if the action_type matches file_type."""
@@ -4967,7 +5016,7 @@ class PremediaApp(QApplication):
             super().__init__(sys.argv)
             self.setQuitOnLastWindowClosed(False)
             self.setWindowIcon(load_icon(ICON_PATH, "application"))
-
+            self.CACHE_FILE = CACHE_FILE
             # Prevent multiple instances using a lock file
             self.lock_file = os.path.join(tempfile.gettempdir(), "premedia_app.lock")
             try:
@@ -5185,56 +5234,166 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit(f"Error handling tray icon activation: {str(e)}")
             QMessageBox.critical(None, "Tray Icon Error", f"Error handling tray icon activation: {str(e)}")
 
+
     def update_tray_menu(self):
         try:
-            if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
-                self.tray_menu.clear()
-                self.login_action.setVisible(not self.logged_in)
-                self.login_action.setEnabled(not self.logged_in)
-                self.logout_action.setVisible(self.logged_in)
-                self.logout_action.setEnabled(self.logged_in)
-                self.downloaded_files_action.setVisible(True)
-                self.downloaded_files_action.setEnabled(self.logged_in)
-                self.uploaded_files_action.setVisible(True)
-                self.uploaded_files_action.setEnabled(self.logged_in)
-                self.clear_cache_action.setVisible(True)
-                self.clear_cache_action.setEnabled(self.logged_in)
-                self.open_cache_action.setVisible(True)
-                self.open_cache_action.setEnabled(self.logged_in)
-                self.log_action.setVisible(True)
-                self.log_action.setEnabled(True)
-                self.quit_action.setVisible(True)
-                self.quit_action.setEnabled(True)
-                self.tray_menu.addAction(self.log_action)
-                self.tray_menu.addAction(self.downloaded_files_action)
-                self.tray_menu.addAction(self.uploaded_files_action)
-                self.tray_menu.addAction(self.open_cache_action)
-                self.tray_menu.addAction(self.login_action)
-                self.tray_menu.addAction(self.logout_action)
-                self.tray_menu.addAction(self.clear_cache_action)
-                self.tray_menu.addAction(self.quit_action)
-                self.tray_icon.setContextMenu(self.tray_menu)
-                self.tray_icon.show()
+            if not self.tray_icon or not QSystemTrayIcon.isSystemTrayAvailable():
+                logger.warning("System tray not available or tray_icon not initialized")
+                return
+
+            self.tray_menu.clear()
+            user_fullname = "Unknown"
+
+            # Load user full name from cache if logged in
+            if self.logged_in:
+                try:
+                    cache_file = Path(self.CACHE_FILE).resolve()
+                    if cache_file.exists() and cache_file.is_file():
+                        with cache_file.open('r', encoding='utf-8') as f:
+                            cache_data = json.load(f)
+                        user_data = cache_data.get('user_data', {}).get('data', [])
+                        if user_data and isinstance(user_data, list):
+                            user_fullname = user_data[0].get('attributes', {}).get('field_fullname', "Unknown")
+                        logger.debug(f"Extracted field_fullname: {user_fullname}")
+                        app_signals.append_log.emit(f"[Tray] User full name: {user_fullname}")
+                    else:
+                        logger.warning(f"Cache file missing or invalid: {cache_file}")
+                        app_signals.append_log.emit(f"[Tray] Cache file missing: {cache_file}")
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.error(f"Failed to read field_fullname from cache: {e}")
+                    app_signals.append_log.emit(f"[Tray] Failed to read cache: {str(e)}")
+                    user_fullname = "Error reading user"
+
+            ICON_CACHE.clear()
+            logger.debug(f"update_tray_menu: self.logged_in = {self.logged_in}")
+
+            # Determine platform-specific tray icon
+            tray_icon_name = {
+                "Windows": "logged_in_icon.ico" if self.logged_in else "premedia.ico",
+                "Darwin": "logged_in_icon.icns" if self.logged_in else "premedia.icns",
+                "Linux": "logged_in_icon.png" if self.logged_in else "premedia.png"
+            }.get(platform.system(), "premedia.png")
+
+            icon_path = get_icon_path(tray_icon_name)
+
+            # ------------------- Windows dummy icon trick -------------------
+            if platform.system() == "Windows":
+                dummy_icon_path = get_icon_path("premedia.png")
+                self.tray_icon.setIcon(QIcon(dummy_icon_path))  # set temporary icon
                 QApplication.processEvents()
-                for _ in range(2):
-                    if not self.tray_icon.isVisible():
-                        logger.debug("Tray icon not visible after update_tray_menu, retrying show")
-                        app_signals.append_log.emit("[Tray] Tray icon not visible after update_tray_menu, retrying show")
-                        self.tray_icon.show()
-                        QApplication.processEvents()
-                logger.debug(f"Updated tray menu: logged_in={self.logged_in}, enabled actions: {[action.text() for action in self.tray_menu.actions() if action.isVisible() and action.isEnabled()]}")
-                app_signals.append_log.emit(f"[Tray] Updated menu: Login={self.login_action.isEnabled()}, Logout={self.logout_action.isEnabled()}, Downloaded={self.downloaded_files_action.isEnabled()}, Uploaded={self.uploaded_files_action.isEnabled()}, ClearCache={self.clear_cache_action.isEnabled()}, OpenCache={self.open_cache_action.isEnabled()}")
-            else:
-                logger.warning("System tray not available, cannot update tray menu")
-                app_signals.append_log.emit("[Tray] System tray not available")
-                if platform.system() == "Linux":
-                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
-                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
+            # Set the actual icon
+            if not Path(icon_path).exists() or QIcon(icon_path).isNull():
+                icon_path = get_icon_path("premedia.png")
+            self.tray_icon.setIcon(QIcon(icon_path))
+            self.tray_icon.setToolTip(
+                f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in else 'Not logged in'}"
+            )
+            QApplication.processEvents()
+            # -----------------------------------------------------------------
+
+            logger.debug(f"Tray icon updated: {icon_path}, logged_in={self.logged_in}")
+
+            # Helper function for setting up action icons
+            def setup_action(action, icon_name, visible=True, enabled=True):
+                path = get_icon_path(icon_name)
+                if not Path(path).exists() or QIcon(path).isNull():
+                    path = get_icon_path("premedia.png")
+                action.setIcon(QIcon(path))
+                action.setVisible(visible)
+                action.setEnabled(enabled)
+
+            # User info action
+            user_icon_name = {
+                "Windows": "user_icon.ico",
+                "Darwin": "user_icon.icns",
+                "Linux": "user_icon.png"
+            }.get(platform.system(), "user_icon.png")
+            user_action = QAction(f"User: {user_fullname}", self.tray_menu)
+            user_action.setEnabled(False)
+            user_action.setVisible(self.logged_in)
+            font = QFont()
+            font.setBold(True)
+            user_action.setFont(font)
+            setup_action(user_action, user_icon_name)
+            self.tray_menu.addAction(user_action)
+            self.tray_menu.addSeparator()
+
+            # Main actions
+            setup_action(self.login_action, {
+                "Windows": "login_icon.ico",
+                "Darwin": "login_icon.icns",
+                "Linux": "login_icon.png"
+            }.get(platform.system(), "login_icon.png"), visible=not self.logged_in, enabled=not self.logged_in)
+
+            setup_action(self.logout_action, {
+                "Windows": "logout_icon.ico",
+                "Darwin": "logout_icon.icns",
+                "Linux": "logout_icon.png"
+            }.get(platform.system(), "logout_icon.png"), visible=self.logged_in, enabled=self.logged_in)
+
+            setup_action(self.downloaded_files_action, {
+                "Windows": "download_icon.ico",
+                "Darwin": "download_icon.icns",
+                "Linux": "download_icon.png"
+            }.get(platform.system(), "download_icon.png"), visible=True, enabled=self.logged_in)
+
+            setup_action(self.uploaded_files_action, {
+                "Windows": "upload_icon.ico",
+                "Darwin": "upload_icon.icns",
+                "Linux": "upload_icon.png"
+            }.get(platform.system(), "upload_icon.png"), visible=True, enabled=self.logged_in)
+
+            setup_action(self.clear_cache_action, {
+                "Windows": "clear_cache_icon.ico",
+                "Darwin": "clear_cache_icon.icns",
+                "Linux": "clear_cache_icon.png"
+            }.get(platform.system(), "clear_cache_icon.png"), visible=True, enabled=self.logged_in)
+
+            setup_action(self.open_cache_action, {
+                "Windows": "cache_icon.ico",
+                "Darwin": "cache_icon.icns",
+                "Linux": "cache_icon.png"
+            }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
+
+            setup_action(self.log_action, {
+                "Windows": "log_icon.ico",
+                "Darwin": "log_icon.icns",
+                "Linux": "log_icon.png"
+            }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
+
+            setup_action(self.quit_action, {
+                "Windows": "quit_icon.ico",
+                "Darwin": "quit_icon.icns",
+                "Linux": "quit_icon.png"
+            }.get(platform.system(), "quit_icon.png"), visible=True, enabled=True)
+
+            # Add actions to tray menu
+            self.tray_menu.addAction(self.log_action)
+            self.tray_menu.addSeparator()
+            self.tray_menu.addAction(self.downloaded_files_action)
+            self.tray_menu.addAction(self.uploaded_files_action)
+            self.tray_menu.addSeparator()
+            self.tray_menu.addAction(self.open_cache_action)
+            self.tray_menu.addAction(self.clear_cache_action)
+            self.tray_menu.addSeparator()
+            self.tray_menu.addAction(self.login_action)
+            self.tray_menu.addAction(self.logout_action)
+            self.tray_menu.addSeparator()
+            self.tray_menu.addAction(self.quit_action)
+
+            self.tray_icon.setContextMenu(self.tray_menu)
+
+            logger.debug(f"Tray menu updated: logged_in={self.logged_in}, user={user_fullname}")
+            app_signals.append_log.emit(f"[Tray] Menu updated: User={user_fullname}")
+
         except Exception as e:
-            logger.error(f"Error updating tray menu: {e}")
+            logger.error(f"Error updating tray menu: {e}\n{traceback.format_exc()}")
             app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
             app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
-            QMessageBox.critical(self, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
+            QMessageBox.critical(None, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
+
+
+
 
     def start_file_watcher(self):
         global FILE_WATCHER_RUNNING
@@ -5429,53 +5588,146 @@ class PremediaApp(QApplication):
 
     def open_cache_file(self):
         try:
-            cache_file = Path(CACHE_FILE)
+            cache_file = Path(self.CACHE_FILE).resolve()
+            logger.debug(f"Attempting to open cache file: {cache_file}")
+            app_signals.append_log.emit(f"[Cache] Attempting to open: {cache_file}")
+
+            # Check if file exists
             if not cache_file.exists():
-                logger.warning("Cache file does not exist")
-                app_signals.append_log.emit("[Cache] Cache file does not exist")
+                logger.warning(f"Cache file does not exist: {cache_file}")
+                app_signals.append_log.emit(f"[Cache] Cache file does not exist: {cache_file}")
                 app_signals.update_status.emit("Cache file does not exist")
-                QMessageBox.warning(None, "Cache Error", "Cache file does not exist.")
+                QMessageBox.warning(None, "Cache Error", f"Cache file does not exist:\n{cache_file}")
                 return
 
-            with cache_file.open('r', encoding='utf-8') as f:
-                content = f.read()
+            # Verify file is readable
+            if not cache_file.is_file():
+                logger.warning(f"Cache file is not a valid file: {cache_file}")
+                app_signals.append_log.emit(f"[Cache] Invalid file: {cache_file}")
+                app_signals.update_status.emit("Invalid cache file")
+                QMessageBox.warning(None, "Cache Error", f"Invalid cache file:\n{cache_file}")
+                return
 
-            dialog = QDialog()
+            # Read and beautify file content
+            try:
+                with cache_file.open('r', encoding='utf-8') as f:
+                    raw_content = f.read()
+                # Try to parse and beautify JSON
+                try:
+                    json_data = json.loads(raw_content)
+                    content = json.dumps(json_data, indent=4, sort_keys=True)
+                    logger.debug("Successfully parsed and formatted JSON content")
+                    app_signals.append_log.emit("[Cache] Successfully formatted JSON content")
+                except json.JSONDecodeError as json_err:
+                    logger.warning(f"Cache file is not valid JSON: {json_err}")
+                    app_signals.append_log.emit(f"[Cache] Not valid JSON, displaying raw content: {str(json_err)}")
+                    content = raw_content  # Fall back to raw content
+            except UnicodeDecodeError:
+                logger.warning(f"Cache file is not UTF-8 encoded: {cache_file}")
+                app_signals.append_log.emit(f"[Cache] Non-UTF-8 file detected: {cache_file}")
+                with cache_file.open('r', encoding='latin-1') as f:
+                    content = f.read()  # Display raw content without JSON formatting
+
+            # Create and show dialog
+            dialog = QDialog(None)  # Use None as parent since PremediaApp is not a widget
             dialog.setWindowTitle("Cache File Content")
             dialog.setMinimumSize(600, 400)
+
             text_edit = QTextEdit()
             text_edit.setReadOnly(True)
             text_edit.setPlainText(content)
+
+            close_button = QPushButton("Close")
+            close_button.clicked.connect(dialog.close)
+
             layout = QVBoxLayout()
             layout.addWidget(text_edit)
+            layout.addWidget(close_button)
             dialog.setLayout(layout)
-            dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
+
             app_signals.update_status.emit("Opened cache file")
             app_signals.append_log.emit(f"[Cache] Opened cache file: {cache_file}")
-        except Exception as e:
-            logger.error(f"Error opening cache file: {e}")
-            app_signals.append_log.emit(f"[Cache] Failed: Error opening cache file - {str(e)}")
+            dialog.exec_()  # Modal dialog for better visibility
+
+        except (IOError, OSError) as e:
+            logger.error(f"IO error opening cache file: {e}\n{traceback.format_exc()}")
+            app_signals.append_log.emit(f"[Cache] Failed: IO error - {str(e)}")
             app_signals.update_status.emit(f"Error opening cache file: {str(e)}")
-            QMessageBox.critical(None, "Cache Error", f"Failed to open cache file: {str(e)}")
+            QMessageBox.critical(None, "Cache Error", f"Failed to open cache file:\n{str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error opening cache file: {e}\n{traceback.format_exc()}")
+            app_signals.append_log.emit(f"[Cache] Failed: Unexpected error - {str(e)}")
+            app_signals.update_status.emit("Unexpected error")
+            QMessageBox.critical(None, "Cache Error", f"Unexpected error opening cache file:\n{str(e)}")
 
     def clear_cache(self):
         global GLOBAL_CACHE
-        try:
-            initialize_cache()
-            GLOBAL_CACHE = None
-            self.logged_in = False
-            self.update_tray_menu()
-            app_signals.append_log.emit("[Cache] Cache cleared manually")
-            logger.info("Cache cleared manually")
-            app_signals.update_status.emit("Cache cleared")
-            self.show_login()
-        except Exception as e:
-            logger.error(f"Error clearing cache: {e}")
-            app_signals.append_log.emit(f"[Cache] Failed: Error clearing cache - {str(e)}")
-            app_signals.update_status.emit(f"Error clearing cache: {str(e)}")
-            QMessageBox.critical(self, "Cache Error", f"Failed to clear cache: {str(e)}")
+
+        msg_box = QMessageBox()
+        msg_box.setWindowTitle("Confirm Clear Cache")
+        msg_box.setText(
+            "Are you sure you want to clear the cache and delete all files and folders in BASE_DIR? "
+            "This action cannot be undone, and all data will be permanently lost."
+        )
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        reply = msg_box.exec()
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                logger.info(f"[Cache] Clearing cache from BASE_DIR: {BASE_TARGET_DIR}")
+                app_signals.append_log.emit(f"[Cache] Clearing cache from BASE_DIR: {BASE_TARGET_DIR}")
+
+                initialize_cache()
+                GLOBAL_CACHE = None
+                self.logged_in = False
+                self.update_tray_menu()
+
+                # Delete everything inside BASE_TARGET_DIR
+                if os.path.exists(BASE_TARGET_DIR):
+                    try:
+                        shutil.rmtree(BASE_TARGET_DIR)   # remove the whole folder
+                        logger.info(f"Deleted BASE_TARGET_DIR: {BASE_TARGET_DIR}")
+                        app_signals.append_log.emit(f"[Cache] Deleted BASE_TARGET_DIR: {BASE_TARGET_DIR}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete BASE_TARGET_DIR: {e}")
+                        app_signals.append_log.emit(f"[Cache] Failed to delete BASE_TARGET_DIR: {e}")
+
+                    # Recreate empty BASE_TARGET_DIR
+                    os.makedirs(BASE_TARGET_DIR, exist_ok=True)
+                    logger.info(f"Recreated empty {BASE_TARGET_DIR}")
+                    app_signals.append_log.emit(f"[Cache] Recreated empty {BASE_TARGET_DIR}")
+
+                logger.info("Cache cleared manually")
+                app_signals.append_log.emit("[Cache] Cache cleared manually")
+                app_signals.update_status.emit("Cache cleared successfully")
+
+                # ✅ Show success dialog
+                QMessageBox.information(None, "Cache Cleared", "Cache cleared successfully!")
+
+                self.show_login()
+            except Exception as e:
+                print(f"Error clearing cache: {e}")
+                app_signals.append_log.emit(f"[Cache] Failed: Error clearing cache - {str(e)}")
+                app_signals.update_status.emit(f"Error clearing cache: {str(e)}")
+                QMessageBox.critical(None, "Cache Error", f"Failed to clear cache: {str(e)}")
+        else:
+            app_signals.append_log.emit("[Cache] Cache clear cancelled by user")
+            logger.info("Cache clear cancelled by user")
+            app_signals.update_status.emit("Cache clear cancelled")
+
+
+
+
+
+
+
+
+
+
+
+
 
     def quit(self):
         global HTTP_SESSION, FILE_WATCHER_RUNNING
