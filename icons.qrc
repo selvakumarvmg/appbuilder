@@ -1,10 +1,39 @@
 <RCC>
-  <qresource prefix="icons">
-    <file>icons/vmg-premedia-logo.png</file>
-    <file>icons/folder.png</file>
-    <file>icons/premedia.png</file>
-    <file>icons/premedia.icns</file>
-    <file>icons/premedia.ico</file>
-    <file>icons/photoshop.png</file>
-  </qresource>
+    <qresource prefix="/icons">
+        <file>icons/cache_icon.icns</file>
+        <file>icons/cache_icon.ico</file>
+        <file>icons/cache_icon.png</file>
+        <file>icons/clear_cache_icon.icns</file>
+        <file>icons/clear_cache_icon.ico</file>
+        <file>icons/clear_cache_icon.png</file>
+        <file>icons/default_icon.icns</file>
+        <file>icons/default_icon.ico</file>
+        <file>icons/download_icon.icns</file>
+        <file>icons/download_icon.ico</file>
+        <file>icons/download_icon.png</file>
+        <file>icons/folder.png</file>
+        <file>icons/login_icon.ico</file>
+        <file>icons/login_icon.png</file>
+        <file>icons/logout_icon.icns</file>
+        <file>icons/logout_icon.ico</file>
+        <file>icons/logout_icon.png</file>
+        <file>icons/log_icon.icns</file>
+        <file>icons/log_icon.ico</file>
+        <file>icons/log_icon.png</file>
+        <file>icons/photoshop.png</file>
+        <file>icons/premedia-logo.bmp</file>
+        <file>icons/premedia.icns</file>
+        <file>icons/premedia.ico</file>
+        <file>icons/premedia.png</file>
+        <file>icons/quit_icon.ico</file>
+        <file>icons/report.ico</file>
+        <file>icons/report.png</file>
+        <file>icons/upload_icon.icns</file>
+        <file>icons/upload_icon.ico</file>
+        <file>icons/upload_icon.png</file>
+        <file>icons/user_icon.icns</file>
+        <file>icons/user_icon.ico</file>
+        <file>icons/user_icon.png</file>
+        <file>icons/vmg-premedia-logo.png</file>
+    </qresource>
 </RCC>

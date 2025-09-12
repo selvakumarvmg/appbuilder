@@ -38,11 +38,44 @@ Name: autostart; Description: "Launch PremediaApp automatically on startup"; Fla
 Source: "..\dist\PremediaApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Other resources
+; Explicitly include additional resources (optional, since already covered by wildcard)
 Source: "..\terms.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\license.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
-Source: "..\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\cache_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\cache_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\cache_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\clear_cache_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\clear_cache_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\clear_cache_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\default_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\default_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\download_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\download_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\download_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\folder.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\login_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\login_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\logout_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\logout_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\logout_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\log_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\log_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\log_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\photoshop.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\premedia-logo.bmp"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\premedia.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\premedia.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\quit_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\report.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\report.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\upload_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\upload_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\upload_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\user_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\user_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\user_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\vmg-premedia-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"
