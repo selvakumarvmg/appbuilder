@@ -3954,7 +3954,10 @@ class FileListWindow(QDialog):
                 # Find metadata by matching relative path or filename for "uploaded", else use task_id
                 meta = {}
                 if self.file_type == "uploaded":
-                    logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {[str(Path(data.get('local_path', ''))).replace('\\', '/') for data in metadata.values()]}")
+                    local_paths = [str(Path(data.get("local_path", ""))).replace("\\", "/") for data in metadata.values()]
+                    logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {local_paths}")
+
+                    # logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {[str(Path(data.get('local_path', ''))).replace('\\', '/') for data in metadata.values()]}")
                     for key, data in metadata.items():
                         normalized_local_path = str(Path(data.get("local_path", ""))).replace('\\', '/')
                         relative_local_path = normalized_local_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_local_path else normalized_local_path
