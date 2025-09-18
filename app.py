@@ -380,11 +380,13 @@ def save_cache(data, significant_change=False):
     data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
     cache_dir = Path(CACHE_FILE).parent
     try:
+        logger.debug(f"Saving cache to {CACHE_FILE}")
         cache_dir.mkdir(exist_ok=True, parents=True)
 
         # Backup only for significant changes
         if Path(CACHE_FILE).exists() and significant_change:
             backup_file = cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json"
+            logger.debug(f"Creating backup: {backup_file}")
             with open(CACHE_FILE, "r", encoding="utf-8") as f, open(backup_file, "w", encoding="utf-8") as bf:
                 bf.write(f.read())
 
@@ -394,12 +396,13 @@ def save_cache(data, significant_change=False):
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
 
-        logger.info("Cache saved to file")
-        app_signals.append_log.emit("[Cache] Cache saved to file")
+        logger.info(f"Cache saved to {CACHE_FILE}")
+        app_signals.append_log.emit(f"[Cache] Cache saved to {CACHE_FILE}")
 
     except Exception as e:
-        logger.error(f"Error saving cache: {e}")
+        logger.error(f"Error saving cache to {CACHE_FILE}: {e}")
         app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
+        raise  # Re-raise to alert calling code
 
 
 def load_cache():
@@ -3123,148 +3126,369 @@ class FileWatcherWorker(QObject):
 
 
 
-    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+    # def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
      
+    #     try:
+    #         task_id = str(item.get('id'))
+    #         update_download_upload_metadata(task_id, "In Progress")
+    #         logger.info(f"[In Progress]=================================== {task_id}")
+    #         original_filename = Path(src_path).name
+    #         self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
+    #         if action_type.lower() == "download":
+    #             dest_path = self._prepare_download_path(item)
+    #             if is_nas_src:
+    #                 self._download_from_nas(src_path, dest_path, item)
+    #                 if os.path.exists(dest_path):
+    #                     self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
+    #                     app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
+    #                     try:
+    #                         update_download_upload_metadata(task_id, "completed")
+    #                         key_val = item.get("key_val")
+    #                         print(key_val)
+    #                         self.open_with_photoshop(dest_path, key_val)
+    #                     except Exception as e:
+    #                         # update_download_upload_metadata(task_id, "failed open in photoshop")
+    #                         logger.warning(f"Failed. to open {dest_path} with Photoshop: {str(e)}")
+    #                         self.log_update.emit(f"[Transfer] Warning: Failed. to open {dest_path} with Photoshop: {str(e)}")
+    #                     self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
+    #                     self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+    #                     app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+    #                 else:
+    #                     raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
+    #             else:
+    #                 self._download_from_http(src_path, dest_path)
+    #                 if os.path.exists(dest_path):
+    #                     self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
+    #                     app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
+    #                     try:
+    #                         update_download_upload_metadata(task_id, "completed")
+    #                         key_val = item.get("key_val")
+    #                         print(key_val)
+    #                         self.open_with_photoshop(dest_path, key_val)
+    #                     except Exception as e:
+    #                         # update_download_upload_metadata(task_id, "failed open in photoshop")
+    #                         logger.warning(f"Failed- to open {dest_path} with Photoshop: {str(e)}")
+    #                         self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
+    #                     self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
+    #                     self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+    #                     app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
+                        
+    #                     local_jpg, _ = process_single_file(dest_path)
+    #                     if local_jpg:
+    #                         app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
+    #                 else:
+    #                     raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
+    #         elif action_type.lower() in ("upload", "replace"):
+    #             cache = load_cache()
+    #             cache.setdefault("uploaded_files", [])
+    #             # Validate source file existence
+    #             if not os.path.exists(src_path):
+    #                 logger.error(f"Source file does not exist for upload: {src_path}")
+    #                 self.log_update.emit(f"[Transfer] Failed: Source file does not exist for upload: {src_path}")
+    #                 if is_nas_dest:
+    #                     try:
+    #                         temp_dest = self._prepare_download_path(item)
+    #                         self._download_from_nas(dest_path, temp_dest, item)
+    #                         if os.path.exists(temp_dest):
+    #                             src_path = temp_dest
+    #                             self.log_update.emit(f"[Transfer] Downloaded source file for upload: {src_path}")
+    #                         else:
+    #                             raise FileNotFoundError(f"Fallback download failed for {temp_dest}")
+    #                     except Exception as e:
+    #                         logger.error(f"Fallback download failed for upload task {task_id}: {str(e)}")
+    #                         self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
+    #                         raise
+
+    #             # Check if file is in use by another application
+    #             try:
+    #                 with open(src_path, 'rb') as f:
+    #                     f.read(1)  # Attempt to read a byte to check file accessibility
+    #             except (PermissionError, IOError) as e:
+    #                 update_download_upload_metadata(task_id, "failed")
+    #                 error_message = f"File {src_path} is currently in use by another application. Please close the application and try again."
+    #                 logger.error(error_message)
+    #                 self.log_update.emit(f"[Transfer] Failed: {error_message}")
+    #                 self.show_dialog.emit("File In Use", error_message, "error")
+                    
+    #                 self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+    #                 raise RuntimeError(error_message)
+                
+    #             original_dest_path = item.get('file_path', dest_path)
+                
+    #             self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
+    #             self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
+    #             # Handle JPG conversion and upload for supported formats
+    #             if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
+    #                 # jpg_name = Path(src_path).stem + ".jpg"
+    #                 # client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
+    #                 # project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
+    #                 # jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
+    #                 # try:
+    #                 #     os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
+    #                 #     os.chmod(jpg_folder, 0o777)
+    #                 #     self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
+    #                 # except OSError as e:
+    #                 #     logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
+    #                 #     self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
+    #                 #     raise
+    #                 # jpg_path = str(jpg_folder / jpg_name)
+    #                 # self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
+    #                 # try:
+    #                 #     local_jpg, backup_path = process_single_file(src_path)
+    #                 #     logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+    #                 #     self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
+    #                 #     if local_jpg and os.path.exists(local_jpg):
+    #                 #         jpg_path = local_jpg
+    #                 #         self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
+    #                 #     else:
+    #                 #         logger.error(f"Failed to convert to JPG: {jpg_path}")
+    #                 #         self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
+    #                 #         raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
+    #                 # except Exception as e:
+    #                 #     logger.error(f"JPG conversion error for {src_path}: {str(e)}")
+    #                 #     self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
+    #                 #     raise
+    #                 if is_nas_dest:
+    #                     self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
+    #                     self._upload_to_nas(src_path, original_dest_path, item)
+    #                     self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
+    #                 else:
+    #                     self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
+    #                     raise NotImplementedError("HTTP upload not implemented")
+    #                 # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
+    #                 # if is_nas_dest:
+    #                 #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
+    #                 #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
+    #                 #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
+    #                 # else:
+    #                 #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
+    #                 #     raise NotImplementedError("HTTP upload not implemented")
+    #                 # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
+    #                 # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+    #             else:
+    #                 self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
+    #             # Post-upload API call logic for original file
+    #             try:
+    #                 request_data = {
+    #                     'job_id': item.get('job_id'),
+    #                     'project_id': item.get("project_id"),
+    #                     'file_name': item.get("user_id"),
+    #                     'user_id': item.get("user_id"),
+    #                     'user_type': item.get("user_type"),
+    #                     'spec_id': item.get("spec_id"),
+    #                     'creative_id': item.get("creative_id"),
+    #                     'inventory_id': item.get("inventory_id"),
+    #                     'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+    #                 }
+                    
+    #                 # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+    #                 response = requests.post(
+    #                     DRUPAL_DB_ENTRY_API,
+    #                     data=request_data,
+    #                     headers={},
+    #                     verify=False
+    #                 )
+    #                 update_download_upload_metadata(task_id, "Convertion Started")
+    #                 logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
+    #                 # print("DRUPAL_DB_ENTRY_API data success:", response.text)
+    #             except Exception as e:
+    #                 logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
+    #                 # print("Error in DRUPAL_DB_ENTRY_API data:", e)
+               
+               
+    #             # user_type = cache.get('user_type', '').lower()
+    #             # user_id = cache.get('user_id', '')
+    #             # spec_id = item.get('spec_id', '')
+    #             # creative_id = item.get('creative_id', '')
+    #             # job_id = item.get('job_id', '')
+    #             # original_path = original_dest_path
+    #             # local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
+    #             # if user_type == 'operator':
+    #             #     op_payload = {
+    #             #         'spec_nid': spec_id,
+    #             #         'operator_nid': user_id,
+    #             #         'files_link': original_path,
+    #             #         'notes': '',
+    #             #         'brief_id': job_id,
+    #             #         'business': 'image_retouching'
+    #             #     }
+    #             #     if creative_id:
+    #             #         op_payload['creative_nid'] = creative_id
+    #             #         response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
+    #             #         logger.info(f"Updated API Response: {response}")
+    #             #         self.log_update.emit(f"[API] Updated API Response: {response}")
+    #             #     else:
+    #             #         response = call_api(API_URL_CREATE, op_payload, local_file_path)
+    #             #         post_metadata_to_api_upload(spec_id, user_id)
+    #             #         logger.info(f"Created API Response: {response}")
+    #             #         self.log_update.emit(f"[API] Created API Response: {response}")
+    #             # elif user_type in ['qc', 'qa']:
+    #             #     qc_qa_payload = {
+    #             #         'image_id': spec_id,
+    #             #         'job_id': job_id,
+    #             #         'creative_id': creative_id,
+    #             #         'user_id': user_id,
+    #             #         'files_link': [original_path] if isinstance(original_path, str) else original_path,
+    #             #         'business': 'image_retouching'
+    #             #     }
+    #             #     response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
+    #             #     logger.info(f"QC/QA API Response: {response}")
+    #             #     self.log_update.emit(f"[API] QC/QA API Response: {response}")
+    #             # else:
+    #             #     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
+    #             #     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
+    #             # try:
+    #             #     update_download_upload_metadata(task_id, "completed")
+    #             #     logger.info(f"Updated task {task_id} status to completed")
+    #             #     self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
+    #             # except Exception as e:
+    #             #     logger.error(f"Failed to update task {task_id} status: {str(e)}")
+    #             #     self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
+
+    #             # try:
+    #             #     os.remove(local_file_path)
+    #             #     logger.info(f"Deleted local JPG file: {local_file_path}")
+    #             #     self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
+    #             # except Exception as e:
+    #             #     logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
+    #             #     self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
+    #     except Exception as e:
+    #         update_download_upload_metadata(task_id, "failed")
+    #         logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
+    #         self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
+    #         app_signals.update_file_list.emit(dest_path if action_type.lower() == "download" else src_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src or is_nas_dest)
+    #         self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+    #         raise
+
+
+    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        """Perform file transfer (download/upload/replace) and update cache metadata reliably."""
+        task_id = str(item.get('id'))
+        if not task_id:
+            raise ValueError("Task ID is missing or invalid in item dictionary")
+
+        status_prefix = "Download" if action_type.lower() == "download" else "Upload"
+        metadata_key = "downloaded_files_with_metadata" if action_type.lower() == "download" else "uploaded_files_with_metadata"
+
         try:
-            task_id = str(item.get('id'))
+            logger.debug(f"Starting file transfer for task {task_id}, action_type: {action_type}")
+
+            # Load cache once
+            cache = load_cache()
+            cache.setdefault(metadata_key, {})
+
+            # Initialize task entry if missing
+            if task_id not in cache[metadata_key]:
+                cache[metadata_key][task_id] = {
+                    "local_path": dest_path if action_type.lower() == "download" else src_path,
+                    "api_response": {
+                        "id": task_id,
+                        "file_path": item.get("file_path"),
+                        "file_name": item.get("file_name", Path(src_path).name),
+                        "request_type": action_type.lower(),
+                        "job_id": item.get("job_id"),
+                        "job_name": item.get("job_name"),
+                        "project_id": item.get("project_id"),
+                        "project_name": item.get("project_name"),
+                        "client_name": item.get("client_name"),
+                        "spec_id": item.get("spec_id"),
+                        "user_id": item.get("user_id"),
+                        "user_type": item.get("user_type"),
+                        "creative_id": item.get("creative_id"),
+                        "inventory_id": item.get("inventory_id"),
+                        "nas_path": item.get("nas_path"),
+                        "thumbnail": item.get("thumbnail"),
+                        "created_on": item.get("created_on"),
+                        "updated_date": item.get("updated_date"),
+                        "request_status": f"{status_prefix} Started"
+                    },
+                    
+                }
+
+            # Save initial "In Progress" state
+            save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "In Progress")
-            logger.info(f"[In Progress]=================================== {task_id}")
-            original_filename = Path(src_path).name
-            self.progress_update.emit(f"{action_type} (Task {task_id}): {original_filename}", dest_path, 10)
+            logger.info(f"[{status_prefix} In Progress] Task {task_id}")
+            self.progress_update.emit(f"{action_type} (Task {task_id}): {Path(src_path).name}", dest_path, 10)
+
+            # ------------------------------
+            # Handle Download
+            # ------------------------------
             if action_type.lower() == "download":
                 dest_path = self._prepare_download_path(item)
+
                 if is_nas_src:
                     self._download_from_nas(src_path, dest_path, item)
-                    if os.path.exists(dest_path):
-                        self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
-                        app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
-                        try:
-                            update_download_upload_metadata(task_id, "completed")
-                            key_val = item.get("key_val")
-                            print(key_val)
-                            self.open_with_photoshop(dest_path, key_val)
-                        except Exception as e:
-                            # update_download_upload_metadata(task_id, "failed open in photoshop")
-                            logger.warning(f"Failed. to open {dest_path} with Photoshop: {str(e)}")
-                            self.log_update.emit(f"[Transfer] Warning: Failed. to open {dest_path} with Photoshop: {str(e)}")
-                        self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
-                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
-                        app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                    else:
-                        raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
                 else:
                     self._download_from_http(src_path, dest_path)
-                    if os.path.exists(dest_path):
-                        self.log_update.emit(f"[Transfer] Downloaded file: {dest_path}")
-                        app_signals.append_log.emit(f"[Transfer] Downloaded file: {dest_path}")
-                        try:
-                            update_download_upload_metadata(task_id, "completed")
-                            key_val = item.get("key_val")
-                            print(key_val)
-                            self.open_with_photoshop(dest_path, key_val)
-                        except Exception as e:
-                            # update_download_upload_metadata(task_id, "failed open in photoshop")
-                            logger.warning(f"Failed- to open {dest_path} with Photoshop: {str(e)}")
-                            self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
-                        self._update_cache_and_signals(action_type, src_path, dest_path, item, task_id, is_nas_src)
-                        self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
-                        app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", action_type.lower(), 100, is_nas_src)
-                        
-                        local_jpg, _ = process_single_file(dest_path)
-                        if local_jpg:
-                            app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
-                    else:
-                        raise FileNotFoundError(f"Downloaded file not found: {dest_path}")
-            elif action_type.lower() in ("upload", "replace"):
-                cache = load_cache()
-                cache.setdefault("uploaded_files", [])
-                # Validate source file existence
-                if not os.path.exists(src_path):
-                    logger.error(f"Source file does not exist for upload: {src_path}")
-                    self.log_update.emit(f"[Transfer] Failed: Source file does not exist for upload: {src_path}")
-                    if is_nas_dest:
-                        try:
-                            temp_dest = self._prepare_download_path(item)
-                            self._download_from_nas(dest_path, temp_dest, item)
-                            if os.path.exists(temp_dest):
-                                src_path = temp_dest
-                                self.log_update.emit(f"[Transfer] Downloaded source file for upload: {src_path}")
-                            else:
-                                raise FileNotFoundError(f"Fallback download failed for {temp_dest}")
-                        except Exception as e:
-                            logger.error(f"Fallback download failed for upload task {task_id}: {str(e)}")
-                            self.log_update.emit(f"[Transfer] Failed: Fallback download error - {str(e)}")
-                            raise
 
-                # Check if file is in use by another application
+                if not os.path.exists(dest_path):
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
+                    save_cache(cache, significant_change=True)
+                    raise FileNotFoundError(f"{status_prefix} file not found: {dest_path}")
+
+                cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
+                cache[metadata_key][task_id]["local_path"] = dest_path
+                save_cache(cache, significant_change=True)
+                update_download_upload_metadata(task_id, "completed")
+
+                # Optional: Open with Photoshop
+                try:
+                    key_val = item.get("key_val")
+                    self.open_with_photoshop(dest_path, key_val)
+                except Exception as e:
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed Photoshop"
+                    save_cache(cache, significant_change=True)
+                    logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
+                    self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
+
+                # Optional: Conversion to JPG
+                # cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Started"
+                # save_cache(cache, significant_change=True)
+                # local_jpg, _ = process_single_file(dest_path)
+                # if local_jpg:
+                #     cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Completed"
+                #     save_cache(cache, significant_change=True)
+                #     app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
+                # else:
+                #     cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Failed"
+                #     save_cache(cache, significant_change=True)
+                #     self.log_update.emit(f"[Transfer] Failed: JPG conversion failed for {dest_path}")
+
+                # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(src_path).name}", dest_path, 100)
+                # app_signals.update_file_list.emit(dest_path, f"{action_type} Completed", "download", 100, is_nas_src)
+
+            # ------------------------------
+            # Handle Upload / Replace
+            # ------------------------------
+            elif action_type.lower() in ("upload", "replace"):
+                if not os.path.exists(src_path):
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Source Missing"
+                    save_cache(cache, significant_change=True)
+                    raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+                # Check if file is accessible
                 try:
                     with open(src_path, 'rb') as f:
-                        f.read(1)  # Attempt to read a byte to check file accessibility
-                except (PermissionError, IOError) as e:
-                    update_download_upload_metadata(task_id, "failed")
-                    error_message = f"File {src_path} is currently in use by another application. Please close the application and try again."
-                    logger.error(error_message)
-                    self.log_update.emit(f"[Transfer] Failed: {error_message}")
-                    self.show_dialog.emit("File In Use", error_message, "error")
-                    
-                    self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
-                    raise RuntimeError(error_message)
-                
-                original_dest_path = item.get('file_path', dest_path)
-                
-                self._update_cache_and_signals(action_type, src_path, original_dest_path, item, task_id, is_nas_dest, file_type="original")
-                self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename} (Original)", original_dest_path, 50)
-                # Handle JPG conversion and upload for supported formats
-                if not src_path.lower().endswith(".jpg") and src_path.lower().endswith(self.config["supported_image_extensions"]):
-                    # jpg_name = Path(src_path).stem + ".jpg"
-                    # client_name = item.get("client_name", "").strip().replace(" ", "_") or "default_client"
-                    # project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or "default_project"
-                    # jpg_folder = BASE_TARGET_DIR / Path(original_dest_path).parts[0] / client_name / project_name
-                    # try:
-                    #     os.makedirs(jpg_folder, mode=0o777, exist_ok=True)
-                    #     os.chmod(jpg_folder, 0o777)
-                    #     self.log_update.emit(f"[Transfer] Created JPG directory: {jpg_folder}")
-                    # except OSError as e:
-                    #     logger.error(f"Cannot create/write to directory: {jpg_folder} - {e}")
-                    #     self.log_update.emit(f"[Transfer] Failed: Cannot create/write to directory: {jpg_folder} - {e}")
-                    #     raise
-                    # jpg_path = str(jpg_folder / jpg_name)
-                    # self.log_update.emit(f"[Transfer] Attempting JPG conversion for: {src_path} to {jpg_path}")
-                    # try:
-                    #     local_jpg, backup_path = process_single_file(src_path)
-                    #     logger.debug(f"process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                    #     self.log_update.emit(f"[Transfer] process_single_file returned: local_jpg={local_jpg}, backup_path={backup_path}")
-                    #     if local_jpg and os.path.exists(local_jpg):
-                    #         jpg_path = local_jpg
-                    #         self.log_update.emit(f"[Transfer] Successfully converted to JPG: {jpg_path}")
-                    #     else:
-                    #         logger.error(f"Failed to convert to JPG: {jpg_path}")
-                    #         self.log_update.emit(f"[Transfer] Failed: Converted JPG does not exist: {jpg_path}")
-                    #         raise FileNotFoundError(f"Converted JPG does not exist: {jpg_path}")
-                    # except Exception as e:
-                    #     logger.error(f"JPG conversion error for {src_path}: {str(e)}")
-                    #     self.log_update.emit(f"[Transfer] Failed: JPG conversion error for {src_path}: {str(e)}")
-                    #     raise
-                    if is_nas_dest:
-                        self.log_update.emit(f"[Transfer] Starting upload of original file: {src_path} to {original_dest_path}")
-                        self._upload_to_nas(src_path, original_dest_path, item)
-                        self.log_update.emit(f"[Transfer] Successfully uploaded original file: {original_dest_path}")
-                    else:
-                        self.log_update.emit(f"[Transfer] HTTP upload not implemented for original file: {src_path}")
-                        raise NotImplementedError("HTTP upload not implemented")
-                    # jpg_nas_path = str(Path(original_dest_path).parent / f"{Path(src_path).stem}_converted.jpg")
-                    # if is_nas_dest:
-                    #     self.log_update.emit(f"[Transfer] Starting upload of JPG file: {jpg_path} to {jpg_nas_path}")
-                    #     self._upload_to_nas(jpg_path, jpg_nas_path, item)
-                    #     self.log_update.emit(f"[Transfer] Successfully uploaded JPG file: {jpg_nas_path}")
-                    # else:
-                    #     self.log_update.emit(f"[Transfer] HTTP upload not implemented for JPG file: {jpg_path}")
-                    #     raise NotImplementedError("HTTP upload not implemented")
-                    # self._update_cache_and_signals(action_type, jpg_path, jpg_nas_path, item, task_id, is_nas_dest, file_type="jpg")
-                    # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(jpg_path).name} (JPG)", jpg_nas_path, 100)
+                        f.read(1)
+                except (PermissionError, IOError):
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} File In Use"
+                    save_cache(cache, significant_change=True)
+                    raise RuntimeError(f"File {src_path} is currently in use by another application.")
+
+                # Upload to NAS or HTTP
+                if is_nas_dest:
+                    self._upload_to_nas(src_path, dest_path, item)
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
                 else:
-                    self.log_update.emit(f"[Transfer] Skipping JPG conversion: {src_path} is already a JPG or not a supported format")
-                # Post-upload API call logic for original file
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} HTTP Not Implemented"
+                    save_cache(cache, significant_change=True)
+                    raise NotImplementedError("HTTP upload not implemented")
+
+                save_cache(cache, significant_change=True)
+                update_download_upload_metadata(task_id, "completed")
+                self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(src_path).name}", dest_path, 100)
+
                 try:
                     request_data = {
                         'job_id': item.get('job_id'),
@@ -3275,87 +3499,45 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + dest_path,
                     }
-                    
-                    # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
+
                     response = requests.post(
                         DRUPAL_DB_ENTRY_API,
                         data=request_data,
                         headers={},
                         verify=False
                     )
-                    update_download_upload_metadata(task_id, "Convertion Started")
-                    logging.info(f"DRUPAL_DB_ENTRY_API data------------success--------{response.text}")
-                    # print("DRUPAL_DB_ENTRY_API data success:", response.text)
-                except Exception as e:
-                    logging.info(f"DRUPAL_DB_ENTRY_API data-------{e}")
-                    # print("Error in DRUPAL_DB_ENTRY_API data:", e)
-               
-               
-                # user_type = cache.get('user_type', '').lower()
-                # user_id = cache.get('user_id', '')
-                # spec_id = item.get('spec_id', '')
-                # creative_id = item.get('creative_id', '')
-                # job_id = item.get('job_id', '')
-                # original_path = original_dest_path
-                # local_file_path = jpg_path if 'jpg_path' in locals() and jpg_path and os.path.exists(jpg_path) else src_path
-                # if user_type == 'operator':
-                #     op_payload = {
-                #         'spec_nid': spec_id,
-                #         'operator_nid': user_id,
-                #         'files_link': original_path,
-                #         'notes': '',
-                #         'brief_id': job_id,
-                #         'business': 'image_retouching'
-                #     }
-                #     if creative_id:
-                #         op_payload['creative_nid'] = creative_id
-                #         response = call_api(API_URL_UPDATE_CREATE, op_payload, local_file_path)
-                #         logger.info(f"Updated API Response: {response}")
-                #         self.log_update.emit(f"[API] Updated API Response: {response}")
-                #     else:
-                #         response = call_api(API_URL_CREATE, op_payload, local_file_path)
-                #         post_metadata_to_api_upload(spec_id, user_id)
-                #         logger.info(f"Created API Response: {response}")
-                #         self.log_update.emit(f"[API] Created API Response: {response}")
-                # elif user_type in ['qc', 'qa']:
-                #     qc_qa_payload = {
-                #         'image_id': spec_id,
-                #         'job_id': job_id,
-                #         'creative_id': creative_id,
-                #         'user_id': user_id,
-                #         'files_link': [original_path] if isinstance(original_path, str) else original_path,
-                #         'business': 'image_retouching'
-                #     }
-                #     response = call_api_qc_qa(API_REPLACE_QC_QA_FILE, qc_qa_payload, local_file_path)
-                #     logger.info(f"QC/QA API Response: {response}")
-                #     self.log_update.emit(f"[API] QC/QA API Response: {response}")
-                # else:
-                #     logger.warning(f"Unknown user_type: {user_type}, skipping API call")
-                #     self.log_update.emit(f"[API] Skipped: Unknown user_type: {user_type}")
-                # try:
-                #     update_download_upload_metadata(task_id, "completed")
-                #     logger.info(f"Updated task {task_id} status to completed")
-                #     self.log_update.emit(f"[API Scan] Updated task {task_id} status to completed")
-                # except Exception as e:
-                #     logger.error(f"Failed to update task {task_id} status: {str(e)}")
-                #     self.log_update.emit(f"[API Scan] Failed to update task {task_id} status: {str(e)}")
 
-                # try:
-                #     os.remove(local_file_path)
-                #     logger.info(f"Deleted local JPG file: {local_file_path}")
-                #     self.log_update.emit(f"[Transfer] Deleted local JPG file: {local_file_path}")
-                # except Exception as e:
-                #     logger.error(f"Failed to delete local JPG file {local_file_path}: {str(e)}")
-                #     self.log_update.emit(f"[Transfer] Failed to delete local JPG file {local_file_path}: {str(e)}")
+                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Started"
+                    save_cache(cache, significant_change=True)
+                    update_download_upload_metadata(task_id, "Conversion Started")
+                    logging.info(f"DRUPAL_DB_ENTRY_API data success: {response.text}")
+
+                except Exception as e:
+                    cache[metadata_key][task_id]["status"] = f"{status_prefix} API Call Failed"
+                    save_cache(cache, significant_change=True)
+                    logging.error(f"DRUPAL_DB_ENTRY_API call error: {str(e)}")
+                
+            else:
+                raise ValueError(f"Invalid action_type: {action_type}")
+
         except Exception as e:
+            # Update cache with failure
+            cache.setdefault(metadata_key, {})
+            if task_id not in cache[metadata_key]:
+                cache[metadata_key][task_id] = {"local_path": dest_path, "status": f"{status_prefix} Failed"}
+            else:
+                cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
+
+            save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "failed")
-            logger.error(f"File {action_type} error (Task {task_id}): {str(e)}")
-            self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {action_type} error - {str(e)}")
-            app_signals.update_file_list.emit(dest_path if action_type.lower() == "download" else src_path, f"{action_type} Failed: {str(e)}", action_type.lower(), 0, is_nas_src or is_nas_dest)
-            self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {original_filename}", dest_path, 0)
+            logger.error(f"{status_prefix} error (Task {task_id}): {str(e)}")
+            self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {str(e)}")
+            self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {Path(src_path).name}", dest_path, 0)
             raise
+
+
 
     def run(self):
         with self._lock:
@@ -3987,12 +4169,14 @@ class FileListWindow(QDialog):
         try:
             cache = load_cache()
             logger.debug(f"Cache contents: {cache}")
-            logger.debug(f"Uploaded files: {cache.get('uploaded_files', [])}")
             metadata_key = f"{self.file_type}_files_with_metadata"
             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
-            
-            files = cache.get(f"{self.file_type}_files", {}) if self.file_type == "downloaded" else cache.get(f"{self.file_type}_files", [])
-            
+
+            # Use metadata directly instead of relying on separate files key
+            metadata = cache.get(metadata_key, {})
+            files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
+            logger.debug(f"Files for {self.file_type}: {files}")
+
             # Clear table
             self.table.clearContents()
             self.table.setRowCount(0)
@@ -4012,49 +4196,43 @@ class FileListWindow(QDialog):
 
             # Collect rows
             rows = []
-            file_list = files.items() if isinstance(files, dict) else enumerate(files)
-            metadata = cache.get(metadata_key, {})
-            
+            file_list = files.items()
+            logger.debug(f"File list: {list(file_list)}")
+
             for task_id, file_path in file_list:
                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
+                if not file_path:
+                    logger.warning(f"Skipping task_id {task_id} due to empty file_path")
+                    continue
+
                 filename = Path(file_path).name
-                # Normalize file_path and extract relative path
                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
 
-                # Find metadata by matching relative path or filename for "uploaded", else use task_id
-                meta = {}
-                if self.file_type == "uploaded":
-                    local_paths = [str(Path(data.get("local_path", ""))).replace("\\", "/") for data in metadata.values()]
-                    logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {local_paths}")
+                # Find metadata
+                meta = metadata.get(str(task_id), {})
+                if not meta:
+                    logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
+                    continue
 
-                    # logger.debug(f"Comparing relative file_path: {relative_file_path} with metadata local_paths: {[str(Path(data.get('local_path', ''))).replace('\\', '/') for data in metadata.values()]}")
-                    for key, data in metadata.items():
-                        normalized_local_path = str(Path(data.get("local_path", ""))).replace('\\', '/')
-                        relative_local_path = normalized_local_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_local_path else normalized_local_path
-                        if relative_local_path == relative_file_path or Path(data.get("local_path", "")).name == filename:
-                            meta = data
-                            logger.debug(f"Found metadata for file_path: {file_path} with key: {key}")
-                            break
-                    if not meta:
-                        logger.warning(f"No metadata found for file_path: {file_path} (relative: {relative_file_path}, filename: {filename})")
-                else:
-                    meta = metadata.get(str(task_id), {}) if isinstance(task_id, (str, int)) else {}
-                    if not meta:
-                        logger.warning(f"No metadata found for task_id: {task_id}")
-                
                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+
+                # Skip rows where project_name or job_name is "Unknown"
+                if project_name == "Unknown" or job_name == "Unknown":
+                    logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
+                    continue
+
                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
 
-                # --- Parse date and format for display ---
+                # Parse date
                 dt = None
                 display_date = ""
                 if created_at_raw:
                     try:
                         ts = int(created_at_raw)
                         if 0 < ts < 4102444800:  # until 2100
-                            dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()  # UTC to IST
+                            dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
                     except Exception:
                         pass
@@ -4079,7 +4257,10 @@ class FileListWindow(QDialog):
                                 except Exception:
                                     continue
 
-                status = "Completed" if Path(file_path).exists() else "Failed"
+                # Use request_status from metadata
+                status = meta.get("api_response", {}).get("request_status", "Unknown")
+                if status == "Unknown" and file_path:
+                    status = "Completed" if Path(file_path).exists() else "Failed"
 
                 rows.append({
                     "project_name": project_name,
@@ -4092,13 +4273,14 @@ class FileListWindow(QDialog):
                     "dt": dt
                 })
 
-            # Sort descending by dt (latest first), invalid dates at bottom
+            # Sort rows by date (latest first)
             rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
 
             # Insert rows into table
             for row_data in rows:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
+                logger.debug(f"Inserting row {row} with data: {row_data}")
 
                 self.table.setItem(row, 0, QTableWidgetItem(row_data["project_name"]))
                 self.table.setItem(row, 1, QTableWidgetItem(row_data["job_name"]))
@@ -4120,10 +4302,10 @@ class FileListWindow(QDialog):
                 self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
 
             self.table.resizeColumnsToContents()
-            app_signals.append_log.emit(f"[Files] Loaded {len(files)} {self.file_type} files")
+            app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
 
         except Exception as e:
-            logger.error(f"Error in load_files for {self.file_type}: {e}")
+            logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
 
