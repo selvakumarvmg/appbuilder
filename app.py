@@ -35,8 +35,8 @@ from pid import PidFile, PidFileError
 import warnings
 import tempfile
 import psutil  # To check if Photoshop is running
-from threading import Lock
-from concurrent.futures import ThreadPoolExecutor
+from threading import Lock, Semaphore, Thread
+from concurrent.futures import ThreadPoolExecutor, as_completed
 if platform.system() != "Windows":
     import fcntl
 import numpy as np
@@ -99,7 +99,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -179,20 +179,20 @@ API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
-NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irnasappprod"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_USERNAME = "irnasappprod"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -3275,7 +3275,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + original_dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + original_dest_path,
                     }
                     
                     # logging.info("DRUPAL_DB_ENTRY_API data--------------------", request_data)
@@ -3369,228 +3369,299 @@ class FileWatcherWorker(QObject):
                 self.log_update.emit("[FileWatcher] Skipped: Too soon since last API call")
                 return
             self._is_running = True
-            try:
-                if not self.running:
-                    logger.info(f"[{current_time.isoformat()}] File watcher stopped, instance: {id(self)}")
-                    self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
-                    return
-                logger.debug(f"[{current_time.isoformat()}] Starting file watcher run, instance: {id(self)}")
-                self.log_update.emit("[API Scan] Starting file watcher run")
-                if not self.check_connectivity():
-                    logger.warning(f"[{current_time.isoformat()}] Connectivity check failed, will retry on next run, instance: {id(self)}")
-                    self.status_update.emit("Connectivity check failed, will retry")
-                    self.log_update.emit("[API Scan] Connectivity check failed")
-                    return
-                cache = load_cache()
-                user_id = cache.get('user_id', '')
-                token = cache.get('token', '')
-                cache.setdefault('user_type', 'operator')
-                save_cache(cache)
-                if not user_id or not token:
-                    logger.error(f"[{current_time.isoformat()}] No user_id or token found in cache, instance: {id(self)}")
-                    self.status_update.emit("No user_id or token found in cache")
-                    self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
-                    self.request_reauth.emit()
-                    logger.debug(f"[{current_time.isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
-                    self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
-                    return
-                self.status_update.emit("Checking for file tasks...")
-                self.log_update.emit("[API Scan] Starting file task check")
-                app_signals.append_log.emit("[API Scan] Initiating file task check")
-                self.last_api_hit_time = current_time
-                self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
-                app_signals.update_timer_status.emit(
-                    f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                    f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
-                    f"Interval: {self.api_poll_interval/1000:.1f}s"
-                )
-                headers = {"Authorization": f"Bearer {token}"}
-                max_retries = 3
-                tasks = []
-                api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
-                for attempt in range(max_retries):
-                    try:
-                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
-                        app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
-                        response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
-                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
-                        app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
-                        app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
-                        if response.status_code == 401:
-                            logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Unauthorized: Token may be invalid, instance: {id(self)}")
-                            self.log_update.emit("[API Scan] Unauthorized: Token invalid")
-                            self.status_update.emit("Unauthorized: Token invalid")
-                            self.request_reauth.emit()
-                            logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
-                            self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
-                            return
-                        response.raise_for_status()
-                        response_data = response.json()
-                        tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
-                        if not isinstance(tasks, list):
-                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] API returned non-list tasks: {type(tasks)}, data: {tasks}, instance: {id(self)}")
-                            self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
-                            return
-                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrieved {len(tasks)} tasks, instance: {id(self)}")
-                        app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
-                        break
-                    except RequestException as e:
-                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}, instance: {id(self)}")
-                        self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
-                        if attempt < max_retries - 1:
-                            time.sleep(2 ** attempt)
-                            continue
-                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Max retries reached for task fetch, will retry on next run, instance: {id(self)}")
-                        self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
-                        self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
-                        app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
+        try:
+            # Initialize executor and semaphore if not already set
+            if not hasattr(self, 'executor'):
+                self.executor = ThreadPoolExecutor(max_workers=2)  # Set max_workers to 2 for parallel processing
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Initialized ThreadPoolExecutor with max_workers=2, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Initialized ThreadPoolExecutor with max_workers=2")
+            if not hasattr(self, 'sftp_semaphore'):
+                self.sftp_semaphore = Semaphore(2)  # Limit concurrent SFTP connections
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Initialized SFTP semaphore with limit=2, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Initialized SFTP semaphore with limit=2")
+            if not self.running:
+                logger.info(f"[{current_time.isoformat()}] File watcher stopped, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Stopped: Worker is not running")
+                return
+            logger.debug(f"[{current_time.isoformat()}] Starting file watcher run, instance: {id(self)}")
+            self.log_update.emit("[API Scan] Starting file watcher run")
+            if not self.check_connectivity():
+                logger.warning(f"[{current_time.isoformat()}] Connectivity check failed, will retry on next run, instance: {id(self)}")
+                self.status_update.emit("Connectivity check failed, will retry")
+                self.log_update.emit("[API Scan] Connectivity check failed")
+                return
+            cache = load_cache()
+            user_id = cache.get('user_id', '')
+            token = cache.get('token', '')
+            cache.setdefault('user_type', 'operator')
+            save_cache(cache)
+            if not user_id or not token:
+                logger.error(f"[{current_time.isoformat()}] No user_id or token found in cache, instance: {id(self)}")
+                self.status_update.emit("No user_id or token found in cache")
+                self.log_update.emit("[API Scan] Failed: No user_id or token found in cache")
+                self.request_reauth.emit()
+                logger.debug(f"[{current_time.isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
+                self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
+                return
+            self.status_update.emit("Checking for file tasks...")
+            self.log_update.emit("[API Scan] Starting file task check")
+            app_signals.append_log.emit("[API Scan] Initiating file task check")
+            self.last_api_hit_time = current_time
+            self.next_api_hit_time = self.last_api_hit_time + timedelta(milliseconds=self.api_poll_interval)
+            app_signals.update_timer_status.emit(
+                f"Last API hit: {self.last_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Next API hit: {self.next_api_hit_time.strftime('%Y-%m-%d %H:%M:%S %Z')} | "
+                f"Interval: {self.api_poll_interval/1000:.1f}s"
+            )
+            headers = {"Authorization": f"Bearer {token}"}
+            max_retries = 3
+            tasks = []
+            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+            for attempt in range(max_retries):
+                try:
+                    logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
+                    app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
+                    response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
+                    logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
+                    app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
+                    app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
+                    if response.status_code == 401:
+                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Unauthorized: Token may be invalid, instance: {id(self)}")
+                        self.log_update.emit("[API Scan] Unauthorized: Token invalid")
+                        self.status_update.emit("Unauthorized: Token invalid")
+                        self.request_reauth.emit()
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Timer remains active for retry after re-authentication, instance: {id(self)}")
+                        self.log_update.emit("[FileWatcher] Timer remains active for retry after re-authentication")
                         return
-                unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
-                # FIX: Validate file_path in list comprehensions to prevent TypeError
-                download_tasks = [
-                    {
-                        "task_id": str(item.get('id', '')),
-                        "action_type": item.get('request_type', '').lower(),
-                        # Use 'unknown_file' if file_path is None or empty
-                        "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
-                        "file_path": item.get('file_path', ''),
-                        "status": "Queued",
-                        "thumbnail": item.get('thumbnail', ''),
-                        "job_id": item.get('job_id', ''),
-                        "job_name": item.get('job_name', ''),
-                        "project_id": item.get('project_id', ''),
-                        "project_name": item.get('project_name', ''),
-                        "task_type": "download",
-                        "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
-                    } for item in unprocessed_tasks 
-                    if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
-                    # Log invalid tasks for debugging
-                    and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Download task: {item}, instance: {id(self)}") or True
-                ]
-                upload_tasks = [
-                    {
-                        "task_id": str(item.get('id', '')),
-                        "action_type": item.get('request_type', '').lower(),
-                        # Use 'unknown_file' if file_path is None or empty
-                        "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
-                        "file_path": item.get('file_path', ''),
-                        "status": "Queued",
-                        "thumbnail": item.get('thumbnail', ''),
-                        "job_id": item.get('job_id', ''),
-                        "job_name": item.get('job_name', ''),
-                        "project_id": item.get('project_id', ''),
-                        "project_name": item.get('project_name', ''),
-                        "task_type": "upload",
-                        "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
-                    } for item in unprocessed_tasks 
-                    if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
-                    # Log invalid tasks for debugging
-                    and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Upload task: {item}, instance: {id(self)}") or True
-                ]
-                self.task_list_update.emit(download_tasks + upload_tasks)
-                self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
-                updates = []
-                self._clean_processed_tasks()
-                max_download_retries = 3
-                for item in unprocessed_tasks:
-                    try:
-                        if not isinstance(item, dict):
-                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
-                            self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
-                            updates.append(("", f"Invalid task: {type(item)}", "unknown", 0, False))
-                            continue
-                        task_id = str(item.get('id', ''))
-                        file_path = item.get('file_path', '')
-                        # FIX: Early validation for file_path to prevent TypeError
-                        if not file_path:
-                            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task {task_id}: Missing file_path, item: {item}, instance: {id(self)}")
-                            self.log_update.emit(f"[API Scan] Failed: Invalid task {task_id} - Missing file_path")
-                            updates.append(("", f"Invalid task {task_id}: Missing file_path", "unknown", 0, False))
-                            continue
-                        file_name = item.get('file_name', Path(file_path).name)
-                        action_type = item.get('request_type', '').lower()
-                        task_key = f"{task_id}:{action_type}"
-                        is_online = 'http' in file_path.lower()
-                        local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
-                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
-                        self.log_update.emit(f"[API Scan] Processing task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
-                        if action_type == "download":
-                            self.status_update.emit(f"Downloading {file_name}")
-                            self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}")
-                            app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
-                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
-                            for attempt in range(max_download_retries):
-                                try:
-                                    self.show_progress(f"Downloading {file_name}", item.get('file_path', file_path), local_path, action_type, item, not is_online, False)
-                                    if os.path.exists(local_path):
-                                        self.processed_tasks.add(task_key)
-                                        updates.append((local_path, f"Download Completed", action_type, 100, not is_online))
-                                        break
-                                    else:
-                                        logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
-                                        self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
-                                        updates.append((local_path, f"Download Failed: File not found", action_type, 0, not is_online))
-                                except Exception as e:
-                                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path} (Task {task_id}): {str(e)}, instance: {id(self)}")
-                                    self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
-                                    updates.append((local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online))
-                                    if attempt < max_download_retries - 1:
-                                        delay = 2 ** attempt
-                                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrying download after {delay}s, instance: {id(self)}")
-                                        self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
-                                        time.sleep(delay)
-                                    else:
-                                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id}), instance: {id(self)}")
-                                        self.log_update.emit(f"[API Scan] Download failed after {max_download_retries} attempts for {local_path} (Task {task_id})")
-                                        break
-                        elif action_type.lower() in ("upload", "replace"):
-                            self.status_update.emit(f"Uploading {file_name}")
-                            self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}")
-                            app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
-                            app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
-                            client_name = item.get("client_name", "").strip().replace(" ", "_") or None
-                            project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
-                            if not client_name or not project_name:
-                                try:
-                                    parts = Path(file_path).parts
-                                    if len(parts) >= 3:
-                                        client_name = client_name or parts[1]
-                                        project_name = project_name or parts[2]
-                                    else:
-                                        client_name = client_name or "default_client"
-                                        project_name = project_name or "default_project"
-                                except Exception as e:
-                                    self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
-                                    client_name = client_name or "default_client"
-                                    project_name = project_name or "default_project"
-                            original_nas_path = item.get('file_path', file_path)
-                            self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
-                            updates.append((local_path, "Upload Completed (Original)", action_type, 100, not is_online))
-                            self.processed_tasks.add(task_key)
-                    except Exception as e:
-                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, instance: {id(self)}")
-                        self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
-                        safe_file_path = file_path or ""
-                        updates.append((safe_file_path, f"{action_type} Failed: {str(e)}", action_type, 0, not ('http' in safe_file_path.lower())))
+                    response.raise_for_status()
+                    response_data = response.json()
+                    tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
+                    if not isinstance(tasks, list):
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] API returned non-list tasks: {type(tasks)}, data: {tasks}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Failed: API returned non-list tasks: {type(tasks)}")
+                        return
+                    logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrieved {len(tasks)} tasks: {tasks}, instance: {id(self)}")
+                    app_signals.append_log.emit(f"[API Scan] Retrieved {len(tasks)} tasks from API")
+                    break
+                except RequestException as e:
+                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Attempt {attempt + 1} failed fetching tasks from {api_url}: {e}, instance: {id(self)}")
+                    self.log_update.emit(f"[API Scan] Failed to fetch tasks (attempt {attempt + 1}): {str(e)}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
                         continue
+                    logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Max retries reached for task fetch, will retry on next run, instance: {id(self)}")
+                    self.status_update.emit(f"Error fetching tasks after retries: {str(e)}")
+                    self.log_update.emit(f"[API Scan] Failed to fetch tasks after retries: {str(e)}")
+                    app_signals.append_log.emit(f"[API Scan] Failed: Task fetch error after retries - {str(e)}")
+                    return
+            unprocessed_tasks = [task for task in tasks if f"{task.get('id', '')}:{task.get('request_type', '').lower()}" not in self.processed_tasks]
+            download_tasks = [
+                {
+                    "task_id": str(item.get('id', '')),
+                    "action_type": item.get('request_type', '').lower(),
+                    "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
+                    "file_path": item.get('file_path', ''),
+                    "status": "Queued",
+                    "thumbnail": item.get('thumbnail', ''),
+                    "job_id": item.get('job_id', ''),
+                    "job_name": item.get('job_name', ''),
+                    "project_id": item.get('project_id', ''),
+                    "project_name": item.get('project_name', ''),
+                    "task_type": "download",
+                    "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
+                } for item in unprocessed_tasks 
+                if isinstance(item, dict) and item.get('request_type', '').lower() == "download"
+                and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Download task: {item}, instance: {id(self)}") or True
+            ]
+            upload_tasks = [
+                {
+                    "task_id": str(item.get('id', '')),
+                    "action_type": item.get('request_type', '').lower(),
+                    "file_name": item.get('file_name', Path(item.get('file_path') or '').name if item.get('file_path') else 'unknown_file'),
+                    "file_path": item.get('file_path', ''),
+                    "status": "Queued",
+                    "thumbnail": item.get('thumbnail', ''),
+                    "job_id": item.get('job_id', ''),
+                    "job_name": item.get('job_name', ''),
+                    "project_id": item.get('project_id', ''),
+                    "project_name": item.get('project_name', ''),
+                    "task_type": "upload",
+                    "created_at": datetime.now().strftime("%d-%b-%Y %I:%M %p")
+                } for item in unprocessed_tasks 
+                if isinstance(item, dict) and item.get('request_type', '').lower() in ("upload", "replace")
+                and logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Upload task: {item}, instance: {id(self)}") or True
+            ]
+            self.task_list_update.emit(download_tasks + upload_tasks)
+            self.log_update.emit(f"[API Scan] Task list emitted to GUI: {len(download_tasks)} download tasks, {len(upload_tasks)} upload tasks")
+            self._clean_processed_tasks()
+            futures = []
+            for item in unprocessed_tasks:
+                if not isinstance(item, dict):
+                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task item type: {type(item)}, item: {item}, instance: {id(self)}")
+                    self.log_update.emit(f"[API Scan] Failed: Invalid task item type: {type(item)}")
+                    app_signals.update_file_list.emit("", f"Invalid task: {type(item)}", "unknown", 0, False)
+                    continue
+                task_id = str(item.get('id', ''))
+                file_path = item.get('file_path', '')
+                if not file_path:
+                    logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Invalid task {task_id}: Missing file_path, item: {item}, instance: {id(self)}")
+                    self.log_update.emit(f"[API Scan] Failed: Invalid task {task_id} - Missing file_path")
+                    app_signals.update_file_list.emit("", f"Invalid task {task_id}: Missing file_path", "unknown", 0, False)
+                    continue
+                file_name = item.get('file_name', Path(file_path).name)
+                action_type = item.get('request_type', '').lower()
+                task_key = f"{task_id}:{action_type}"
+                is_online = 'http' in file_path.lower()
+                local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
+                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
+                self.log_update.emit(f"[API Scan] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
+                futures.append(
+                    self.executor.submit(
+                        self._process_task,
+                        task_id, file_name, file_path, action_type, local_path, is_online, item, 3, self.sftp_semaphore
+                    )
+                )
+            # Start a background thread to handle task results
+            def handle_task_results(futures):
+                completed_tasks = 0
+                failed_tasks = 0
+                updates = []
+                for future in futures:
+                    try:
+                        result = future.result()  # Wait for each task to complete
+                        updates.append(result['update'])
+                        if result['success']:
+                            completed_tasks += 1
+                            with self._lock:
+                                self.processed_tasks.add(result['task_key'])
+                        else:
+                            failed_tasks += 1
+                    except Exception as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Task processing error: {str(e)}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Task processing error: {str(e)}")
+                        failed_tasks += 1
                 if updates:
                     for update in updates:
                         app_signals.update_file_list.emit(*update)
-                self.status_update.emit("File tasks check completed")
-                self.log_update.emit(f"[API Scan] File tasks check completed, processed {len(tasks)} tasks")
-                app_signals.append_log.emit(f"[API Scan] Completed: Processed {len(tasks)} tasks")
-            except Exception as e:
-                logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error in file watcher run: {e}, instance: {id(self)}")
-                self.status_update.emit(f"Error processing tasks: {str(e)}")
-                self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
-                app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
-            finally:
-                self._is_running = False
-                logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher cycle completed, will run again on next timer tick, instance: {id(self)}")
-                self.log_update.emit("[FileWatcher] Cycle completed, awaiting next timer tick")
-                if self.running:
-                    self.timer.start(self.api_poll_interval)
+                logger.info(f"[{datetime.now(timezone.utc).isoformat()}] Background task summary: {completed_tasks} completed, {failed_tasks} failed, instance: {id(self)}")
+                self.log_update.emit(f"[FileWatcher] Background task summary: {completed_tasks} completed, {failed_tasks} failed")
+            # Launch background thread to process results
+            Thread(target=handle_task_results, args=(futures,), daemon=True).start()
+            self.status_update.emit("File tasks check completed")
+            self.log_update.emit(f"[API Scan] File tasks check completed, submitted {len(futures)} tasks")
+            app_signals.append_log.emit(f"[API Scan] Completed: Submitted {len(futures)} tasks")
+        except Exception as e:
+            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error in file watcher run: {e}, instance: {id(self)}")
+            self.status_update.emit(f"Error processing tasks: {str(e)}")
+            self.log_update.emit(f"[API Scan] Failed: Error processing tasks - {str(e)}")
+            app_signals.append_log.emit(f"[API Scan] Failed: Task processing error - {str(e)}")
+        finally:
+            self._is_running = False
+            logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] File watcher cycle completed, instance: {id(self)}")
+            self.log_update.emit("[FileWatcher] Cycle completed, awaiting next timer tick")
+            if self.running:
+                self.timer.start(self.api_poll_interval)
 
+    def _process_task(self, task_id, file_name, file_path, action_type, local_path, is_online, item, max_download_retries, sftp_semaphore):
+        """Process a single task (download/upload) with retry logic and SFTP semaphore."""
+        task_key = f"{task_id}:{action_type}"
+        update = (local_path, f"{action_type} Queued", action_type, 0, not is_online)
+        try:
+            if action_type == "download":
+                self.status_update.emit(f"Downloading {file_name}")
+                self.log_update.emit(f"[API Scan] Starting download: {file_path} to {local_path}, task_id: {task_id}")
+                app_signals.append_log.emit(f"[API Scan] Initiating download: {file_name}")
+                app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                for attempt in range(max_download_retries):
+                    try:
+                        if not is_online:
+                            with sftp_semaphore:  # Limit concurrent SFTP connections
+                                self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
+                        else:
+                            self.show_progress(f"Downloading {file_name}", file_path, local_path, action_type, item, not is_online, False)
+                        if os.path.exists(local_path):
+                            self.log_update.emit(f"[API Scan] Download successful: {local_path}, task_id: {task_id}")
+                            return {
+                                'update': (local_path, f"Download Completed", action_type, 100, not is_online),
+                                'task_key': task_key,
+                                'success': True
+                            }
+                        else:
+                            logger.warning(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Download failed for {local_path}; attempt {attempt + 1} of {max_download_retries}")
+                            update = (local_path, f"Download Failed: File not found", action_type, 0, not is_online)
+                            if attempt == max_download_retries - 1:
+                                raise FileNotFoundError(f"Downloaded file not found: {local_path}")
+                    except Exception as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Download failed for {local_path} (Task {task_id}): {str(e)}, attempt {attempt + 1}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Download failed for {local_path} (Task {task_id}): {str(e)}")
+                        update = (local_path, f"Download Failed: {str(e)}", action_type, 0, not is_online)
+                        if attempt < max_download_retries - 1:
+                            delay = 2 ** attempt
+                            logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrying download after {delay}s, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Retrying download after {delay}s")
+                            time.sleep(delay)
+                        else:
+                            raise
+            elif action_type.lower() in ("upload", "replace"):
+                self.status_update.emit(f"Uploading {file_name}")
+                self.log_update.emit(f"[API Scan] Starting upload: {local_path} to {file_path}, task_id: {task_id}")
+                app_signals.append_log.emit(f"[API Scan] Initiating upload: {file_name}")
+                app_signals.update_file_list.emit(local_path, f"{action_type} Queued", action_type, 0, not is_online)
+                for attempt in range(max_download_retries):
+                    try:
+                        if not is_online:
+                            with sftp_semaphore:  # Limit concurrent SFTP connections
+                                client_name = item.get("client_name", "").strip().replace(" ", "_") or None
+                                project_name = item.get("project_name", item.get("name", "")).strip().replace(" ", "_") or None
+                                if not client_name or not project_name:
+                                    try:
+                                        parts = Path(file_path).parts
+                                        if len(parts) >= 3:
+                                            client_name = client_name or parts[1]
+                                            project_name = project_name or parts[2]
+                                        else:
+                                            client_name = client_name or "default_client"
+                                            project_name = project_name or "default_project"
+                                    except Exception as e:
+                                        self.log_update.emit(f"[Upload] Fallback parsing failed: {e}")
+                                        client_name = client_name or "default_client"
+                                        project_name = project_name or "default_project"
+                                original_nas_path = item.get('file_path', file_path)
+                                self.show_progress(f"Uploading {file_name}", local_path, original_nas_path, action_type, item, False, not is_online)
+                                self.log_update.emit(f"[API Scan] Upload successful: {local_path} to {original_nas_path}, task_id: {task_id}")
+                                return {
+                                    'update': (local_path, "Upload Completed (Original)", action_type, 100, not is_online),
+                                    'task_key': task_key,
+                                    'success': True
+                                }
+                        else:
+                            self.show_progress(f"Uploading {file_name}", local_path, file_path, action_type, item, False, not is_online)
+                            self.log_update.emit(f"[API Scan] Upload successful: {local_path} to {file_path}, task_id: {task_id}")
+                            return {
+                                'update': (local_path, "Upload Completed (Original)", action_type, 100, not is_online),
+                                'task_key': task_key,
+                                'success': True
+                            }
+                    except Exception as e:
+                        logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Upload failed for {local_path} (Task {task_id}): {str(e)}, attempt {attempt + 1}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Upload failed for {local_path} (Task {task_id}): {str(e)}")
+                        update = (local_path, f"Upload Failed: {str(e)}", action_type, 0, not is_online)
+                        if attempt < max_download_retries - 1:
+                            delay = 2 ** attempt
+                            logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Retrying upload after {delay}s, instance: {id(self)}")
+                            self.log_update.emit(f"[API Scan] Retrying upload after {delay}s")
+                            time.sleep(delay)
+                        else:
+                            raise
+        except Exception as e:
+            logger.error(f"[{datetime.now(timezone.utc).isoformat()}] Error processing task {task_id}: {str(e)}, instance: {id(self)}")
+            self.log_update.emit(f"[API Scan] Error processing task {task_id}: {str(e)}")
+            return {
+                'update': (local_path, f"{action_type} Failed: {str(e)}", action_type, 0, not is_online),
+                'task_key': task_key,
+                'success': False
+            }
 
     def check_connectivity(self):
         try:
