@@ -99,7 +99,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
+BASE_DOMAIN = "https://app.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -179,20 +179,20 @@ API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 
-# NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irnasappprod"
-# NAS_PASSWORD = "D&*qmn012@12"
-# NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 NAS_IP = "192.168.3.20"
-NAS_USERNAME = "irdev"
-NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_USERNAME = "irnasappprod"
+NAS_PASSWORD = "D&*qmn012@12"
 NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+# NAS_IP = "192.168.3.20"
+# NAS_USERNAME = "irdev"
+# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_SHARE = ""
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -3364,6 +3364,7 @@ class FileWatcherWorker(QObject):
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
         """Perform file transfer (download/upload/replace) and update cache metadata reliably."""
         task_id = str(item.get('id'))
+        spec_id = str(item.get("spec_id"))
         if not task_id:
             raise ValueError("Task ID is missing or invalid in item dictionary")
 
@@ -3379,7 +3380,7 @@ class FileWatcherWorker(QObject):
 
             # Initialize task entry if missing
             if task_id not in cache[metadata_key]:
-                cache[metadata_key][task_id] = {
+                cache[metadata_key][spec_id] = {
                     "local_path": dest_path if action_type.lower() == "download" else src_path,
                     "api_response": {
                         "id": task_id,
@@ -3423,12 +3424,12 @@ class FileWatcherWorker(QObject):
                     self._download_from_http(src_path, dest_path)
 
                 if not os.path.exists(dest_path):
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
                     save_cache(cache, significant_change=True)
                     raise FileNotFoundError(f"{status_prefix} file not found: {dest_path}")
 
-                cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
-                cache[metadata_key][task_id]["local_path"] = dest_path
+                cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
+                cache[metadata_key][spec_id]["local_path"] = dest_path
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "completed")
 
@@ -3437,7 +3438,7 @@ class FileWatcherWorker(QObject):
                     key_val = item.get("key_val")
                     self.open_with_photoshop(dest_path, key_val)
                 except Exception as e:
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed Photoshop"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed Photoshop"
                     save_cache(cache, significant_change=True)
                     logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                     self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
@@ -3463,7 +3464,7 @@ class FileWatcherWorker(QObject):
             # ------------------------------
             elif action_type.lower() in ("upload", "replace"):
                 if not os.path.exists(src_path):
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Source Missing"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Source Missing"
                     save_cache(cache, significant_change=True)
                     raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
@@ -3472,16 +3473,16 @@ class FileWatcherWorker(QObject):
                     with open(src_path, 'rb') as f:
                         f.read(1)
                 except (PermissionError, IOError):
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} File In Use"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} File In Use"
                     save_cache(cache, significant_change=True)
                     raise RuntimeError(f"File {src_path} is currently in use by another application.")
 
                 # Upload to NAS or HTTP
                 if is_nas_dest:
                     self._upload_to_nas(src_path, dest_path, item)
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
                 else:
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} HTTP Not Implemented"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} HTTP Not Implemented"
                     save_cache(cache, significant_change=True)
                     raise NotImplementedError("HTTP upload not implemented")
 
@@ -3499,7 +3500,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_uat/" + dest_path,
+                        'nas_path': "softwaremedia/IR_prod/" + dest_path,
                     }
 
                     response = requests.post(
@@ -3509,13 +3510,13 @@ class FileWatcherWorker(QObject):
                         verify=False
                     )
 
-                    cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Started"
+                    cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} completed"
                     save_cache(cache, significant_change=True)
                     update_download_upload_metadata(task_id, "Conversion Started")
                     logging.info(f"DRUPAL_DB_ENTRY_API data success: {response.text}")
 
                 except Exception as e:
-                    cache[metadata_key][task_id]["status"] = f"{status_prefix} API Call Failed"
+                    cache[metadata_key][spec_id]["status"] = f"{status_prefix} API Call Failed"
                     save_cache(cache, significant_change=True)
                     logging.error(f"DRUPAL_DB_ENTRY_API call error: {str(e)}")
                 
@@ -3525,10 +3526,10 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             # Update cache with failure
             cache.setdefault(metadata_key, {})
-            if task_id not in cache[metadata_key]:
-                cache[metadata_key][task_id] = {"local_path": dest_path, "status": f"{status_prefix} Failed"}
+            if spec_id not in cache[metadata_key]:
+                cache[metadata_key][spec_id] = {"local_path": dest_path, "status": f"{status_prefix} Failed"}
             else:
-                cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
+                cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
 
             save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "failed")
@@ -3746,6 +3747,7 @@ class FileWatcherWorker(QObject):
 
     def _process_task(self, task_id, file_name, file_path, action_type, local_path, is_online, item, max_download_retries, sftp_semaphore):
         """Process a single task (download/upload) with retry logic and SFTP semaphore."""
+        update_download_upload_metadata(task_id, "in progress")
         task_key = f"{task_id}:{action_type}"
         update = (local_path, f"{action_type} Queued", action_type, 0, not is_online)
         try:
