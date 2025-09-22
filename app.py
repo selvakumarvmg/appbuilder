@@ -4051,7 +4051,7 @@ class FileWatcherWorker(QObject):
                         self.log_update.emit(f"[API Scan] Skipped duplicate task: {task_key}")
                         continue
                     self.processed_tasks.add(task_key)  # Mark immediately as in-progress
-
+                    update_download_upload_metadata(task_id, "in progress")
 
                 logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
                 self.log_update.emit(f"[API Scan] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
@@ -4108,7 +4108,7 @@ class FileWatcherWorker(QObject):
 
     def _process_task(self, task_id, file_name, file_path, action_type, local_path, is_online, item, max_download_retries, sftp_semaphore):
         """Process a single task (download/upload) with retry logic and SFTP semaphore."""
-        update_download_upload_metadata(task_id, "in progress")
+        # update_download_upload_metadata(task_id, "in progress")
         task_key = f"{task_id}:{action_type}"
         update = (local_path, f"{action_type} Queued", action_type, 0, not is_online)
         try:
