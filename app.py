@@ -891,7 +891,7 @@ def update_download_upload_metadata(task_id, request_status, retries=3, timeout=
                 verify=False,
                 timeout=timeout,
             )
-
+            print(f"================================================ Status Code {task_id} : {request_status}")
             if response.status_code == 200:
                 return response.json()
 
@@ -4043,6 +4043,15 @@ class FileWatcherWorker(QObject):
                 task_key = f"{task_id}:{action_type}"
                 is_online = 'http' in file_path.lower()
                 local_path = str(BASE_TARGET_DIR / file_path.lstrip("/"))
+
+                    # ✅ Prevent duplicate submissions
+                with self._lock:
+                    if task_key in self.processed_tasks:
+                        logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Skipping duplicate task: {task_key}, instance: {id(self)}")
+                        self.log_update.emit(f"[API Scan] Skipped duplicate task: {task_key}")
+                        continue
+                    self.processed_tasks.add(task_key)  # Mark immediately as in-progress
+
 
                 logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}, instance: {id(self)}")
                 self.log_update.emit(f"[API Scan] Submitting task: task_key={task_key}, task_id={task_id}, action_type={action_type}, file_path={file_path}")
