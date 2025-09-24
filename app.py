@@ -374,36 +374,24 @@ def initialize_cache():
         app_signals.append_log.emit(f"[Cache] Error initializing cache: {str(e)}")
         return False
 
-
-def save_cache(data, significant_change=False):
+def save_cache(data):
     data_copy = data.copy()
     data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
     cache_dir = Path(CACHE_FILE).parent
     try:
         logger.debug(f"Saving cache to {CACHE_FILE}")
         cache_dir.mkdir(exist_ok=True, parents=True)
-
-        # Backup only for significant changes
-        if Path(CACHE_FILE).exists() and significant_change:
-            backup_file = cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json"
-            logger.debug(f"Creating backup: {backup_file}")
-            with open(CACHE_FILE, "r", encoding="utf-8") as f, open(backup_file, "w", encoding="utf-8") as bf:
-                bf.write(f.read())
-
         with CACHE_WRITE_LOCK:
             with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data_copy, f, indent=2)
             if platform.system() in ["Linux", "Darwin"]:
                 os.chmod(CACHE_FILE, 0o600)
-
         logger.info(f"Cache saved to {CACHE_FILE}")
         app_signals.append_log.emit(f"[Cache] Cache saved to {CACHE_FILE}")
-
     except Exception as e:
         logger.error(f"Error saving cache to {CACHE_FILE}: {e}")
         app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
         raise  # Re-raise to alert calling code
-
 
 def load_cache():
     default_cache = get_default_cache()
@@ -428,20 +416,20 @@ def load_cache():
             save_cache(data)
             return data
 
-        # Expiration check: 7 days (1 week)
+        # Expiration check: 7 days
         cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
         try:
             cached_time = datetime.fromisoformat(cached_time_str)
-            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=7):
-                logger.warning("Cache expired, refreshing...")
-                app_signals.append_log.emit("[Cache] Cache expired, refreshing...")
-                data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-                save_cache(data)
+            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=CACHE_DAYS):
+                logger.warning("Cache expired, reinitializing...")
+                app_signals.append_log.emit("[Cache] Cache expired, reinitializing...")
+                initialize_cache()
+                return default_cache
         except ValueError as e:
-            logger.error(f"Invalid cached_at format: {e}, refreshing...")
-            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, refreshing...")
-            data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-            save_cache(data)
+            logger.error(f"Invalid cached_at format: {e}, reinitializing...")
+            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, reinitializing...")
+            initialize_cache()
+            return default_cache
 
         logger.info("Cache loaded successfully")
         app_signals.append_log.emit("[Cache] Cache loaded successfully")
@@ -457,7 +445,6 @@ def load_cache():
         app_signals.append_log.emit(f"[Cache] Error loading cache: {str(e)}, reinitializing")
         initialize_cache()
         return default_cache
-
 
 def parse_custom_url():
     try:
@@ -3746,7 +3733,7 @@ class FileWatcherWorker(QObject):
                 }
 
             # Save initial "In Progress" state
-            save_cache(cache, significant_change=True)
+            save_cache(cache)
             update_download_upload_metadata(task_id, "In Progress")
             logger.info(f"[{status_prefix} In Progress] Task {task_id}")
             self.progress_update.emit(f"{action_type} (Task {task_id}): {Path(src_path).name}", dest_path, 10)
@@ -3755,6 +3742,7 @@ class FileWatcherWorker(QObject):
             # Handle Download
             # ------------------------------
             if action_type.lower() == "download":
+                cache[metadata_key][spec_id]["api_response"]["request_status"] =  f"{status_prefix} In Progress"
                 dest_path = self._prepare_download_path(item)
 
                 if is_nas_src:
@@ -3764,12 +3752,12 @@ class FileWatcherWorker(QObject):
 
                 if not os.path.exists(dest_path):
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     raise FileNotFoundError(f"{status_prefix} file not found: {dest_path}")
 
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
                 cache[metadata_key][spec_id]["local_path"] = dest_path
-                save_cache(cache, significant_change=True)
+                save_cache(cache)
                 update_download_upload_metadata(task_id, "completed")
 
                 # Optional: Open with Photoshop
@@ -3778,21 +3766,21 @@ class FileWatcherWorker(QObject):
                     self.open_with_photoshop(dest_path, key_val)
                 except Exception as e:
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed Photoshop"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     logger.warning(f"Failed to open {dest_path} with Photoshop: {str(e)}")
                     self.log_update.emit(f"[Transfer] Warning: Failed to open {dest_path} with Photoshop: {str(e)}")
 
                 # Optional: Conversion to JPG
                 # cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Started"
-                # save_cache(cache, significant_change=True)
+                # save_cache(cache)
                 # local_jpg, _ = process_single_file(dest_path)
                 # if local_jpg:
                 #     cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Completed"
-                #     save_cache(cache, significant_change=True)
+                #     save_cache(cache)
                 #     app_signals.update_file_list.emit(local_jpg, "Conversion Completed", "download", 100, False)
                 # else:
                 #     cache[metadata_key][task_id]["api_response"]["request_status"] = f"{status_prefix} Conversion Failed"
-                #     save_cache(cache, significant_change=True)
+                #     save_cache(cache)
                 #     self.log_update.emit(f"[Transfer] Failed: JPG conversion failed for {dest_path}")
 
                 # self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(src_path).name}", dest_path, 100)
@@ -3802,9 +3790,10 @@ class FileWatcherWorker(QObject):
             # Handle Upload / Replace
             # ------------------------------
             elif action_type.lower() in ("upload", "replace"):
+                cache[metadata_key][spec_id]["api_response"]["request_status"] =  f"{status_prefix} In Progress"
                 if not os.path.exists(src_path):
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Source Missing"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
                 # Check if file is accessible
@@ -3813,7 +3802,7 @@ class FileWatcherWorker(QObject):
                         f.read(1)
                 except (PermissionError, IOError):
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} File In Use"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     raise RuntimeError(f"File {src_path} is currently in use by another application.")
 
                 # Upload to NAS or HTTP
@@ -3822,10 +3811,10 @@ class FileWatcherWorker(QObject):
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Completed"
                 else:
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} HTTP Not Implemented"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     raise NotImplementedError("HTTP upload not implemented")
 
-                save_cache(cache, significant_change=True)
+                save_cache(cache)
                 update_download_upload_metadata(task_id, "completed")
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(src_path).name}", dest_path, 100)
 
@@ -3850,13 +3839,13 @@ class FileWatcherWorker(QObject):
                     )
 
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} completed"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     update_download_upload_metadata(task_id, "Conversion Started")
                     logging.info(f"DRUPAL_DB_ENTRY_API data success: {response.text}")
 
                 except Exception as e:
                     cache[metadata_key][spec_id]["status"] = f"{status_prefix} API Call Failed"
-                    save_cache(cache, significant_change=True)
+                    save_cache(cache)
                     logging.error(f"DRUPAL_DB_ENTRY_API call error: {str(e)}")
                 
             else:
@@ -3870,7 +3859,7 @@ class FileWatcherWorker(QObject):
             else:
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = f"{status_prefix} Failed"
 
-            save_cache(cache, significant_change=True)
+            save_cache(cache)
             update_download_upload_metadata(task_id, "failed")
             logger.error(f"{status_prefix} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {str(e)}")
@@ -4477,10 +4466,10 @@ class FileListWindow(QDialog):
 
         # Initialize table
         self.table = QTableWidget(self)
-        self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
+        self.table.setColumnCount(8 if self.file_type == "downloaded" else 7)
         headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
-        # if self.file_type == "downloaded":
-        #     headers.insert(3, "Source")
+        if self.file_type == "downloaded":
+            headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
         header = self.table.horizontalHeader()
         header.setSectionsMovable(True)
@@ -4493,6 +4482,11 @@ class FileListWindow(QDialog):
         layout = QVBoxLayout()
         layout.addWidget(self.table)
         self.setLayout(layout)
+
+        # Set up timer for live updates
+        self.live_update_timer = QTimer(self)
+        self.live_update_timer.timeout.connect(self._load_files_with_logging)
+        self.live_update_timer.start(5000)  # Refresh every 5 seconds
 
         # Load files initially
         self._load_files_with_logging()
@@ -4545,15 +4539,9 @@ class FileListWindow(QDialog):
             self.table.setRowCount(0)
 
             # Set headers
-            headers = [
-                "Project Name",
-                "Job Name",
-                "File Name",
-                "Date",
-                "Open Folder",
-                "Open in Photoshop",
-                "Status",
-            ]
+            headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+            if self.file_type == "downloaded":
+                headers.insert(3, "Source")
             self.table.setColumnCount(len(headers))
             self.table.setHorizontalHeaderLabels(headers)
 
@@ -4633,7 +4621,8 @@ class FileListWindow(QDialog):
                     "folder_path": file_path,
                     "photoshop_path": file_path,
                     "status": status,
-                    "dt": dt
+                    "dt": dt,
+                    "is_nas_src": meta.get("is_nas_src", False) if self.file_type == "downloaded" else None
                 })
 
             # Sort rows by date (latest first)
@@ -4648,21 +4637,32 @@ class FileListWindow(QDialog):
                 self.table.setItem(row, 0, QTableWidgetItem(row_data["project_name"]))
                 self.table.setItem(row, 1, QTableWidgetItem(row_data["job_name"]))
                 self.table.setItem(row, 2, QTableWidgetItem(row_data["file_name"]))
-                self.table.setItem(row, 3, QTableWidgetItem(row_data["created_at"]))
+                col_offset = 1 if self.file_type == "downloaded" else 0
+                self.table.setItem(row, 3 + col_offset, QTableWidgetItem(row_data["created_at"]))
+
+                if self.file_type == "downloaded":
+                    self.table.setItem(row, 3, QTableWidgetItem("NAS" if row_data["is_nas_src"] else "DOMAIN"))
 
                 folder_btn = QPushButton()
                 folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
                 folder_btn.setIconSize(QSize(24, 24))
                 folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
-                self.table.setCellWidget(row, 4, folder_btn)
+                self.table.setCellWidget(row, 4 + col_offset, folder_btn)
 
                 photoshop_btn = QPushButton()
                 photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
                 photoshop_btn.setIconSize(QSize(24, 24))
                 photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
-                self.table.setCellWidget(row, 5, photoshop_btn)
+                self.table.setCellWidget(row, 5 + col_offset, photoshop_btn)
 
-                self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
+                self.table.setItem(row, 6 + col_offset, QTableWidgetItem(row_data["status"]))
+
+                progress_bar = QProgressBar(self)
+                progress_bar.setMinimum(0)
+                progress_bar.setMaximum(100)
+                progress_bar.setFixedHeight(20)
+                progress_bar.setValue(0)
+                self.table.setCellWidget(row, 7 + col_offset, progress_bar)
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
@@ -4672,16 +4672,12 @@ class FileListWindow(QDialog):
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
 
-
-
-
-
     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
         """Refresh the file list if the action_type matches file_type."""
         try:
             if action_type == self.file_type:
                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
-                self._load_files_with_logging()
+                self.update_file_list(file_path, status, action_type, progress, is_nas_src)
                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
         except Exception as e:
             logger.error(f"Error refreshing file list: {e}")
@@ -4694,9 +4690,10 @@ class FileListWindow(QDialog):
         try:
             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    status_col = 6 if self.file_type == "downloaded" else 3
-                    progress_col = 5 if self.file_type == "downloaded" else 4
+                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:
+                    col_offset = 1 if self.file_type == "downloaded" else 0
+                    status_col = 6 + col_offset
+                    progress_col = 7 + col_offset
                     self.table.setItem(row, status_col, QTableWidgetItem(status))
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
@@ -4725,8 +4722,8 @@ class FileListWindow(QDialog):
         try:
             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    progress_col = 5 if self.file_type == "downloaded" else 4
+                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:
+                    progress_col = 7 if self.file_type == "downloaded" else 6
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
                         progress_bar = QProgressBar(self)
@@ -4742,6 +4739,7 @@ class FileListWindow(QDialog):
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
 
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
