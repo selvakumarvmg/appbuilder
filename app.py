@@ -337,7 +337,130 @@ def load_icon(path, context=""):
     
 CACHE_DAYS = 7
 # Cache functions
+# def get_default_cache():
+#     return {
+#         "token": "",
+#         "user": "",
+#         "user_id": "",
+#         "user_info": {},
+#         "info_resp": {},
+#         "user_data": {},
+#         "data": "",
+#         "downloaded_files": {},  # Initialize as dict
+#         "uploaded_files": [],    # Initialize as list
+#         "downloaded_files_with_metadata": {},  # Initialize as dict
+#         "uploaded_files_with_metadata": {},    # Initialize as dict
+#         "timer_responses": {},
+#         "saved_username": "",
+#         "saved_password": "",
+#         "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+#     }
+   
+# def initialize_cache():
+#     default_cache = get_default_cache()
+#     cache_dir = Path(CACHE_FILE).parent
+#     try:
+#         cache_dir.mkdir(exist_ok=True, parents=True)
+#         with CACHE_WRITE_LOCK:
+#             with open(CACHE_FILE, "w", encoding="utf-8") as f:
+#                 json.dump(default_cache, f, indent=2)
+#             if platform.system() in ["Linux", "Darwin"]:
+#                 os.chmod(CACHE_FILE, 0o600)
+#         logger.info("Initialized cache file")
+#         app_signals.append_log.emit("[Cache] Initialized cache file")
+#         return True
+#     except Exception as e:
+#         logger.error(f"Error initializing cache: {e}")
+#         app_signals.append_log.emit(f"[Cache] Error initializing cache: {str(e)}")
+#         return False
+
+
+# def save_cache(data, significant_change=False):
+#     data_copy = data.copy()
+#     data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
+#     cache_dir = Path(CACHE_FILE).parent
+#     try:
+#         logger.debug(f"Saving cache to {CACHE_FILE}")
+#         cache_dir.mkdir(exist_ok=True, parents=True)
+
+#         # Backup only for significant changes
+#         if Path(CACHE_FILE).exists() and significant_change:
+#             backup_file = cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json"
+#             logger.debug(f"Creating backup: {backup_file}")
+#             with open(CACHE_FILE, "r", encoding="utf-8") as f, open(backup_file, "w", encoding="utf-8") as bf:
+#                 bf.write(f.read())
+
+#         with CACHE_WRITE_LOCK:
+#             with open(CACHE_FILE, "w", encoding="utf-8") as f:
+#                 json.dump(data_copy, f, indent=2)
+#             if platform.system() in ["Linux", "Darwin"]:
+#                 os.chmod(CACHE_FILE, 0o600)
+
+#         logger.info(f"Cache saved to {CACHE_FILE}")
+#         app_signals.append_log.emit(f"[Cache] Cache saved to {CACHE_FILE}")
+
+#     except Exception as e:
+#         logger.error(f"Error saving cache to {CACHE_FILE}: {e}")
+#         app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
+#         raise  # Re-raise to alert calling code
+
+
+# def load_cache():
+#     default_cache = get_default_cache()
+#     cache_file = Path(CACHE_FILE)
+
+#     if not cache_file.exists():
+#         logger.warning("Cache file does not exist, initializing new cache")
+#         app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
+#         initialize_cache()
+#         return default_cache
+
+#     try:
+#         with open(CACHE_FILE, "r", encoding="utf-8") as f:
+#             data = json.load(f)
+
+#         # Ensure required keys exist
+#         missing_keys = [k for k in default_cache.keys() if k not in data]
+#         if missing_keys:
+#             logger.warning(f"Cache missing keys {missing_keys}, updating...")
+#             app_signals.append_log.emit(f"[Cache] Cache missing keys {missing_keys}, updating...")
+#             data.update({k: default_cache[k] for k in missing_keys})
+#             save_cache(data)
+#             return data
+
+#         # Expiration check: 7 days (1 week)
+#         cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
+#         try:
+#             cached_time = datetime.fromisoformat(cached_time_str)
+#             if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=7):
+#                 logger.warning("Cache expired, refreshing...")
+#                 app_signals.append_log.emit("[Cache] Cache expired, refreshing...")
+#                 data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+#                 save_cache(data)
+#         except ValueError as e:
+#             logger.error(f"Invalid cached_at format: {e}, refreshing...")
+#             app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, refreshing...")
+#             data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+#             save_cache(data)
+
+#         logger.info("Cache loaded successfully")
+#         app_signals.append_log.emit("[Cache] Cache loaded successfully")
+#         return data
+
+#     except json.JSONDecodeError as e:
+#         logger.error(f"Corrupted cache file: {e}, reinitializing")
+#         app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, reinitializing")
+#         initialize_cache()
+#         return default_cache
+#     except Exception as e:
+#         logger.error(f"Error loading cache: {e}, reinitializing")
+#         app_signals.append_log.emit(f"[Cache] Error loading cache: {str(e)}, reinitializing")
+#         initialize_cache()
+#         return default_cache
+
+
 def get_default_cache():
+    """Return a fresh cache dictionary with created_at set once."""
     return {
         "token": "",
         "user": "",
@@ -346,117 +469,50 @@ def get_default_cache():
         "info_resp": {},
         "user_data": {},
         "data": "",
-        "downloaded_files": {},  # Initialize as dict
-        "uploaded_files": [],    # Initialize as list
-        "downloaded_files_with_metadata": {},  # Initialize as dict
-        "uploaded_files_with_metadata": {},    # Initialize as dict
-        "timer_responses": {},
-        "saved_username": "",
-        "saved_password": "",
-        "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+        "downloaded_files": {},
+        "uploaded_files": [],
+        "created_at": int(time.time())  # only when initialized
     }
-   
+
 def initialize_cache():
-    default_cache = get_default_cache()
-    cache_dir = Path(CACHE_FILE).parent
+    """Create a new cache file safely."""
+    cache = get_default_cache()
     try:
-        cache_dir.mkdir(exist_ok=True, parents=True)
-        with CACHE_WRITE_LOCK:
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_cache, f, indent=2)
-            if platform.system() in ["Linux", "Darwin"]:
-                os.chmod(CACHE_FILE, 0o600)
-        logger.info("Initialized cache file")
-        app_signals.append_log.emit("[Cache] Initialized cache file")
-        return True
-    except Exception as e:
-        logger.error(f"Error initializing cache: {e}")
-        app_signals.append_log.emit(f"[Cache] Error initializing cache: {str(e)}")
-        return False
-
-
-def save_cache(data, significant_change=False):
-    data_copy = data.copy()
-    data_copy['cached_at'] = datetime.now(ZoneInfo("UTC")).isoformat()
-    cache_dir = Path(CACHE_FILE).parent
-    try:
-        logger.debug(f"Saving cache to {CACHE_FILE}")
-        cache_dir.mkdir(exist_ok=True, parents=True)
-
-        # Backup only for significant changes
-        if Path(CACHE_FILE).exists() and significant_change:
-            backup_file = cache_dir / f"cache_backup_{datetime.now(ZoneInfo('UTC')).strftime('%Y%m%d_%H%M%S')}.json"
-            logger.debug(f"Creating backup: {backup_file}")
-            with open(CACHE_FILE, "r", encoding="utf-8") as f, open(backup_file, "w", encoding="utf-8") as bf:
-                bf.write(f.read())
-
-        with CACHE_WRITE_LOCK:
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(data_copy, f, indent=2)
-            if platform.system() in ["Linux", "Darwin"]:
-                os.chmod(CACHE_FILE, 0o600)
-
-        logger.info(f"Cache saved to {CACHE_FILE}")
-        app_signals.append_log.emit(f"[Cache] Cache saved to {CACHE_FILE}")
-
-    except Exception as e:
-        logger.error(f"Error saving cache to {CACHE_FILE}: {e}")
-        app_signals.append_log.emit(f"[Cache] Failed to save cache: {str(e)}")
-        raise  # Re-raise to alert calling code
-
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except OSError as e:
+        print(f"[WARN] Could not initialize cache file: {e}")
+    return cache
 
 def load_cache():
-    default_cache = get_default_cache()
-    cache_file = Path(CACHE_FILE)
-
-    if not cache_file.exists():
-        logger.warning("Cache file does not exist, initializing new cache")
-        app_signals.append_log.emit("[Cache] Cache file does not exist, initializing new cache")
-        initialize_cache()
-        return default_cache
-
-    try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # Ensure required keys exist
-        missing_keys = [k for k in default_cache.keys() if k not in data]
-        if missing_keys:
-            logger.warning(f"Cache missing keys {missing_keys}, updating...")
-            app_signals.append_log.emit(f"[Cache] Cache missing keys {missing_keys}, updating...")
-            data.update({k: default_cache[k] for k in missing_keys})
-            save_cache(data)
-            return data
-
-        # Expiration check: 7 days (1 week)
-        cached_time_str = data.get("cached_at", "2000-01-01T00:00:00+00:00")
+    """Load cache safely. If missing/corrupted, reinitialize."""
+    if os.path.exists(CACHE_FILE):
         try:
-            cached_time = datetime.fromisoformat(cached_time_str)
-            if datetime.now(ZoneInfo("UTC")) - cached_time >= timedelta(days=7):
-                logger.warning("Cache expired, refreshing...")
-                app_signals.append_log.emit("[Cache] Cache expired, refreshing...")
-                data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-                save_cache(data)
-        except ValueError as e:
-            logger.error(f"Invalid cached_at format: {e}, refreshing...")
-            app_signals.append_log.emit(f"[Cache] Invalid cached_at format: {str(e)}, refreshing...")
-            data["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
-            save_cache(data)
+            with open(CACHE_FILE, "r") as f:
+                cache = json.load(f)
+            # Ensure required keys exist (avoid KeyError later)
+            for key, default_value in get_default_cache().items():
+                if key not in cache:
+                    cache[key] = default_value
+            return cache
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[WARN] Cache load failed ({e}), recreating...")
+            return initialize_cache()
+    else:
+        return initialize_cache()
 
-        logger.info("Cache loaded successfully")
-        app_signals.append_log.emit("[Cache] Cache loaded successfully")
-        return data
+def save_cache(cache):
+    """Save cache safely without crashing app."""
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except OSError as e:
+        print(f"[WARN] Could not save cache file: {e}")
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Corrupted cache file: {e}, reinitializing")
-        app_signals.append_log.emit(f"[Cache] Corrupted cache file: {str(e)}, reinitializing")
-        initialize_cache()
-        return default_cache
-    except Exception as e:
-        logger.error(f"Error loading cache: {e}, reinitializing")
-        app_signals.append_log.emit(f"[Cache] Error loading cache: {str(e)}, reinitializing")
-        initialize_cache()
-        return default_cache
+def get_cache_age(cache):
+    """Get cache age in seconds."""
+    created_at = cache.get("created_at", int(time.time()))
+    return int(time.time()) - created_at
 
 
 def parse_custom_url():
@@ -6305,7 +6361,7 @@ class PremediaApp(QApplication):
             self.poll_timer.timeout.connect(
                 lambda: QMetaObject.invokeMethod(self.file_watcher, "run", Qt.QueuedConnection)
             )
-            API_POLL_INTERVAL = 10000  # 10 seconds
+            API_POLL_INTERVAL = 3000  # 3 seconds
             self.poll_timer.start(API_POLL_INTERVAL)
             logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
             app_signals.append_log.emit(f"[App] Poll timer started with interval: {API_POLL_INTERVAL}ms")
@@ -6434,6 +6490,51 @@ class PremediaApp(QApplication):
             QMessageBox.critical(None, f"{context} Error", f"{context} error: {str(error)}")
 
 
+    # def cleanup_and_quit(self):
+    #     try:
+    #         logger.debug("Cleanup initiated")
+    #         app_signals.append_log.emit("[App] Cleanup initiated")
+
+    #         global FILE_WATCHER_RUNNING
+    #         FILE_WATCHER_RUNNING = False
+    #         FILE_WATCHER_STOP_QUEUE.put(True)
+
+    #         if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+    #             self.poll_timer.stop()
+    #             logger.debug("Stopped poll_timer")
+    #             app_signals.append_log.emit("[App] Stopped poll_timer")
+
+    #         if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+    #             self.file_watcher_thread.quit()
+    #             self.file_watcher_thread.wait(10000)
+    #             if self.file_watcher_thread.isRunning():
+    #                 logger.warning("File watcher thread did not stop gracefully, terminating")
+    #                 app_signals.append_log.emit("[App] File watcher thread did not stop gracefully, terminating")
+    #                 self.file_watcher_thread.terminate()
+    #                 self.file_watcher_thread.wait(1000)
+
+    #         for w in QApplication.topLevelWidgets():
+    #             logger.debug(f"Closing widget: {w}")
+    #             app_signals.append_log.emit(f"[App] Closing widget: {w}")
+    #             w.close()
+
+    #         if hasattr(self, 'tray_icon') and self.tray_icon:
+    #             self.tray_icon.hide()
+    #             self.tray_icon.deleteLater()
+
+    #         logger.debug("Closing HTTP_SESSION")
+    #         app_signals.append_log.emit("[App] Closing HTTP_SESSION")
+    #         HTTP_SESSION.close()
+
+    #         stop_logging()
+    #         app_signals.update_status.emit("Application quitting")
+    #         app_signals.append_log.emit("[App] Application quitting")
+    #         logger.info("Application quitting")
+    #         self.quit()
+    #     except Exception as e:
+    #         self.handle_error("Cleanup", f"Error in cleanup_and_quit: {str(e)}")
+    #         sys.exit(1)
+
     def cleanup_and_quit(self):
         try:
             logger.debug("Cleanup initiated")
@@ -6443,11 +6544,13 @@ class PremediaApp(QApplication):
             FILE_WATCHER_RUNNING = False
             FILE_WATCHER_STOP_QUEUE.put(True)
 
+            # Stop poll timer if exists
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped poll_timer")
                 app_signals.append_log.emit("[App] Stopped poll_timer")
 
+            # Stop file watcher thread if exists
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 self.file_watcher_thread.quit()
                 self.file_watcher_thread.wait(10000)
@@ -6457,27 +6560,41 @@ class PremediaApp(QApplication):
                     self.file_watcher_thread.terminate()
                     self.file_watcher_thread.wait(1000)
 
+            # Close all top-level widgets
             for w in QApplication.topLevelWidgets():
                 logger.debug(f"Closing widget: {w}")
                 app_signals.append_log.emit(f"[App] Closing widget: {w}")
                 w.close()
 
+            # Hide tray icon if exists
             if hasattr(self, 'tray_icon') and self.tray_icon:
                 self.tray_icon.hide()
                 self.tray_icon.deleteLater()
 
+            # Close HTTP session
             logger.debug("Closing HTTP_SESSION")
             app_signals.append_log.emit("[App] Closing HTTP_SESSION")
             HTTP_SESSION.close()
 
+            # Stop logging
             stop_logging()
+
+            # Update status
             app_signals.update_status.emit("Application quitting")
             app_signals.append_log.emit("[App] Application quitting")
             logger.info("Application quitting")
-            self.quit()
+
+            # Quit application safely
+            QApplication.quit()
+
         except Exception as e:
+            # Don’t crash — just log the error
             self.handle_error("Cleanup", f"Error in cleanup_and_quit: {str(e)}")
-            sys.exit(1)
+            try:
+                QApplication.quit()
+            except Exception:
+                sys.exit(1)
+
 
     def logout(self):
         try:
