@@ -3704,6 +3704,9 @@ class FileWatcherWorker(QObject):
         """Perform file transfer (download/upload/replace) and update cache metadata reliably."""
         task_id = str(item.get('id'))
         spec_id = str(item.get("spec_id"))
+        print("===================================")
+        print(item.get("file_path"))
+        print("===================================")
         if not task_id:
             raise ValueError("Task ID is missing or invalid in item dictionary")
 
@@ -6172,73 +6175,264 @@ class PremediaApp(QApplication):
 
 
 
+    # def start_file_watcher(self):
+    #     global FILE_WATCHER_RUNNING
+    #     try:
+    #         logger.info("Attempting to start FileWatcherWorker")
+    #         app_signals.append_log.emit("[App] Attempting to start FileWatcherWorker")
+
+    #         cache = load_cache()
+    #         logger.debug(f"Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
+    #         app_signals.append_log.emit(f"[App] Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
+
+    #         if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+    #             logger.warning("FileWatcherWorker already running, stopping it")
+    #             app_signals.append_log.emit("[App] FileWatcherWorker already running, stopping it")
+    #             self.file_watcher_thread.quit()
+    #             self.file_watcher_thread.wait(5000)
+    #             if self.file_watcher_thread.isRunning():
+    #                 logger.error("Failed to stop existing file watcher thread")
+    #                 app_signals.append_log.emit("[App] Failed to stop existing file watcher thread")
+    #                 app_signals.update_status.emit("Failed to stop existing file watcher thread")
+    #                 return
+
+    #         if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+    #             self.poll_timer.stop()
+    #             logger.debug("Stopped existing poll timer")
+    #             app_signals.append_log.emit("[App] Stopped existing poll timer")
+
+    #         FileWatcherWorker._instance = None
+    #         FILE_WATCHER_RUNNING = True
+    #         logger.debug(f"FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
+    #         app_signals.append_log.emit(f"[App] FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
+
+    #         self.file_watcher = FileWatcherWorker.get_instance(parent=None)
+    #         self.file_watcher_thread = QThread()
+    #         self.file_watcher.moveToThread(self.file_watcher_thread)
+    #         logger.debug("Moved FileWatcherWorker to QThread")
+    #         app_signals.append_log.emit("[App] Moved FileWatcherWorker to QThread")
+
+    #         self.file_watcher_thread.started.connect(self.file_watcher.run, Qt.QueuedConnection)
+    #         self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
+    #         self.file_watcher.log_update.connect(app_signals.append_log, Qt.QueuedConnection)
+    #         self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+    #         logger.debug("Connected FileWatcherWorker signals")
+    #         app_signals.append_log.emit("[App] Connected FileWatcherWorker signals")
+
+    #         self.poll_timer = QTimer(self)
+    #         self.poll_timer.timeout.connect(self.file_watcher.run, Qt.QueuedConnection)
+    #         self.poll_timer.start(API_POLL_INTERVAL)
+    #         logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
+    #         app_signals.append_log.emit(f"[App] Poll timer started with interval: {API_POLL_INTERVAL}ms")
+
+    #         self.file_watcher_thread.start()
+    #         logger.info("FileWatcherWorker thread started successfully")
+    #         app_signals.append_log.emit("[App] FileWatcherWorker thread started successfully")
+    #         app_signals.update_status.emit("File watcher started")
+
+    #         if self.file_watcher_thread.isRunning():
+    #             logger.debug("Confirmed FileWatcherWorker thread is running")
+    #             app_signals.append_log.emit("[App] Confirmed FileWatcherWorker thread is running")
+    #         else:
+    #             logger.error("FileWatcherWorker thread failed to start")
+    #             app_signals.append_log.emit("[App] FileWatcherWorker thread failed to start")
+    #             app_signals.update_status.emit("FileWatcherWorker thread failed to start")
+    #     except Exception as e:
+    #         logger.error(f"Failed to start FileWatcherWorker: {str(e)}")
+    #         app_signals.append_log.emit(f"[App] Failed: FileWatcherWorker start error - {str(e)}")
+    #         app_signals.update_status.emit(f"FileWatcherWorker start error: {str(e)}")
+    #         QMessageBox.critical(None, "File Watcher Error", f"Failed to start file watcher: {str(e)}")
+
+
     def start_file_watcher(self):
         global FILE_WATCHER_RUNNING
         try:
             logger.info("Attempting to start FileWatcherWorker")
             app_signals.append_log.emit("[App] Attempting to start FileWatcherWorker")
 
-            cache = load_cache()
-            logger.debug(f"Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
-            app_signals.append_log.emit(f"[App] Cache contents in start_file_watcher: {json.dumps(cache, indent=2)}")
+            # Validate log_window
+            if self.log_window is None or self.log_window.status_bar is None:
+                self.handle_error("FileWatcher", "Log window or status bar not initialized")
+                return
 
+            # Load cache safely
+            try:
+                cache = load_cache()
+                logger.debug(f"Cache keys: {list(cache.keys())}")  # lighter than full JSON
+                app_signals.append_log.emit(f"[App] Cache keys: {list(cache.keys())}")
+            except (json.JSONDecodeError, IOError) as e:
+                self.handle_error("FileWatcher", f"Failed to load cache: {str(e)}", show_dialog=False)
+                cache = {}
+
+            # Stop existing thread and timer
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 logger.warning("FileWatcherWorker already running, stopping it")
                 app_signals.append_log.emit("[App] FileWatcherWorker already running, stopping it")
                 self.file_watcher_thread.quit()
                 self.file_watcher_thread.wait(5000)
                 if self.file_watcher_thread.isRunning():
-                    logger.error("Failed to stop existing file watcher thread")
-                    app_signals.append_log.emit("[App] Failed to stop existing file watcher thread")
-                    app_signals.update_status.emit("Failed to stop existing file watcher thread")
+                    self.handle_error("FileWatcher", "Failed to stop existing file watcher thread")
                     return
+                self.file_watcher.deleteLater()
+                self.file_watcher_thread.deleteLater()
 
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped existing poll timer")
                 app_signals.append_log.emit("[App] Stopped existing poll timer")
 
+            # Initialize worker
             FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
-            logger.debug(f"FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
-            app_signals.append_log.emit(f"[App] FILE_WATCHER_RUNNING set to: {FILE_WATCHER_RUNNING}")
-
             self.file_watcher = FileWatcherWorker.get_instance(parent=None)
+            if not self.file_watcher:
+                self.handle_error("FileWatcher", "Failed to initialize FileWatcherWorker")
+                return
+
             self.file_watcher_thread = QThread()
             self.file_watcher.moveToThread(self.file_watcher_thread)
-            logger.debug("Moved FileWatcherWorker to QThread")
-            app_signals.append_log.emit("[App] Moved FileWatcherWorker to QThread")
 
-            self.file_watcher_thread.started.connect(self.file_watcher.run, Qt.QueuedConnection)
-            self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
-            self.file_watcher.log_update.connect(app_signals.append_log, Qt.QueuedConnection)
-            self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+            # Connect signals
+            self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage)
+            self.file_watcher.log_update.connect(app_signals.append_log)
+            self.file_watcher.progress_update.connect(self.update_progress)
+
             logger.debug("Connected FileWatcherWorker signals")
             app_signals.append_log.emit("[App] Connected FileWatcherWorker signals")
 
+            # Start timer (queue run safely into worker thread)
             self.poll_timer = QTimer(self)
-            self.poll_timer.timeout.connect(self.file_watcher.run, Qt.QueuedConnection)
+            self.poll_timer.timeout.connect(
+                lambda: QMetaObject.invokeMethod(self.file_watcher, "run", Qt.QueuedConnection)
+            )
+            API_POLL_INTERVAL = 10000  # 10 seconds
             self.poll_timer.start(API_POLL_INTERVAL)
             logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
             app_signals.append_log.emit(f"[App] Poll timer started with interval: {API_POLL_INTERVAL}ms")
 
+            # Start thread
+            self.file_watcher_thread.started.connect(self.file_watcher.run)
             self.file_watcher_thread.start()
             logger.info("FileWatcherWorker thread started successfully")
             app_signals.append_log.emit("[App] FileWatcherWorker thread started successfully")
             app_signals.update_status.emit("File watcher started")
 
-            if self.file_watcher_thread.isRunning():
-                logger.debug("Confirmed FileWatcherWorker thread is running")
-                app_signals.append_log.emit("[App] Confirmed FileWatcherWorker thread is running")
-            else:
-                logger.error("FileWatcherWorker thread failed to start")
-                app_signals.append_log.emit("[App] FileWatcherWorker thread failed to start")
-                app_signals.update_status.emit("FileWatcherWorker thread failed to start")
+            # Start watchdog timer (every 1 min)
+            self.watchdog_timer = QTimer(self)
+            self.watchdog_timer.timeout.connect(self.check_memory_usage)
+            self.watchdog_timer.start(60000)
+            logger.debug("Watchdog timer started (1m)")
+            app_signals.append_log.emit("[App] Watchdog timer started (1m)")
+
+            # Schedule daily restart (3:00 AM)
+            self.schedule_daily_restart(3, 0)
+
         except Exception as e:
-            logger.error(f"Failed to start FileWatcherWorker: {str(e)}")
-            app_signals.append_log.emit(f"[App] Failed: FileWatcherWorker start error - {str(e)}")
-            app_signals.update_status.emit(f"FileWatcherWorker start error: {str(e)}")
-            QMessageBox.critical(None, "File Watcher Error", f"Failed to start file watcher: {str(e)}")
+            self.handle_error("FileWatcher", f"Failed to start FileWatcherWorker: {str(e)}")
+
+
+    def check_memory_usage(self, threshold_mb: int = 500, cpu_threshold: int = 80):
+        """Watchdog check: restart file watcher if memory/CPU exceeds thresholds."""
+        try:
+            import psutil
+            process = psutil.Process()
+
+            mem_mb = process.memory_info().rss / 1024 / 1024
+            cpu_percent = process.cpu_percent(interval=1)  # lightweight per-process CPU %
+
+            logger.info(f"[Watchdog] Memory: {mem_mb:.2f} MB | CPU: {cpu_percent:.1f}%")
+            app_signals.append_log.emit(f"[Watchdog] Memory: {mem_mb:.2f} MB | CPU: {cpu_percent:.1f}%")
+
+            if mem_mb > threshold_mb or cpu_percent > cpu_threshold:
+                reason = "Memory" if mem_mb > threshold_mb else "CPU"
+                logger.warning(f"[Watchdog] {reason} exceeded limit. Restarting FileWatcherWorker...")
+                app_signals.append_log.emit(f"[Watchdog] {reason} exceeded limit. Restarting FileWatcherWorker...")
+                self.restart_file_watcher()
+
+        except Exception as e:
+            logger.error(f"[Watchdog] Failed to check system usage: {str(e)}")
+            app_signals.append_log.emit(f"[Watchdog] Failed to check system usage: {str(e)}")
+
+
+    def restart_file_watcher(self):
+        """Stop old watcher and restart cleanly, with backoff if too many restarts."""
+        try:
+            if not hasattr(self, "restart_count"):
+                self.restart_count = 0
+            self.restart_count += 1
+
+            # Exponential backoff (max 5 min)
+            backoff_delay = min(self.restart_count * 30, 300)
+
+            if self.restart_count > 10:
+                logger.error("[Watchdog] Too many restarts (>10). Stopping FileWatcherWorker permanently.")
+                app_signals.append_log.emit("[Watchdog] Too many restarts (>10). Stopping FileWatcherWorker permanently.")
+                return
+
+            logger.info(f"[Watchdog] Restart attempt {self.restart_count}, backoff {backoff_delay}s")
+            app_signals.append_log.emit(f"[Watchdog] Restart attempt {self.restart_count}, backoff {backoff_delay}s")
+
+            # Stop old worker
+            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
+                self.file_watcher_thread.quit()
+                self.file_watcher_thread.wait(5000)
+                self.file_watcher.deleteLater()
+                self.file_watcher_thread.deleteLater()
+
+            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+                self.poll_timer.stop()
+
+            # Restart after backoff
+            QTimer.singleShot(backoff_delay * 1000, self.start_file_watcher)
+
+        except Exception as e:
+            self.handle_error("FileWatcher", f"Failed to restart FileWatcherWorker: {str(e)}")
+
+
+    def daily_restart_file_watcher(self):
+        """Restart FileWatcher once every 24h for preventive cleanup."""
+        logger.info("[DailyRestart] Performing scheduled daily restart of FileWatcherWorker...")
+        app_signals.append_log.emit("[DailyRestart] Performing scheduled daily restart of FileWatcherWorker...")
+
+        self.restart_count = 0  # reset watchdog counter
+        self.restart_file_watcher()
+
+
+    def schedule_daily_restart(self, hour: int = 3, minute: int = 0):
+        """Schedule daily restart at fixed time (default 03:00 AM)."""
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)  # schedule for next day if already past
+
+        delay_ms = int((target - now).total_seconds() * 1000)
+
+        logger.info(f"[DailyRestart] Scheduled first daily restart at {target}")
+        app_signals.append_log.emit(f"[DailyRestart] Scheduled first daily restart at {target}")
+
+        QTimer.singleShot(delay_ms, self._start_daily_restart_cycle)
+
+
+    def _start_daily_restart_cycle(self):
+        """First trigger, then repeat daily."""
+        self.daily_restart_file_watcher()
+        self.daily_restart_timer = QTimer(self)
+        self.daily_restart_timer.timeout.connect(self.daily_restart_file_watcher)
+        self.daily_restart_timer.start(24 * 60 * 60 * 1000)  # 24h
+
+
+
+
+    def handle_error(self, context, error, show_dialog=True):
+        import traceback
+        logger.error(f"{context}: {str(error)}\n{traceback.format_exc()}")
+        app_signals.append_log.emit(f"[{context}] Failed: {str(error)}")
+        app_signals.update_status.emit(f"{context} error: {str(error)}")
+        if show_dialog:
+            QMessageBox.critical(None, f"{context} Error", f"{context} error: {str(error)}")
+
 
     def cleanup_and_quit(self):
         try:
@@ -6250,20 +6444,18 @@ class PremediaApp(QApplication):
             FILE_WATCHER_STOP_QUEUE.put(True)
 
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
-                logger.debug("Stopping poll_timer")
-                app_signals.append_log.emit("[App] Stopping poll_timer")
                 self.poll_timer.stop()
+                logger.debug("Stopped poll_timer")
+                app_signals.append_log.emit("[App] Stopped poll_timer")
 
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
-                logger.debug("Requesting file_watcher_thread to quit")
-                app_signals.append_log.emit("[App] Requesting file_watcher_thread to quit")
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(5000)
+                self.file_watcher_thread.wait(10000)
                 if self.file_watcher_thread.isRunning():
                     logger.warning("File watcher thread did not stop gracefully, terminating")
                     app_signals.append_log.emit("[App] File watcher thread did not stop gracefully, terminating")
                     self.file_watcher_thread.terminate()
-                    self.file_watcher_thread.wait(500)
+                    self.file_watcher_thread.wait(1000)
 
             for w in QApplication.topLevelWidgets():
                 logger.debug(f"Closing widget: {w}")
@@ -6271,8 +6463,6 @@ class PremediaApp(QApplication):
                 w.close()
 
             if hasattr(self, 'tray_icon') and self.tray_icon:
-                logger.debug("Hiding tray_icon")
-                app_signals.append_log.emit("[App] Hiding tray_icon")
                 self.tray_icon.hide()
                 self.tray_icon.deleteLater()
 
@@ -6284,11 +6474,9 @@ class PremediaApp(QApplication):
             app_signals.update_status.emit("Application quitting")
             app_signals.append_log.emit("[App] Application quitting")
             logger.info("Application quitting")
-
             self.quit()
         except Exception as e:
-            logger.error(f"Error in cleanup_and_quit: {e}")
-            app_signals.append_log.emit(f"[App] Failed: Cleanup error - {str(e)}")
+            self.handle_error("Cleanup", f"Error in cleanup_and_quit: {str(e)}")
             sys.exit(1)
 
     def logout(self):
@@ -6320,22 +6508,11 @@ class PremediaApp(QApplication):
             if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
                 self.tray_icon.show()
-                QApplication.processEvents()
-                for _ in range(2):
-                    if not self.tray_icon.isVisible():
-                        logger.debug("Tray icon not visible, retrying show")
-                        app_signals.append_log.emit("[Tray] Tray icon not visible, retrying show")
-                        self.tray_icon.show()
-                        QApplication.processEvents()
                 logger.debug(f"Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Tray] Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
-                self.tray_icon.setContextMenu(self.tray_menu)
             else:
-                logger.warning("Tray icon or system tray not available, cannot set 'logged in' icon")
-                app_signals.append_log.emit("[Tray] Tray icon or system tray not available, cannot set 'logged in' icon")
-                if platform.system() == "Linux":
-                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
-                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
+                logger.warning("Tray icon or system tray not available")
+                app_signals.append_log.emit("[Tray] Tray icon or system tray not available")
             if hasattr(self, 'login_dialog'):
                 self.login_dialog.is_logged_in = True
                 logger.debug(f"LoginDialog is_logged_in set to: {self.login_dialog.is_logged_in}")
@@ -6343,10 +6520,7 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit("[State] Set to logged-in state")
             app_signals.update_status.emit("Logged in state set")
         except Exception as e:
-            logger.error(f"Error in set_logged_in_state: {e}")
-            app_signals.append_log.emit(f"[State] Failed: Error setting logged-in state - {str(e)}")
-            app_signals.update_status.emit(f"Error setting logged-in state: {str(e)}")
-            QMessageBox.critical(None, "State Error", f"Failed to set logged-in state: {str(e)}")
+            self.handle_error("SetLoggedIn", f"Error setting logged-in state: {str(e)}")
 
     def set_logged_out_state(self):
         try:
@@ -6766,64 +6940,61 @@ class PremediaApp(QApplication):
             token = cache.get("token", "")
             user_id = cache.get("user_id", "")
             if not token or not user_id:
-                logger.error("No token or user_id for post-login processes")
-                app_signals.append_log.emit("[Login] Failed: No token or user_id for post-login processes")
+                self.handle_error("Post-Login", "No token or user_id for post-login processes")
                 self.set_logged_out_state()
                 self.show_login()
                 return
 
+            # Stop existing resources
             if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
                 self.poll_timer.stop()
                 logger.debug("Stopped existing poll timer")
                 app_signals.append_log.emit("[Login] Stopped existing poll timer")
+
             if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
                 self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(2000)
+                self.file_watcher_thread.wait(10000)
                 logger.debug("Stopped existing file watcher thread")
                 app_signals.append_log.emit("[Login] Stopped existing file watcher thread")
 
             FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
 
+            # Start file watcher
             self.start_file_watcher()
 
+            # Update tray menu
             self.update_tray_menu()
             if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.show()
-                QApplication.processEvents()
                 logger.debug(f"Tray icon visible after post-login: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Login] Tray icon visible after post-login: {self.tray_icon.isVisible()}")
             else:
-                logger.warning("Tray icon or system tray not available in post_login_processes")
-                app_signals.append_log.emit("[Tray] Tray icon or system tray not available in post_login_processes")
-                if platform.system() == "Linux":
-                    logger.warning("On Linux, ensure libappindicator is installed for system tray support")
-                    app_signals.append_log.emit("[Tray] On Linux, ensure libappindicator is installed for system tray support")
+                logger.warning("Tray icon or system tray not available")
+                app_signals.append_log.emit("[Tray] Tray icon or system tray not available")
 
+            # Close progress dialog if visible
             if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
                 self.login_dialog.progress.close()
-                QApplication.processEvents()
-                logger.debug("Progress dialog closed in post_login_processes")
-                app_signals.append_log.emit("[Login] Progress dialog closed in post_login_processes")
+                logger.debug("Progress dialog closed")
+                app_signals.append_log.emit("[Login] Progress dialog closed")
 
+            # Reconnect status signals
             try:
                 app_signals.update_status.disconnect(self.log_window.status_bar.showMessage)
             except Exception:
                 logger.debug("No existing update_status connection to disconnect")
             app_signals.update_status.connect(self.log_window.status_bar.showMessage, Qt.QueuedConnection)
 
+            logger.info("Post-login processes completed successfully")
             app_signals.append_log.emit("[Login] Post-login processes completed successfully")
             app_signals.update_status.emit("File watcher started")
         except Exception as e:
-            logger.error(f"Error in post_login_processes: {e}")
-            app_signals.append_log.emit(f"[Login] Failed: Post-login processes error - {str(e)}")
-            app_signals.update_status.emit(f"Post-login error: {str(e)}")
+            self.handle_error("Post-Login", f"Post-login error: {str(e)}")
             if hasattr(self, 'login_dialog') and self.login_dialog.progress and self.login_dialog.progress.isVisible():
                 self.login_dialog.progress.close()
-                QApplication.processEvents()
-                logger.debug("Progress dialog closed in post_login_processes error handler")
+                logger.debug("Progress dialog closed in error handler")
                 app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
-            QMessageBox.critical(self, "Post-Login Error", f"Post-login error: {str(e)}")
             self.set_logged_out_state()
             self.show_login()
 
@@ -6846,7 +7017,17 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit(f"[Dialog] Failed: Error displaying dialog - {str(e)}")
             app_signals.update_status.emit(f"Error displaying dialog: {str(e)}")
 
+# if __name__ == "__main__":
+#     key = parse_custom_url()
+#     app = PremediaApp(key)
+#     sys.exit(app.exec())
+
 if __name__ == "__main__":
-    key = parse_custom_url()
-    app = PremediaApp(key)
-    sys.exit(app.exec())
+    try:
+        key = parse_custom_url()
+        app = PremediaApp(key)
+        sys.exit(app.exec_())
+    except Exception as e:
+        print(f"Application crashed: {e}")
+        import traceback
+        traceback.print_exc()
