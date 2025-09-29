@@ -501,7 +501,7 @@ def load_cache():
     else:
         return initialize_cache()
 
-def save_cache(cache):
+def save_cache(cache, significant_change=True):
     """Save cache safely without crashing app."""
     try:
         with open(CACHE_FILE, "w") as f:
@@ -6409,7 +6409,6 @@ class PremediaApp(QApplication):
             logger.error(f"[Watchdog] Failed to check system usage: {str(e)}")
             app_signals.append_log.emit(f"[Watchdog] Failed to check system usage: {str(e)}")
 
-
     def restart_file_watcher(self):
         """Stop old watcher and restart cleanly, with backoff if too many restarts."""
         try:
@@ -6428,21 +6427,29 @@ class PremediaApp(QApplication):
             logger.info(f"[Watchdog] Restart attempt {self.restart_count}, backoff {backoff_delay}s")
             app_signals.append_log.emit(f"[Watchdog] Restart attempt {self.restart_count}, backoff {backoff_delay}s")
 
-            # Stop old worker
-            if hasattr(self, 'file_watcher_thread') and self.file_watcher_thread.isRunning():
-                self.file_watcher_thread.quit()
-                self.file_watcher_thread.wait(5000)
-                self.file_watcher.deleteLater()
-                self.file_watcher_thread.deleteLater()
+            # Stop old worker safely
+            thread = getattr(self, 'file_watcher_thread', None)
+            if thread is not None:
+                try:
+                    if thread.isRunning():
+                        thread.quit()
+                        thread.wait(5000)
+                except RuntimeError:
+                    # Thread object already deleted
+                    logger.warning("FileWatcherThread already deleted")
+                finally:
+                    self.file_watcher_thread = None
 
-            if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
-                self.poll_timer.stop()
+            timer = getattr(self, 'poll_timer', None)
+            if timer is not None and timer.isActive():
+                timer.stop()
 
             # Restart after backoff
             QTimer.singleShot(backoff_delay * 1000, self.start_file_watcher)
 
         except Exception as e:
             self.handle_error("FileWatcher", f"Failed to restart FileWatcherWorker: {str(e)}")
+
 
 
     def daily_restart_file_watcher(self):
