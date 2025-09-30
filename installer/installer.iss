@@ -95,11 +95,43 @@ Root: HKCU; Subkey: "Software\PremediaApp"; ValueType: string; ValueName: "Insta
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  // During installation
   if CurStep = ssInstall then
   begin
     if IsTaskSelected('autostart') then
     begin
       // Optional: Add logic for registry or task scheduler autostart if needed
+      // Currently handled by the [Icons] section
     end;
   end;
 end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    // Attempt to terminate PremediaApp.exe if running
+    Exec('taskkill', '/F /IM "PremediaApp.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    
+    // Optional: Remove autostart shortcut from Startup folder
+    if DirExists(ExpandConstant('{userstartup}')) then
+    begin
+      DeleteFile(ExpandConstant('{userstartup}\PremediaApp (Auto Start).lnk'));
+    end;
+  end;
+end;
+
+procedure InitializeUninstall();
+begin
+  // Warn the user if app is running (optional)
+  if FileExists(ExpandConstant('{app}\PremediaApp.exe')) then
+  begin
+    if MsgBox('PremediaApp is currently running. It will be closed automatically during uninstall. Continue?', mbConfirmation, MB_YESNO) = IDNO then
+    begin
+      Abort;
+    end;
+  end;
+end;
+
