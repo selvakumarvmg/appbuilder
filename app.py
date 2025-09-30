@@ -5415,7 +5415,8 @@ class LoginDialog(QDialog):
             user_info = {
                 "uid": user_id,
                 "name": name,
-                "mail": cache.get("user_info", {}).get("mail", "user")  # Add mail for compatibility
+                "mail": cache.get("user_info", {}).get("mail", "user"),  
+                "access_key": cache.get("user_info", {}).get("access_key")
             }
             # if token and user_id:
             #     logger.info(f"Auto-login from cache for user: {user_id}")
@@ -6169,54 +6170,56 @@ class PremediaApp(QApplication):
     def update_tray_menu(self):
         try:
             # Check if system tray is available and tray_icon is initialized
-            # Check if system tray is available and tray_icon is initialized
             if not self.tray_icon or not QSystemTrayIcon.isSystemTrayAvailable():
                 logger.warning("System tray not available or tray_icon not initialized")
                 return
 
             # Clear the existing tray menu to rebuild it
-            # Clear the existing tray menu to rebuild it
             self.tray_menu.clear()
-            user_fullname = "Unknown"  # Default value for user full name
-            user_fullname = "Unknown"  # Default value for user full name
+            user_fullname = "Unknown"  # Default value
 
-            # Load user full name from cache if logged in
+            # Load user full name (with fallback) from cache if logged in
             if self.logged_in:
                 try:
                     cache_file = Path(self.CACHE_FILE).resolve()
-                    # Verify cache file exists and is valid
-                    # Verify cache file exists and is valid
                     if cache_file.exists() and cache_file.is_file():
                         with cache_file.open('r', encoding='utf-8') as f:
                             cache_data = json.load(f)
+
                         user_data = cache_data.get('user_data', {}).get('data', [])
-                        # Extract full name from cache data, ensuring it's not empty
-                        # Extract full name from cache data, ensuring it's not empty
                         if user_data and isinstance(user_data, list):
-                            user_fullname = user_data[0].get('attributes', {}).get('field_fullname', "Unknown")
-                            if not user_fullname or user_fullname.strip() == "":
-                                user_fullname = "Unknown"  # Fallback if empty
-                            logger.debug(f"Extracted field_fullname: {user_fullname}")
-                            app_signals.append_log.emit(f"[Tray] User full name: {user_fullname}")
-                            if not user_fullname or user_fullname.strip() == "":
-                                user_fullname = "Unknown"  # Fallback if empty
-                            logger.debug(f"Extracted field_fullname: {user_fullname}")
-                            app_signals.append_log.emit(f"[Tray] User full name: {user_fullname}")
+                            attributes = user_data[0].get('attributes', {})
+
+                            # Fallback order: field_fullname → name → mail → "Unknown"
+                            user_fullname = (
+                                attributes.get('field_fullname')
+                                or attributes.get('name')
+                                or attributes.get('mail')
+                                or "Unknown"
+                            )
+
+                            user_fullname = str(user_fullname).strip()
+                            if not user_fullname:
+                                user_fullname = "Unknown"
+
+                            logger.debug(f"Resolved tray user name: {user_fullname}")
+                            app_signals.append_log.emit(f"[Tray] User name resolved: {user_fullname}")
+                        else:
+                            logger.warning("Cache user_data missing or not a list")
+                            user_fullname = "Unknown"
                     else:
                         logger.warning(f"Cache file missing or invalid: {cache_file}")
                         app_signals.append_log.emit(f"[Tray] Cache file missing: {cache_file}")
+                        user_fullname = "Unknown"
                 except (json.JSONDecodeError, IOError) as e:
-                    logger.error(f"Failed to read field_fullname from cache: {e}")
+                    logger.error(f"Failed to read fullname from cache: {e}")
                     app_signals.append_log.emit(f"[Tray] Failed to read cache: {str(e)}")
-                    user_fullname = "Unknown"  # Fallback on error
-                    user_fullname = "Unknown"  # Fallback on error
+                    user_fullname = "Unknown"
 
-            # Clear icon cache to ensure fresh icons are loaded
             # Clear icon cache to ensure fresh icons are loaded
             ICON_CACHE.clear()
             logger.debug(f"update_tray_menu: self.logged_in = {self.logged_in}")
 
-            # Select platform-specific tray icon based on login status
             # Select platform-specific tray icon based on login status
             tray_icon_name = {
                 "Windows": "logged_in_icon.ico" if self.logged_in else "premedia.ico",
@@ -6227,22 +6230,17 @@ class PremediaApp(QApplication):
             icon_path = get_icon_path(tray_icon_name)
 
             # Windows-specific workaround to refresh tray icon
-            # Windows-specific workaround to refresh tray icon
             if platform.system() == "Windows":
                 dummy_icon_path = get_icon_path("premedia.png")
                 self.tray_icon.setIcon(QIcon(dummy_icon_path))  # Set temporary icon
-                self.tray_icon.setIcon(QIcon(dummy_icon_path))  # Set temporary icon
                 QApplication.processEvents()
-            # Set the actual tray icon, falling back to default if invalid
+
             # Set the actual tray icon, falling back to default if invalid
             if not Path(icon_path).exists() or QIcon(icon_path).isNull():
                 icon_path = get_icon_path("premedia.png")
             self.tray_icon.setIcon(QIcon(icon_path))
-            # Update tooltip to show login status and user name (only if valid)
-            # Update tooltip to show login status and user name (only if valid)
             self.tray_icon.setToolTip(
-                f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in and user_fullname != 'Unknown' else 'Not logged in'}"
-                # f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in and user_fullname != 'Unknown' else 'Not logged in'}"
+                f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in else 'Not logged in'}"
             )
             QApplication.processEvents()
 
@@ -6253,38 +6251,28 @@ class PremediaApp(QApplication):
                 path = get_icon_path(icon_name)
                 if not Path(path).exists() or QIcon(path).isNull():
                     path = get_icon_path("premedia.png")  # Fallback icon
-                    path = get_icon_path("premedia.png")  # Fallback icon
                 action.setIcon(QIcon(path))
                 action.setVisible(visible)
                 action.setEnabled(enabled)
 
-            # Create user info action, shown only when logged in and name is valid
-            # Create user info action, shown only when logged in and name is valid
+            # Create user info action (always shown when logged in)
             user_icon_name = {
                 "Windows": "user_icon.ico",
                 "Darwin": "user_icon.icns",
                 "Linux": "user_icon.png"
             }.get(platform.system(), "user_icon.png")
+
             user_action = QAction(f"{user_fullname}", self.tray_menu)
             user_action.setEnabled(False)  # Non-interactive user info
-            user_action.setVisible(self.logged_in and user_fullname != "Unknown")  # Show only if logged in and name is valid
-            user_action = QAction(f"{user_fullname}", self.tray_menu)
-            user_action.setEnabled(False)  # Non-interactive user info
-            user_action.setVisible(self.logged_in and user_fullname != "Unknown")  # Show only if logged in and name is valid
             font = QFont()
             font.setBold(True)
             user_action.setFont(font)
             setup_action(user_action, user_icon_name)
-            # Add user action and separator only if conditions are met
-            if self.logged_in and user_fullname != "Unknown":
-                self.tray_menu.addAction(user_action)
-                self.tray_menu.addSeparator()
-            # Add user action and separator only if conditions are met
-            if self.logged_in and user_fullname != "Unknown":
+
+            if self.logged_in:
                 self.tray_menu.addAction(user_action)
                 self.tray_menu.addSeparator()
 
-            # Set up main actions with platform-specific icons
             # Set up main actions with platform-specific icons
             setup_action(self.login_action, {
                 "Windows": "login_icon.ico",
@@ -6316,31 +6304,17 @@ class PremediaApp(QApplication):
                 "Linux": "clear_cache_icon.png"
             }.get(platform.system(), "clear_cache_icon.png"), visible=True, enabled=self.logged_in)
 
-            # setup_action(self.open_cache_action, {
-            #     "Windows": "cache_icon.ico",
-            #     "Darwin": "cache_icon.icns",
-            #     "Linux": "cache_icon.png"
-            # }.get(platform.system(), "cache_icon.png"), visible=True, enabled=self.logged_in)
-
-            # setup_action(self.log_action, {
-            #     "Windows": "log_icon.ico",
-            #     "Darwin": "log_icon.icns",
-            #     "Linux": "log_icon.png"
-            # }.get(platform.system(), "log_icon.png"), visible=True, enabled=True)
-
             setup_action(self.quit_action, {
                 "Windows": "quit_icon.ico",
                 "Darwin": "quit_icon.icns",
                 "Linux": "quit_icon.png"
             }.get(platform.system(), "quit_icon.png"), visible=True, enabled=True)
 
-            # Add actions to tray menu in the specified order
-            # self.tray_menu.addAction(self.log_action)
+            # Add actions to tray menu in order
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.downloaded_files_action)
             self.tray_menu.addAction(self.uploaded_files_action)
             self.tray_menu.addSeparator()
-            # self.tray_menu.addAction(self.open_cache_action)
             self.tray_menu.addAction(self.clear_cache_action)
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.login_action)
@@ -6349,15 +6323,12 @@ class PremediaApp(QApplication):
             self.tray_menu.addAction(self.quit_action)
 
             # Set the context menu for the tray icon
-            # Set the context menu for the tray icon
             self.tray_icon.setContextMenu(self.tray_menu)
 
             logger.debug(f"Tray menu updated: logged_in={self.logged_in}, user={user_fullname}")
             app_signals.append_log.emit(f"[Tray] Menu updated: User={user_fullname}")
 
         except Exception as e:
-            # Log and display any errors that occur during tray menu update
-            # Log and display any errors that occur during tray menu update
             logger.error(f"Error updating tray menu: {e}\n{traceback.format_exc()}")
             app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
             app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
