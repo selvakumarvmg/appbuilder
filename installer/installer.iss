@@ -114,8 +114,8 @@ begin
   begin
     // Attempt to terminate PremediaApp.exe if running
     Exec('taskkill', '/F /IM "PremediaApp.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    
-    // Optional: Remove autostart shortcut from Startup folder
+
+    // Remove autostart shortcut from Startup folder
     if DirExists(ExpandConstant('{userstartup}')) then
     begin
       DeleteFile(ExpandConstant('{userstartup}\PremediaApp (Auto Start).lnk'));
@@ -123,14 +123,17 @@ begin
   end;
 end;
 
-procedure InitializeUninstall();
+// Correct InitializeUninstall function prototype
+function InitializeUninstall(): Boolean;
 begin
+  Result := True; // default allow uninstall
+
   // Warn the user if app is running (optional)
   if FileExists(ExpandConstant('{app}\PremediaApp.exe')) then
   begin
     if MsgBox('PremediaApp is currently running. It will be closed automatically during uninstall. Continue?', mbConfirmation, MB_YESNO) = IDNO then
     begin
-      Abort;
+      Result := False; // cancel uninstall
     end;
   end;
 end;
