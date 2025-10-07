@@ -5179,11 +5179,11 @@ class FileListWindow(QDialog):
                 # SW_SHOWMINIMIZED = 2
                 # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
                 
-                windows = gw.getWindowsWithTitle(os.path.basename(folder))
-                hwnd = None
-                hwnd = windows[0]._hWnd
-                # Disable user input temporarily
-                ctypes.windll.user32.EnableWindow(hwnd, False)
+                # windows = gw.getWindowsWithTitle(os.path.basename(folder))
+                # hwnd = None
+                # hwnd = windows[0]._hWnd
+                # # Disable user input temporarily
+                # ctypes.windll.user32.EnableWindow(hwnd, False)
 
 
             elif system == "Darwin":  # macOS
@@ -5192,13 +5192,13 @@ class FileListWindow(QDialog):
                 raise NotImplementedError(f"Unsupported OS: {system }")
 
             # Give some time for folder window to open
-            time.sleep(2)
+            time.sleep(0.1)
 
             # Focus on folder window (approximation)
             # On Windows, assume folder window is focused
             # Type filename to select it
             pyautogui.typewrite(filename)
-            time.sleep(0.5)
+            time.sleep(0.1)
 
 
             # Copy shortcut
@@ -5207,9 +5207,9 @@ class FileListWindow(QDialog):
                 # Close the Explorer window
                 pyautogui.hotkey('alt', 'f4')
                 # Re-enable input and close folder
-                if hwnd:
-                    ctypes.windll.user32.EnableWindow(hwnd, True)
-                    windows[0].close()
+                # if hwnd:
+                #     ctypes.windll.user32.EnableWindow(hwnd, True)
+                #     windows[0].close()
 
             elif system == "Darwin":
                 pyautogui.hotkey('command', 'c')
@@ -5223,9 +5223,9 @@ class FileListWindow(QDialog):
         finally:
             # This always runs, whether there was an exception or not
             print("Cleanup or final steps executed.")
-            if system == "Windows" and hwnd:
-                    ctypes.windll.user32.EnableWindow(hwnd, True)
-                    windows[0].close()
+            # if system == "Windows" and hwnd:
+            #         ctypes.windll.user32.EnableWindow(hwnd, True)
+            #         windows[0].close()
 
     # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
     #     """Update the table with file transfer status."""
