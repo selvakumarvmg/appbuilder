@@ -117,6 +117,8 @@ else:
 # Ensure the directory exists
 BASE_TARGET_DIR.mkdir(parents=True, exist_ok=True)
 
+IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
+
 # Cache icon paths
 ICON_CACHE = {}
 def load_icon(path, description):
@@ -143,6 +145,7 @@ ICON_PATH = get_icon_path({
 
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 def get_cache_file_path():
     # Use BASE_TARGET_DIR as the base for cache file generation
     cache_dir = Path(BASE_TARGET_DIR) / "PremediaApp"
@@ -3763,6 +3766,8 @@ class FileWatcherWorker(QObject):
         print("===================================")
         print(item.get("file_path"))
         print("===================================")
+        global IS_APP_ACTIVE_UPLOAD_DOWNLOAD
+        IS_APP_ACTIVE_UPLOAD_DOWNLOAD = True
         if not task_id:
             raise ValueError("Task ID is missing or invalid in item dictionary")
 
@@ -3770,8 +3775,7 @@ class FileWatcherWorker(QObject):
         metadata_key = "downloaded_files_with_metadata" if action_type.lower() == "download" else "uploaded_files_with_metadata"
 
         try:
-            logger.debug(f"Starting file transfer for task {task_id}, action_type: {action_type}")
-
+            logger.debug(f"Starting file transfer for task {task_id}, action_type: {action_type}") 
             # Load cache once
             cache = load_cache()
             cache.setdefault(metadata_key, {})
@@ -3920,6 +3924,7 @@ class FileWatcherWorker(QObject):
                 
             else:
                 raise ValueError(f"Invalid action_type: {action_type}")
+            IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
         except Exception as e:
             # Update cache with failure
@@ -3931,6 +3936,7 @@ class FileWatcherWorker(QObject):
 
             save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "failed")
+            IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
             logger.error(f"{status_prefix} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {str(e)}")
             self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {Path(src_path).name}", dest_path, 0)
@@ -4537,7 +4543,7 @@ class FileListWindow(QDialog):
         # Initialize table
         self.table = QTableWidget(self)
         self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
-        headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress", "Copy"]
         # if self.file_type == "downloaded":
         #     headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
@@ -4612,6 +4618,7 @@ class FileListWindow(QDialog):
                 "Open Folder",
                 "Open in Photoshop",
                 "Status",
+                "Copy",
             ]
             self.table.setColumnCount(len(headers))
             self.table.setHorizontalHeaderLabels(headers)
@@ -4622,6 +4629,7 @@ class FileListWindow(QDialog):
             logger.debug(f"File list: {list(file_list)}")
 
             for task_id, file_path in file_list:
+                # print(f"file_path -------------------------------- {file_path}")
                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
                 if not file_path:
                     logger.warning(f"Skipping task_id {task_id} due to empty file_path")
@@ -4691,6 +4699,7 @@ class FileListWindow(QDialog):
                     "created_at": display_date or created_at_raw,
                     "folder_path": file_path,
                     "photoshop_path": file_path,
+                    "Copy_path": file_path,
                     "status": status,
                     "dt": dt
                 })
@@ -4721,7 +4730,15 @@ class FileListWindow(QDialog):
                 photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
                 self.table.setCellWidget(row, 5, photoshop_btn)
 
+
                 self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
+
+                Copy_btn = QPushButton()
+                Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
+                Copy_btn.setIconSize(QSize(24, 24))
+                Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+                self.table.setCellWidget(row, 7, Copy_btn)
+
 
             self.table.resizeColumnsToContents()
             app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
@@ -5135,6 +5152,80 @@ class FileListWindow(QDialog):
             logger.error(f"Failed to open folder {file_path}: {e}")
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
+
+    def copy_file_to_clipboard(self, file_path__: str):
+        try:
+            file_path = os.path.join(BASE_TARGET_DIR, file_path__)
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(file_path)
+            
+            system = platform.system()
+            if system == "Windows":
+                import pyautogui
+                import ctypes
+                import pygetwindow as gw
+                
+            folder, filename = os.path.split(os.path.abspath(file_path))
+            # print(f"Please open the file in Explorer/Finder and select it: {file_path}")
+            # time.sleep(3)  # time to select the file manually
+            
+            # Open folder in Explorer/Finder
+            if system == "Windows":
+                # os.startfile(folder)  #this open the folder and focus...
+                
+                #this open the folder and without focus...
+                SW_SHOWNOACTIVATE = 4
+                ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
+                # SW_SHOWMINIMIZED = 2
+                # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
+                
+                windows = gw.getWindowsWithTitle(os.path.basename(folder))
+                hwnd = None
+                hwnd = windows[0]._hWnd
+                # Disable user input temporarily
+                ctypes.windll.user32.EnableWindow(hwnd, False)
+
+
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", folder])
+            else:
+                raise NotImplementedError(f"Unsupported OS: {system }")
+
+            # Give some time for folder window to open
+            time.sleep(2)
+
+            # Focus on folder window (approximation)
+            # On Windows, assume folder window is focused
+            # Type filename to select it
+            pyautogui.typewrite(filename)
+            time.sleep(0.5)
+
+
+            # Copy shortcut
+            if system == "Windows":
+                pyautogui.hotkey('ctrl', 'c')
+                # Close the Explorer window
+                pyautogui.hotkey('alt', 'f4')
+                # Re-enable input and close folder
+                if hwnd:
+                    ctypes.windll.user32.EnableWindow(hwnd, True)
+                    windows[0].close()
+
+            elif system == "Darwin":
+                pyautogui.hotkey('command', 'c')
+                # Close Finder window
+                pyautogui.hotkey('command', 'w')
+            else:
+                raise NotImplementedError(f"Copy not supported on {system}")
+        except Exception as e:
+            # Handle any exception
+            print(f"An error occurred: {e}")
+        finally:
+            # This always runs, whether there was an exception or not
+            print("Cleanup or final steps executed.")
+            if system == "Windows" and hwnd:
+                    ctypes.windll.user32.EnableWindow(hwnd, True)
+                    windows[0].close()
 
     # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
     #     """Update the table with file transfer status."""
@@ -6298,6 +6389,12 @@ class PremediaApp(QApplication):
                 "Linux": "upload_icon.png"
             }.get(platform.system(), "upload_icon.png"), visible=True, enabled=self.logged_in)
 
+            # setup_action(self.uploaded_files_action, {
+            #     "Windows": "copy_icon.ico",
+            #     "Darwin": "copy_icon.icns",
+            #     "Linux": "copy_icon.png"
+            # }.get(platform.system(), "copy_icon.png"), visible=True, enabled=self.logged_in)
+
             setup_action(self.clear_cache_action, {
                 "Windows": "clear_cache_icon.ico",
                 "Darwin": "clear_cache_icon.icns",
@@ -6696,6 +6793,12 @@ class PremediaApp(QApplication):
     #         sys.exit(1)
 
     def cleanup_and_quit(self):
+        print(f"Skip cleanup_and_quit log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
+        if IS_APP_ACTIVE_UPLOAD_DOWNLOAD:
+            print(f"Skip log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
+            # Show success message
+            QMessageBox.information(None, "Action blocked", "An upload/download is currently in progress. Try again once it is complete.")
+            return
         try:
             logger.debug("Cleanup initiated")
             app_signals.append_log.emit("[App] Cleanup initiated")
@@ -6757,6 +6860,12 @@ class PremediaApp(QApplication):
 
 
     def logout(self):
+        print(f"Skip log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
+        if IS_APP_ACTIVE_UPLOAD_DOWNLOAD:
+            QMessageBox.information(None, "Action blocked", "An upload/download is currently in progress. Try again once it is complete.")
+            print(f"Skip log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
+            return
+
         try:
             self.logged_in = False
             cache = load_cache()
@@ -6913,6 +7022,8 @@ class PremediaApp(QApplication):
             QMessageBox.critical(None, "Cache Error", f"Unexpected error opening cache file:\n{str(e)}")
 
     def clear_cache(self):
+        global IS_APP_ACTIVE_UPLOAD_DOWNLOAD
+        IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
         global GLOBAL_CACHE
 
         msg_box = QMessageBox()
