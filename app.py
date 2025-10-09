@@ -4543,7 +4543,9 @@ class FileListWindow(QDialog):
         # Initialize table
         self.table = QTableWidget(self)
         self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
-        headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress", "Copy"]
+        headers = ["Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        if platform.system() == "Windows":
+            headers.append("Copy")
         # if self.file_type == "downloaded":
         #     headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
@@ -4618,8 +4620,10 @@ class FileListWindow(QDialog):
                 "Open Folder",
                 "Open in Photoshop",
                 "Status",
-                "Copy",
             ]
+            if platform.system() == "Windows":
+                headers.append("Copy")
+
             self.table.setColumnCount(len(headers))
             self.table.setHorizontalHeaderLabels(headers)
 
@@ -4732,12 +4736,13 @@ class FileListWindow(QDialog):
 
 
                 self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
-
-                Copy_btn = QPushButton()
-                Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
-                Copy_btn.setIconSize(QSize(24, 24))
-                Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
-                self.table.setCellWidget(row, 7, Copy_btn)
+               
+                if platform.system() == "Windows":
+                    Copy_btn = QPushButton()
+                    Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
+                    Copy_btn.setIconSize(QSize(24, 24))
+                    Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+                    self.table.setCellWidget(row, 7, Copy_btn)
 
 
             self.table.resizeColumnsToContents()
