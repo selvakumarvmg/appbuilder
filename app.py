@@ -146,6 +146,7 @@ ICON_PATH = get_icon_path({
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+REYTRY_ICON_PATH = get_icon_path("retry.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 def get_cache_file_path():
     # Use BASE_TARGET_DIR as the base for cache file generation
     cache_dir = Path(BASE_TARGET_DIR) / "PremediaApp"
@@ -3760,6 +3761,8 @@ class FileWatcherWorker(QObject):
 
 
     def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        # print(f"===={src_path}=={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
+        
         """Perform file transfer (download/upload/replace) and update cache metadata reliably."""
         task_id = str(item.get('id'))
         spec_id = str(item.get("spec_id"))
@@ -4695,6 +4698,8 @@ class FileListWindow(QDialog):
                 status = meta.get("api_response", {}).get("request_status", "Unknown")
                 if status == "Unknown" and file_path:
                     status = "Completed" if Path(file_path).exists() else "Failed"
+                    
+                meta_data_response = meta.get("api_response", {})
 
                 rows.append({
                     "project_name": project_name,
@@ -4705,7 +4710,8 @@ class FileListWindow(QDialog):
                     "photoshop_path": file_path,
                     "Copy_path": file_path,
                     "status": status,
-                    "dt": dt
+                    "dt": dt,
+                    "meta_data_response": meta_data_response,
                 })
 
             # Sort rows by date (latest first)
@@ -4733,9 +4739,16 @@ class FileListWindow(QDialog):
                 photoshop_btn.setIconSize(QSize(24, 24))
                 photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
                 self.table.setCellWidget(row, 5, photoshop_btn)
+                
+                if row_data["status"] == 'Failed':
+                    status_btn = QPushButton(row_data["status"])
+                    status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
+                    status_btn.setIconSize(QSize(24, 24))
+                    status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+                    self.table.setCellWidget(row, 6, status_btn)
 
-
-                self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
+                else:    
+                    self.table.setItem(row, 6, QTableWidgetItem(row_data["status"]))
                
                 if platform.system() == "Windows":
                     Copy_btn = QPushButton()
@@ -5232,6 +5245,34 @@ class FileListWindow(QDialog):
             #         ctypes.windll.user32.EnableWindow(hwnd, True)
             #         windows[0].close()
 
+
+    def retry_file_process(self, meta_data_response):
+        print(f"meta_data_response===={meta_data_response}")
+        action_type = meta_data_response.get("request_type", "Unknown")
+        if action_type == 'download':
+            src_path = meta_data_response.get("file_path", "")
+            dest_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+            is_nas_src = True
+            is_nas_dest = False
+            print(f"===={src_path}==={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
+        if action_type == 'upload':
+            dest_path = meta_data_response.get("file_path", "")
+            src_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+            is_nas_src = False
+            is_nas_dest = True
+        file_worker = FileWatcherWorker.get_instance()
+
+        file_worker.perform_file_transfer(
+            src_path,
+            dest_path,
+            action_type,
+            meta_data_response,
+            is_nas_src,
+            is_nas_dest
+        )
+                
+        
+        
     # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
     #     """Update the table with file transfer status."""
     #     if action_type != self.file_type or not file_path:

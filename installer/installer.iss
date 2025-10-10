@@ -76,6 +76,9 @@ Source: "..\icons\upload_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\copy_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\copy_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\copy_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\retry.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\retry.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\retry.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 
 Source: "..\icons\user_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
