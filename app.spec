@@ -53,6 +53,12 @@ icon_files = [
     ("icons/user_icon.icns", "icons"),
     ("icons/user_icon.ico", "icons"),
     ("icons/user_icon.png", "icons"),
+    ("icons/copy_icon.icns", "icons"),
+    ("icons/copy_icon.ico", "icons"),
+    ("icons/copy_icon.png", "icons"),
+    ("icons/retry.icns", "icons"),
+    ("icons/retry.ico", "icons"),
+    ("icons/retry.png", "icons"),
     ("icons/vmg-premedia-logo.png", "icons"),
 ]
 ui_files = [

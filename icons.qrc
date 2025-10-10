@@ -34,6 +34,13 @@
         <file>icons/user_icon.icns</file>
         <file>icons/user_icon.ico</file>
         <file>icons/user_icon.png</file>
+        <file>icons/copy_icon.icns</file>
+        <file>icons/copy_icon.ico</file>
+        <file>icons/copy_icon.png</file>
+        <file>icons/retry.icns</file>
+        <file>icons/retry.ico</file>
+        <file>icons/retry.png</file>
+
         <file>icons/vmg-premedia-logo.png</file>
     </qresource>
 </RCC>
