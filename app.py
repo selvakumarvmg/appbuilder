@@ -5596,35 +5596,48 @@ class FileUploadListWindow(QDialog):
 
                 # self.table.setItem(row, 0, QTableWidgetItem(row_data["thumbnail"]))
                     # ✅ Create thumbnail QLabel instead of text
+                # thumb_label = QLabel()
+                # thumb_label.setFixedSize(24, 24)  # Adjust size if needed
+                # thumb_label.setScaledContents(True)
+
+                # thumbnail_url = row_data["thumbnail"]
+
+                # pixmap = QPixmap()
+
+                # # If it's a local file path
+                # if Path(thumbnail_url).exists():
+                #     pixmap.load(thumbnail_url)
+
+                # # If it's a remote URL (http/https)
+                # elif thumbnail_url.startswith("http"):
+                #     try:
+                #         import requests
+                #         response = requests.get(thumbnail_url, timeout=5)
+                #         if response.status_code == 200:
+                #             from io import BytesIO
+                #             pixmap.loadFromData(response.content)
+                #     except Exception as ex:
+                #         logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
+
+                # # Fallback default icon
+                # if pixmap.isNull():
+                #     pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
+
+                # thumb_label.setPixmap(pixmap)
+                # self.table.setCellWidget(row, 0, thumb_label)
+
                 thumb_label = QLabel()
-                thumb_label.setFixedSize(24, 24)  # Adjust size if needed
+                thumb_label.setFixedSize(24, 24)
                 thumb_label.setScaledContents(True)
-
-                thumbnail_url = row_data["thumbnail"]
-
-                pixmap = QPixmap()
-
-                # If it's a local file path
-                if Path(thumbnail_url).exists():
-                    pixmap.load(thumbnail_url)
-
-                # If it's a remote URL (http/https)
-                elif thumbnail_url.startswith("http"):
-                    try:
-                        import requests
-                        response = requests.get(thumbnail_url, timeout=5)
-                        if response.status_code == 200:
-                            from io import BytesIO
-                            pixmap.loadFromData(response.content)
-                    except Exception as ex:
-                        logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
-
-                # Fallback default icon
-                if pixmap.isNull():
-                    pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
-
-                thumb_label.setPixmap(pixmap)
+                thumb_label.setPixmap(QPixmap("default_thumbnail.png"))  # ✅ placeholder
                 self.table.setCellWidget(row, 0, thumb_label)
+
+                loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])  # ✅ NEW: load async
+                pool = QThreadPool.globalInstance()  # ✅ NEW: get thread pool
+                pool.start(loader)  # ✅ NEW: run loader in background
+
+                # ✅ Rest same as before
+
 
                 # ✅ Rest same as before
 
