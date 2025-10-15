@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
-    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel
+    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel, QLineEdit
 )
 
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap
@@ -4538,15 +4538,23 @@ class LogWindow(QDialog):
 
 # ---------------------- NEW: Async Thumbnail Loader ----------------------
 
+class ThumbnailLoaderSignals(QObject):
+    """Signals for ThumbnailLoader to communicate with the main thread."""
+    loaded = Signal(QPixmap)  # Signal to send the loaded pixmap
+
 class ThumbnailLoader(QRunnable):
-    """Load a thumbnail in the background."""  # ✅ NEW
+    """Load a thumbnail in the background."""
     def __init__(self, label: QLabel, url: str):
         super().__init__()
         self.label = label
         self.url = url
+        self.signals = ThumbnailLoaderSignals()
+
+        # Connect the signal to update the QLabel in the main thread
+        self.signals.loaded.connect(self.label.setPixmap)
 
     @Slot()
-    def run(self):  # ✅ NEW
+    def run(self):
         pixmap = QPixmap()
         try:
             # Local file
@@ -4556,14 +4564,799 @@ class ThumbnailLoader(QRunnable):
             elif self.url.startswith("http"):
                 response = requests.get(self.url, timeout=3)
                 if response.status_code == 200:
-                    from io import BytesIO
                     pixmap.loadFromData(response.content)
         except Exception:
             pass
         if pixmap.isNull():
             pixmap.load("default_thumbnail.png")
-        self.label.setPixmap(pixmap)
+        # Emit the signal to update the GUI in the main thread
+        self.signals.loaded.emit(pixmap)
 # -------------------------------------------------------------------------
+
+
+
+# class FileDownloadListWindow(QDialog):
+#     def __init__(self, file_type, parent=None):
+#         super().__init__(parent)
+#         self.file_type = file_type.lower()
+#         self.setWindowTitle(f"{file_type.capitalize()} Files")
+#         self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
+#         self.setMinimumSize(800, 400)
+#         self.resize(800, 400)
+#         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
+#         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
+
+#         # Initialize table
+#         self.table = QTableWidget(self)
+#         # self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
+#         self.table.setColumnCount(8)
+#         headers = ["Thumbnail","Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+#         if platform.system() == "Windows":
+#             headers.append("Copy")
+#         # if self.file_type == "downloaded":
+#         #     headers.insert(3, "Source")
+#         self.table.setHorizontalHeaderLabels(headers)
+#         header = self.table.horizontalHeader()
+#         header.setSectionsMovable(True)
+#         header.setStretchLastSection(True)
+#         for i in range(self.table.columnCount()):
+#             header.setSectionResizeMode(i, QHeaderView.Interactive)
+#         self.table.setSelectionMode(QTableWidget.SingleSelection)
+#         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+#         layout = QVBoxLayout()
+#         layout.addWidget(self.table)
+#         self.setLayout(layout)
+
+#         # Load files initially
+#         self._load_files_with_logging()
+
+#         # Connect signals
+#         self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
+#         self.file_watcher = FileWatcherWorker.get_instance(parent=self)
+#         self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+#     def showEvent(self, event):
+#         """Reload files when the window is shown."""
+#         super().showEvent(event)
+#         logger.debug(f"Window shown, reloading files for {self.file_type}")
+#         self._load_files_with_logging()
+#         app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
+
+#     def closeEvent(self, event):
+#         """Disconnect signals when the window is closed."""
+#         try:
+#             app_signals.update_file_list.disconnect(self.app_signals_connection)
+#             self.file_watcher.progress_update.disconnect(self.progress_connection)
+#             logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
+#         except Exception as e:
+#             logger.debug(f"Error disconnecting signals: {e}")
+#         super().closeEvent(event)
+
+#     def _load_files_with_logging(self):
+#         """Wrapper for load_files with additional logging for debugging."""
+#         try:
+#             self.load_files()
+#         except Exception as e:
+#             logger.error(f"Error loading files in FileListWindow: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+
+#     def load_files(self):
+#         """Load files into the table based on file_type."""
+#         try:
+#             cache = load_cache()
+#             logger.debug(f"Cache contents: {cache}")
+#             metadata_key = f"{self.file_type}_files_with_metadata"
+#             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+
+#             # Use metadata directly instead of relying on separate files key
+#             metadata = cache.get(metadata_key, {})
+#             files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
+#             logger.debug(f"Files for {self.file_type}: {files}")
+
+#             # Clear table
+#             self.table.clearContents()
+#             self.table.setRowCount(0)
+
+#             # Set headers
+#             headers = [
+#                 "Thumbnail",
+#                 "Project Name",
+#                 "Job Name",
+#                 "File Name",
+#                 "Date",
+#                 "Open Folder",
+#                 "Open in Photoshop",
+#                 "Status",
+#             ]
+#             if platform.system() == "Windows":
+#                 headers.append("Copy")
+
+#             self.table.setColumnCount(len(headers))
+#             self.table.setHorizontalHeaderLabels(headers)
+
+#             # Collect rows
+#             rows = []
+#             file_list = files.items()
+#             logger.debug(f"File list: {list(file_list)}")
+
+#             for task_id, file_path in file_list:
+#                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
+#                 if not file_path:
+#                     logger.warning(f"Skipping task_id {task_id} due to empty file_path")
+#                     continue
+
+#                 filename = Path(file_path).name
+#                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
+#                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
+
+#                 # Find metadata
+#                 meta = metadata.get(str(task_id), {})
+#                 if not meta:
+#                     logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
+#                     continue
+#                 thumbnail = meta.get("api_response", {}).get("thumbnail", "Unknown") or "Unknown"
+#                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
+#                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+
+#                 # Skip rows where project_name or job_name is "Unknown"
+#                 if project_name == "Unknown" or job_name == "Unknown":
+#                     logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
+#                     continue
+
+#                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
+
+#                 # Parse date
+#                 dt = None
+#                 display_date = ""
+#                 if created_at_raw:
+#                     try:
+#                         ts = int(created_at_raw)
+#                         if 0 < ts < 4102444800:  # until 2100
+#                             dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                     except Exception:
+#                         pass
+
+#                     if not dt and isinstance(created_at_raw, str):
+#                         s = created_at_raw.strip()
+#                         try:
+#                             dt = datetime.fromisoformat(s)
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                         except Exception:
+#                             fmts = [
+#                                 "%d-%b-%Y %I:%M %p",
+#                                 "%Y-%m-%d %H:%M:%S",
+#                                 "%Y-%m-%dT%H:%M:%S%z",
+#                                 "%Y-%m-%dT%H:%M:%S",
+#                             ]
+#                             for f in fmts:
+#                                 try:
+#                                     dt = datetime.strptime(s, f)
+#                                     display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                                     break
+#                                 except Exception:
+#                                     continue
+
+#                 # Use request_status from metadata
+#                 status = meta.get("api_response", {}).get("request_status", "Unknown")
+#                 if status == "Unknown" and file_path:
+#                     status = "Completed" if Path(file_path).exists() else "Failed"
+
+#                 meta_data_response = meta.get("api_response", {})
+
+#                 rows.append({
+#                     "thumbnail": thumbnail,
+#                     "project_name": project_name,
+#                     "job_name": job_name,
+#                     "file_name": filename,
+#                     "created_at": display_date or created_at_raw,
+#                     "folder_path": file_path,
+#                     "photoshop_path": file_path,
+#                     "Copy_path": file_path,
+#                     "status": status,
+#                     "dt": dt,
+#                     "meta_data_response": meta_data_response
+#                 })
+
+#             # Sort rows by date (latest first)
+#             rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+
+#             # Insert rows into table
+#             for row_data in rows:
+#                 row = self.table.rowCount()
+#                 self.table.insertRow(row)
+#                 logger.debug(f"Inserting row {row} with data: {row_data}")
+
+#                 # self.table.setItem(row, 0, QTableWidgetItem(row_data["thumbnail"]))
+#                     # ✅ Create thumbnail QLabel instead of text
+#                 # thumb_label = QLabel()
+#                 # thumb_label.setFixedSize(24, 24)  # Adjust size if needed
+#                 # thumb_label.setScaledContents(True)
+
+#                 # thumbnail_url = row_data["thumbnail"]
+
+#                 # pixmap = QPixmap()
+
+#                 # # If it's a local file path
+#                 # if Path(thumbnail_url).exists():
+#                 #     pixmap.load(thumbnail_url)
+
+#                 # # If it's a remote URL (http/https)
+#                 # elif thumbnail_url.startswith("http"):
+#                 #     try:
+#                 #         import requests
+#                 #         response = requests.get(thumbnail_url, timeout=5)
+#                 #         if response.status_code == 200:
+#                 #             from io import BytesIO
+#                 #             pixmap.loadFromData(response.content)
+#                 #     except Exception as ex:
+#                 #         logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
+
+#                 # # Fallback default icon
+#                 # if pixmap.isNull():
+#                 #     pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
+
+#                 # thumb_label.setPixmap(pixmap)
+#                 # self.table.setCellWidget(row, 0, thumb_label)
+#                     # Thumbnail - async
+#                 thumb_label = QLabel()
+#                 thumb_label.setFixedSize(24, 24)
+#                 thumb_label.setScaledContents(True)
+#                 thumb_label.setPixmap(QPixmap("default_thumbnail.png"))  # ✅ placeholder
+#                 self.table.setCellWidget(row, 0, thumb_label)
+
+#                 loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])  # ✅ NEW: load async
+#                 pool = QThreadPool.globalInstance()  # ✅ NEW: get thread pool
+#                 pool.start(loader)  # ✅ NEW: run loader in background
+
+#                 # ✅ Rest same as before
+
+#                 self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
+#                 self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
+#                 self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
+#                 self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
+
+#                 folder_btn = QPushButton()
+#                 folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+#                 folder_btn.setIconSize(QSize(24, 24))
+#                 folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+#                 self.table.setCellWidget(row, 5, folder_btn)
+
+#                 photoshop_btn = QPushButton()
+#                 photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+#                 photoshop_btn.setIconSize(QSize(24, 24))
+#                 photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+#                 self.table.setCellWidget(row, 6, photoshop_btn)
+
+#                 # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+#                 if row_data["status"] == 'Failed':
+#                     status_btn = QPushButton(row_data["status"])
+#                     status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
+#                     status_btn.setIconSize(QSize(24, 24))
+#                     status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+#                     self.table.setCellWidget(row, 7, status_btn)
+
+#                 else:    
+#                     self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+
+#                 if platform.system() == "Windows":
+#                     Copy_btn = QPushButton()
+#                     Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
+#                     Copy_btn.setIconSize(QSize(24, 24))
+#                     Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+#                     self.table.setCellWidget(row, 8, Copy_btn)
+
+#             self.table.resizeColumnsToContents()
+#             app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
+
+#         except Exception as e:
+#             logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
+#             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
+#             raise
+
+#     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
+#         """Refresh the file list if the action_type matches file_type."""
+#         try:
+#             if action_type == self.file_type:
+#                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
+#                 self._load_files_with_logging()
+#                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
+#         except Exception as e:
+#             logger.error(f"Error refreshing file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
+
+#     def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+#         """Update the table with file transfer status."""
+#         if action_type != self.file_type or not file_path:
+#             return
+#         try:
+#             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
+#                     # status_col = 6 if self.file_type == "downloaded" else 3
+#                     # progress_col = 5 if self.file_type == "downloaded" else 4
+#                     status_col = 7
+#                     progress_col = 6
+#                     self.table.setItem(row, status_col, QTableWidgetItem(status))
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                         progress_bar.setValue(progress)
+#                         # if self.file_type == "downloaded":
+#                         self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+#                     self.table.resizeColumnsToContents()
+#                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+#                     return
+
+#             # If file not found, reload the entire table
+#             logger.debug(f"File {file_path} not found in table, reloading full list")
+#             self._load_files_with_logging()
+#             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+#         except Exception as e:
+#             logger.error(f"Error updating file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+
+#     def update_progress(self, file_path, progress):
+#         """Update progress for a file in the table."""
+#         try:
+#             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
+#                     # progress_col = 5 if self.file_type == "downloaded" else 4
+#                     progress_col = 5
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                     progress_bar.setValue(progress)
+#                     app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+#                     return
+#             logger.debug(f"File {file_path} not found for progress update, reloading table")
+#             self._load_files_with_logging()
+#         except Exception as e:
+#             logger.error(f"Error updating progress: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
+#     def open_with_photoshop(self, file_path):
+#         """Dynamically find Adobe Photoshop path and open the specified file."""
+#         try:
+#             import platform
+#             import subprocess
+#             import time
+#             import logging
+#             import os
+#             from pathlib import Path
+
+#             logger = logging.getLogger(__name__)
+#             system = platform.system()
+#             file_path = str(Path(file_path).resolve())
+
+#             # Validate file existence
+#             if not Path(file_path).exists():
+#                 raise FileNotFoundError(f"File does not exist: {file_path}")
+
+#             logger.debug(f"System: {system}, File path: {file_path}")
+#             photoshop_path = None
+
+#             if system == "Windows":
+#                 try:
+#                     import win32gui
+#                     import win32con
+#                     import win32com.client
+#                     import win32api
+#                     import win32process
+#                     import ctypes
+#                 except ImportError as e:
+#                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
+#                 # Check environment variable for Photoshop path
+#                 photoshop_path = os.getenv("PHOTOSHOP_PATH")
+#                 if photoshop_path and Path(photoshop_path).exists():
+#                     logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
+#                 else:
+#                     search_dirs = [
+#                         Path("C:/Program Files/Adobe"),
+#                         Path("C:/Program Files (x86)/Adobe")
+#                     ]
+#                     for base_dir in search_dirs:
+#                         if not base_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {base_dir}")
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             logger.debug(f"Found Photoshop at: {photoshop_path}")
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
+#                 # Verify Photoshop executable accessibility
+#                 if not os.access(photoshop_path, os.X_OK):
+#                     raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
+
+#                 # Try opening via COM first, skip if not registered
+#                 com_success = False
+#                 try:
+#                     logger.debug("Attempting to open via COM")
+#                     ps_app = win32com.client.Dispatch("Photoshop.Application")
+#                     ps_app.Visible = True
+#                     ps_app.Open(file_path)
+
+#                     def bring_to_front(title_contains="Adobe Photoshop"):
+#                         def enum_handler(hwnd, _):
+#                             if win32gui.IsWindowVisible(hwnd):
+#                                 title = win32gui.GetWindowText(hwnd)
+#                                 if title_contains.lower() in title.lower():
+#                                     try:
+#                                         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+#                                         fg_thread = win32process.GetWindowThreadProcessId(
+#                                             win32gui.GetForegroundWindow())[0]
+#                                         target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+#                                         this_thread = win32api.GetCurrentThreadId()
+#                                         if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+#                                             win32gui.SetForegroundWindow(hwnd)
+#                                             ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+#                                     except Exception as e:
+#                                         logger.debug(f"Window activation failed: {e}")
+#                         win32gui.EnumWindows(enum_handler, None)
+
+#                     time.sleep(1.5)
+#                     bring_to_front()
+#                     logger.info(f"Opened {Path(file_path).name} via COM")
+#                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                     com_success = True
+#                 except Exception as e:
+#                     logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
+
+#                 # Try subprocess if COM fails
+#                 if not com_success:
+#                     for attempt in range(3):
+#                         try:
+#                             cmd = [photoshop_path, file_path]
+#                             logger.debug(f"Executing subprocess command: {cmd}")
+#                             result = subprocess.run(cmd, check=True, stderr=subprocess.PIPE, text=True)
+#                             time.sleep(2)
+#                             def enum_windows_callback(hwnd, hwnds):
+#                                 if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                     hwnds.append(hwnd)
+#                             hwnds = []
+#                             win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                             if hwnds:
+#                                 win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                 win32gui.SetForegroundWindow(hwnds[0])
+#                             logger.info(f"Opened {Path(file_path).name} via subprocess")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Subprocess attempt {attempt+1} failed: {e}, stderr: {e.stderr}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
+#                                 # Fallback to non-blocking Popen
+#                                 try:
+#                                     process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
+#                                     time.sleep(2)
+#                                     def enum_windows_callback(hwnd, hwnds):
+#                                         if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                             hwnds.append(hwnd)
+#                                     hwnds = []
+#                                     win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                                     if hwnds:
+#                                         win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                         win32gui.SetForegroundWindow(hwnds[0])
+#                                     logger.info(f"Opened {Path(file_path).name} via Popen fallback")
+#                                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                                 except Exception as e2:
+#                                     raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
+
+#             elif system == "Darwin":
+#                 # Check environment variable for custom Photoshop path
+#                 custom_path = os.getenv("PHOTOSHOP_PATH")
+#                 if custom_path and Path(custom_path).exists():
+#                     photoshop_path = str(Path(custom_path).resolve())
+#                     logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
+
+#                 # Try Spotlight search with broader query
+#                 if not photoshop_path:
+#                     try:
+#                         result = subprocess.run(
+#                             ["mdfind", "kMDItemKind == 'Application' && (kMDItemFSName == 'Adobe Photoshop*.app' || kMDItemFSName == 'Photoshop*.app' || kMDItemFSName == 'Adobe*Photoshop*.app')"],
+#                             capture_output=True, text=True, check=True
+#                         )
+#                         if result.stdout.strip():
+#                             photoshop_path = result.stdout.strip().split("\n")[0]
+#                             logger.debug(f"Found Photoshop via mdfind: {photoshop_path}")
+#                     except subprocess.CalledProcessError as e:
+#                         logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
+
+#                 # Expanded search locations with deeper glob patterns
+#                 if not photoshop_path:
+#                     search_locations = [
+#                         Path("/Applications"),
+#                         Path("~/Applications").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud"),
+#                         Path("~/Applications/Adobe Creative Cloud").expanduser(),
+#                         Path("/Applications/Adobe"),
+#                         Path("~/Applications/Adobe").expanduser(),
+#                         Path("/Applications/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Photoshop*").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop*").expanduser(),
+#                     ]
+#                     for search_dir in search_locations:
+#                         if not search_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {search_dir}")
+#                             continue
+#                         logger.debug(f"Searching for Photoshop in: {search_dir}")
+#                         # Search for .app files in the directory and its immediate subdirectories
+#                         photoshop_apps = (
+#                             list(search_dir.glob("Adobe*Photoshop*.app")) +
+#                             list(search_dir.glob("Photoshop*.app")) +
+#                             list(search_dir.glob("*/Adobe*Photoshop*.app"))
+#                         )
+#                         if photoshop_apps:
+#                             logger.debug(f"Found potential Photoshop apps: {[str(app) for app in photoshop_apps]}")
+#                             photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+#                             photoshop_path = str(photoshop_apps[0])
+#                             logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
+#                             break
+
+#                 # Check versioned paths, including exact match for 2025
+#                 if not photoshop_path:
+#                     versioned_paths = [
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),  # Exact match
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                     ]
+#                     for path in versioned_paths:
+#                         if path.exists():
+#                             photoshop_path = str(path)
+#                             logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
+#                             break
+
+#                 # Fallback to user selection via file dialog (if GUI is available)
+#                 if not photoshop_path and hasattr(self, 'window'):
+#                     from PySide6.QtWidgets import QFileDialog
+#                     logger.debug("Prompting user to select Photoshop application")
+#                     photoshop_path, _ = QFileDialog.getOpenFileName(
+#                         self.window(), "Locate Adobe Photoshop", "/Applications", "Applications (*.app)"
+#                     )
+#                     if photoshop_path:
+#                         logger.debug(f"User-selected Photoshop path: {photoshop_path}")
+#                     else:
+#                         logger.debug("User cancelled Photoshop path selection")
+
+#                 if not photoshop_path:
+#                     error_msg = (
+#                         "Adobe Photoshop application not found in /Applications, ~/Applications, "
+#                         "Adobe Creative Cloud, or Adobe directories. Please set PHOTOSHOP_PATH environment variable."
+#                     )
+#                     logger.error(error_msg)
+#                     raise FileNotFoundError(error_msg)
+
+#                 # Open file and bring Photoshop to front
+#                 for attempt in range(3):
+#                     try:
+#                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+#                         applescript = f'tell application "{Path(photoshop_path).name}" to activate'
+#                         subprocess.run(["osascript", "-e", applescript], check=True)
+#                         logger.info(f"Opened {Path(file_path).name} via open -a at {photoshop_path}")
+#                         print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                         break
+#                     except subprocess.CalledProcessError as e:
+#                         if attempt < 2:
+#                             logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                             time.sleep(2)
+#                         else:
+#                             raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+
+#             elif system == "Linux":
+#                 try:
+#                     subprocess.run(["wine", "--version"], capture_output=True, check=True)
+#                     wine_dirs = [
+#                         Path.home() / ".wine/drive_c/Program Files/Adobe",
+#                         Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+#                     ]
+#                     for base_dir in wine_dirs:
+#                         if not base_dir.exists():
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+
+#                     for attempt in range(3):
+#                         try:
+#                             subprocess.run(["wine", photoshop_path, file_path], check=True)
+#                             try:
+#                                 subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
+#                             except Exception as e:
+#                                 logger.debug(f"Could not raise Photoshop window: {e}")
+#                             logger.info(f"Opened {Path(file_path).name} via wine")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+#                 except subprocess.CalledProcessError:
+#                     raise FileNotFoundError("Wine is not installed or not functioning")
+
+#             else:
+#                 error_message = f"Unsupported platform for Photoshop: {system}"
+#                 logger.warning(error_message)
+#                 print(f"[Photoshop] {error_message}")
+#                 raise ValueError(error_message)
+
+#         except Exception as e:
+#             error_message = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+#             logger.error(error_message)
+#             print(f"[Photoshop] {error_message}")
+#             raise
+
+#     def open_folder(self, file_path):
+#         """Open the folder containing the file."""
+#         try:
+#             folder_path = str(Path(file_path).parent)
+#             system = platform.system()
+#             if system == "Windows":
+#                 subprocess.run(["explorer", folder_path], check=True)
+#             elif system == "Darwin":
+#                 subprocess.run(["open", folder_path], check=True)
+#             elif system == "Linux":
+#                 subprocess.run(["xdg-open", folder_path], check=True)
+#             else:
+#                 logger.warning(f"Unsupported platform for opening folder: {system}")
+#                 app_signals.append_log.emit(f"[Folder] Unsupported platform for opening folder: {system}")
+#                 app_signals.update_status.emit(f"Unsupported platform for opening folder: {system}")
+#                 return
+#             app_signals.update_status.emit(f"Opened folder for {Path(file_path).name}")
+#             app_signals.append_log.emit(f"[Folder] Opened folder for {Path(file_path).name}")
+#         except Exception as e:
+#             logger.error(f"Failed to open folder {file_path}: {e}")
+#             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
+#             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
+
+#     def copy_file_to_clipboard(self, file_path__: str):
+#         try:
+#             file_path = os.path.join(BASE_TARGET_DIR, file_path__)
+#             if not os.path.exists(file_path):
+#                 raise FileNotFoundError(file_path)
+            
+#             system = platform.system()
+#             if system == "Windows":
+#                 import pyautogui
+#                 import ctypes
+#                 import pygetwindow as gw
+                
+#             folder, filename = os.path.split(os.path.abspath(file_path))
+#             # print(f"Please open the file in Explorer/Finder and select it: {file_path}")
+#             # time.sleep(3)  # time to select the file manually
+            
+#             # Open folder in Explorer/Finder
+#             if system == "Windows":
+#                 # os.startfile(folder)  #this open the folder and focus...
+                
+#                 #this open the folder and without focus...
+#                 SW_SHOWNOACTIVATE = 4
+#                 ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
+#                 # SW_SHOWMINIMIZED = 2
+#                 # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
+                
+#                 # windows = gw.getWindowsWithTitle(os.path.basename(folder))
+#                 # hwnd = None
+#                 # hwnd = windows[0]._hWnd
+#                 # # Disable user input temporarily
+#                 # ctypes.windll.user32.EnableWindow(hwnd, False)
+
+
+#             elif system == "Darwin":  # macOS
+#                 subprocess.run(["open", folder])
+#             else:
+#                 raise NotImplementedError(f"Unsupported OS: {system }")
+
+#             # Give some time for folder window to open
+#             time.sleep(0.1)
+
+#             # Focus on folder window (approximation)
+#             # On Windows, assume folder window is focused
+#             # Type filename to select it
+#             pyautogui.typewrite(filename)
+#             time.sleep(0.1)
+
+
+#             # Copy shortcut
+#             if system == "Windows":
+#                 pyautogui.hotkey('ctrl', 'c')
+#                 # Close the Explorer window
+#                 pyautogui.hotkey('alt', 'f4')
+#                 # Re-enable input and close folder
+#                 # if hwnd:
+#                 #     ctypes.windll.user32.EnableWindow(hwnd, True)
+#                 #     windows[0].close()
+
+#             elif system == "Darwin":
+#                 pyautogui.hotkey('command', 'c')
+#                 # Close Finder window
+#                 pyautogui.hotkey('command', 'w')
+#             else:
+#                 raise NotImplementedError(f"Copy not supported on {system}")
+#         except Exception as e:
+#             # Handle any exception
+#             print(f"An error occurred: {e}")
+#         finally:
+#             # This always runs, whether there was an exception or not
+#             print("Cleanup or final steps executed.")
+#             # if system == "Windows" and hwnd:
+#             #         ctypes.windll.user32.EnableWindow(hwnd, True)
+#             #         windows[0].close()
+
+#     def retry_file_process(self, meta_data_response):
+#         print(f"meta_data_response===={meta_data_response}")
+#         action_type = meta_data_response.get("request_type", "Unknown")
+#         if action_type == 'download':
+#             src_path = meta_data_response.get("file_path", "")
+#             dest_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+#             is_nas_src = True
+#             is_nas_dest = False
+#             print(f"===={src_path}==={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
+#         if action_type == 'upload':
+#             dest_path = meta_data_response.get("file_path", "")
+#             src_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+#             is_nas_src = False
+#             is_nas_dest = True
+#         file_worker = FileWatcherWorker.get_instance()
+
+#         file_worker.perform_file_transfer(
+#             src_path,
+#             dest_path,
+#             action_type,
+#             meta_data_response,
+#             is_nas_src,
+#             is_nas_dest
+#         )
 
 
 
@@ -4578,15 +5371,85 @@ class FileDownloadListWindow(QDialog):
         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
 
+        # Initialize search bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText("Search by Project Name, Job Name, or File Name")
+        self.search_bar.setStyleSheet("""
+            QLineEdit {
+                background-color: #ffffff;
+                border: 1.5px solid #ccc;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 14px;
+                color: #333;
+                selection-background-color: #0078d7;
+            }
+
+            QLineEdit:hover {
+                border: 1.5px solid #999;
+                background-color: #f9f9f9;
+            }
+
+            QLineEdit:focus {
+                border: 1.5px solid #0078d7;
+                background-color: #ffffff;
+            }
+
+            QLineEdit::placeholder {
+                color: #888;
+                font-style: italic;
+            }
+        """)
+
+        # Initialize search button
+        self.search_button = QPushButton("Search", self)
+        self.search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 20px;
+                font-weight: 500;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #005fa3;
+            }
+            QPushButton:pressed {
+                background-color: #004b82;
+            }
+        """)
+        self.search_button.clicked.connect(lambda: self.filter_table(self.search_bar.text()))
+
+        # Initialize clear button
+        self.clear_button = QPushButton("Clear", self)
+        # --- QPushButton (Clear) Style ---
+        self.clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #333;
+                border: 1.2px solid #ccc;
+                border-radius: 8px;
+                padding: 6px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #eaeaea;
+                border-color: #999;
+            }
+            QPushButton:pressed {
+                background-color: #dcdcdc;
+            }
+        """)
+        self.clear_button.clicked.connect(self.clear_search)
+
         # Initialize table
         self.table = QTableWidget(self)
-        # self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
         self.table.setColumnCount(8)
-        headers = ["Thumbnail","Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        headers = ["Thumbnail", "Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status"]
         if platform.system() == "Windows":
             headers.append("Copy")
-        # if self.file_type == "downloaded":
-        #     headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
         header = self.table.horizontalHeader()
         header.setSectionsMovable(True)
@@ -4596,9 +5459,19 @@ class FileDownloadListWindow(QDialog):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
+        # Layout
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.search_bar)
+        search_layout.addWidget(self.search_button)
+        search_layout.addWidget(self.clear_button)
+
         layout = QVBoxLayout()
+        layout.addLayout(search_layout)
         layout.addWidget(self.table)
         self.setLayout(layout)
+
+        # Store original rows for filtering
+        self.original_rows = []
 
         # Load files initially
         self._load_files_with_logging()
@@ -4607,6 +5480,12 @@ class FileDownloadListWindow(QDialog):
         self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
         self.file_watcher = FileWatcherWorker.get_instance(parent=self)
         self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+    def keyPressEvent(self, event):
+        """Handle Enter key press in the search bar."""
+        super().keyPressEvent(event)
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.search_bar.hasFocus():
+            self.filter_table(self.search_bar.text())
 
     def showEvent(self, event):
         """Reload files when the window is shown."""
@@ -4641,7 +5520,6 @@ class FileDownloadListWindow(QDialog):
             metadata_key = f"{self.file_type}_files_with_metadata"
             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
 
-            # Use metadata directly instead of relying on separate files key
             metadata = cache.get(metadata_key, {})
             files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
             logger.debug(f"Files for {self.file_type}: {files}")
@@ -4668,7 +5546,7 @@ class FileDownloadListWindow(QDialog):
             self.table.setHorizontalHeaderLabels(headers)
 
             # Collect rows
-            rows = []
+            self.original_rows = []
             file_list = files.items()
             logger.debug(f"File list: {list(file_list)}")
 
@@ -4682,7 +5560,6 @@ class FileDownloadListWindow(QDialog):
                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
 
-                # Find metadata
                 meta = metadata.get(str(task_id), {})
                 if not meta:
                     logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
@@ -4691,20 +5568,18 @@ class FileDownloadListWindow(QDialog):
                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
 
-                # Skip rows where project_name or job_name is "Unknown"
                 if project_name == "Unknown" or job_name == "Unknown":
                     logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
                     continue
 
                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
 
-                # Parse date
                 dt = None
                 display_date = ""
                 if created_at_raw:
                     try:
                         ts = int(created_at_raw)
-                        if 0 < ts < 4102444800:  # until 2100
+                        if 0 < ts < 4102444800:
                             dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
                     except Exception:
@@ -4730,14 +5605,13 @@ class FileDownloadListWindow(QDialog):
                                 except Exception:
                                     continue
 
-                # Use request_status from metadata
                 status = meta.get("api_response", {}).get("request_status", "Unknown")
                 if status == "Unknown" and file_path:
                     status = "Completed" if Path(file_path).exists() else "Failed"
 
                 meta_data_response = meta.get("api_response", {})
 
-                rows.append({
+                self.original_rows.append({
                     "thumbnail": thumbnail,
                     "project_name": project_name,
                     "job_name": job_name,
@@ -4752,100 +5626,105 @@ class FileDownloadListWindow(QDialog):
                 })
 
             # Sort rows by date (latest first)
-            rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+            self.original_rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
 
-            # Insert rows into table
-            for row_data in rows:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                logger.debug(f"Inserting row {row} with data: {row_data}")
+            # Populate table with all rows initially
+            self._populate_table(self.original_rows)
 
-                # self.table.setItem(row, 0, QTableWidgetItem(row_data["thumbnail"]))
-                    # ✅ Create thumbnail QLabel instead of text
-                # thumb_label = QLabel()
-                # thumb_label.setFixedSize(24, 24)  # Adjust size if needed
-                # thumb_label.setScaledContents(True)
-
-                # thumbnail_url = row_data["thumbnail"]
-
-                # pixmap = QPixmap()
-
-                # # If it's a local file path
-                # if Path(thumbnail_url).exists():
-                #     pixmap.load(thumbnail_url)
-
-                # # If it's a remote URL (http/https)
-                # elif thumbnail_url.startswith("http"):
-                #     try:
-                #         import requests
-                #         response = requests.get(thumbnail_url, timeout=5)
-                #         if response.status_code == 200:
-                #             from io import BytesIO
-                #             pixmap.loadFromData(response.content)
-                #     except Exception as ex:
-                #         logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
-
-                # # Fallback default icon
-                # if pixmap.isNull():
-                #     pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
-
-                # thumb_label.setPixmap(pixmap)
-                # self.table.setCellWidget(row, 0, thumb_label)
-                    # Thumbnail - async
-                thumb_label = QLabel()
-                thumb_label.setFixedSize(24, 24)
-                thumb_label.setScaledContents(True)
-                thumb_label.setPixmap(QPixmap("default_thumbnail.png"))  # ✅ placeholder
-                self.table.setCellWidget(row, 0, thumb_label)
-
-                loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])  # ✅ NEW: load async
-                pool = QThreadPool.globalInstance()  # ✅ NEW: get thread pool
-                pool.start(loader)  # ✅ NEW: run loader in background
-
-                # ✅ Rest same as before
-
-                self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
-                self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
-                self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
-                self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
-
-                folder_btn = QPushButton()
-                folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-                folder_btn.setIconSize(QSize(24, 24))
-                folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
-                self.table.setCellWidget(row, 5, folder_btn)
-
-                photoshop_btn = QPushButton()
-                photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-                photoshop_btn.setIconSize(QSize(24, 24))
-                photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
-                self.table.setCellWidget(row, 6, photoshop_btn)
-
-                # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
-                if row_data["status"] == 'Failed':
-                    status_btn = QPushButton(row_data["status"])
-                    status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
-                    status_btn.setIconSize(QSize(24, 24))
-                    status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
-                    self.table.setCellWidget(row, 7, status_btn)
-
-                else:    
-                    self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
-
-                if platform.system() == "Windows":
-                    Copy_btn = QPushButton()
-                    Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
-                    Copy_btn.setIconSize(QSize(24, 24))
-                    Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
-                    self.table.setCellWidget(row, 8, Copy_btn)
-
-            self.table.resizeColumnsToContents()
-            app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
+            app_signals.append_log.emit(f"[Files] Loaded {len(self.original_rows)} {self.file_type} files")
 
         except Exception as e:
             logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
+
+    def _populate_table(self, rows):
+        """Populate the table with the given rows."""
+        self.table.clearContents()
+        self.table.setRowCount(0)
+
+        for row_data in rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            logger.debug(f"Inserting row {row} with data: {row_data}")
+
+            thumb_label = QLabel()
+            thumb_label.setFixedSize(24, 24)
+            thumb_label.setScaledContents(True)
+            thumb_label.setPixmap(QPixmap("default_thumbnail.png"))
+            self.table.setCellWidget(row, 0, thumb_label)
+
+            loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])
+            pool = QThreadPool.globalInstance()
+            pool.start(loader)
+
+            self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
+            self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
+            self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
+            self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
+
+            folder_btn = QPushButton()
+            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+            folder_btn.setIconSize(QSize(24, 24))
+            folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+            self.table.setCellWidget(row, 5, folder_btn)
+
+            photoshop_btn = QPushButton()
+            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+            photoshop_btn.setIconSize(QSize(24, 24))
+            photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+            self.table.setCellWidget(row, 6, photoshop_btn)
+
+            if row_data["status"] == 'Failed':
+                status_btn = QPushButton(row_data["status"])
+                status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
+                status_btn.setIconSize(QSize(24, 24))
+                status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+                self.table.setCellWidget(row, 7, status_btn)
+            else:
+                self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+
+            if platform.system() == "Windows":
+                copy_btn = QPushButton()
+                copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
+                copy_btn.setIconSize(QSize(24, 24))
+                copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+                self.table.setCellWidget(row, 8, copy_btn)
+
+        self.table.resizeColumnsToContents()
+
+    def filter_table(self, search_text):
+        """Filter table rows based on search text."""
+        search_text = search_text.lower().strip()
+        filtered_rows = []
+
+        for row_data in self.original_rows:
+            if (search_text in row_data["project_name"].lower() or
+                search_text in row_data["job_name"].lower() or
+                search_text in row_data["file_name"].lower()):
+                filtered_rows.append(row_data)
+
+        if not filtered_rows:
+            # Clear table and show "Content not available" message
+            self.table.clearContents()
+            self.table.setRowCount(1)
+            label = QLabel("Content not available")
+            label.setAlignment(Qt.AlignCenter)
+            self.table.setCellWidget(0, 0, label)
+            self.table.setSpan(0, 0, 1, self.table.columnCount())
+            logger.debug("No matching rows found, displaying 'Content not available'")
+            app_signals.append_log.emit(f"[Files] No {self.file_type} files match the search: {search_text}")
+        else:
+            self._populate_table(filtered_rows)
+            logger.debug(f"Filtered table to {len(filtered_rows)} rows with search: {search_text}")
+            app_signals.append_log.emit(f"[Files] Filtered {self.file_type} files to {len(filtered_rows)} rows")
+
+    def clear_search(self):
+        """Clear the search bar and repopulate the table with all rows."""
+        self.search_bar.clear()
+        self._populate_table(self.original_rows)
+        logger.debug(f"Cleared search and restored {len(self.original_rows)} rows")
+        app_signals.append_log.emit(f"[Files] Cleared search and restored {len(self.original_rows)} {self.file_type} files")
 
     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
         """Refresh the file list if the action_type matches file_type."""
@@ -4853,6 +5732,8 @@ class FileDownloadListWindow(QDialog):
             if action_type == self.file_type:
                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
                 self._load_files_with_logging()
+                # Reapply filter after refresh
+                self.filter_table(self.search_bar.text())
                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
         except Exception as e:
             logger.error(f"Error refreshing file list: {e}")
@@ -4865,11 +5746,9 @@ class FileDownloadListWindow(QDialog):
         try:
             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    # status_col = 6 if self.file_type == "downloaded" else 3
-                    # progress_col = 5 if self.file_type == "downloaded" else 4
+                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
                     status_col = 7
-                    progress_col = 6
+                    progress_col = 4
                     self.table.setItem(row, status_col, QTableWidgetItem(status))
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
@@ -4878,9 +5757,7 @@ class FileDownloadListWindow(QDialog):
                         progress_bar.setMaximum(100)
                         progress_bar.setFixedHeight(20)
                         self.table.setCellWidget(row, progress_col, progress_bar)
-                        progress_bar.setValue(progress)
-                        # if self.file_type == "downloaded":
-                        self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+                    progress_bar.setValue(progress)
                     self.table.resizeColumnsToContents()
                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
                     return
@@ -4888,6 +5765,7 @@ class FileDownloadListWindow(QDialog):
             # If file not found, reload the entire table
             logger.debug(f"File {file_path} not found in table, reloading full list")
             self._load_files_with_logging()
+            self.filter_table(self.search_bar.text())
             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
         except Exception as e:
             logger.error(f"Error updating file list: {e}")
@@ -4898,9 +5776,8 @@ class FileDownloadListWindow(QDialog):
         try:
             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    # progress_col = 5 if self.file_type == "downloaded" else 4
-                    progress_col = 5
+                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
+                    progress_col = 4
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
                         progress_bar = QProgressBar(self)
@@ -4913,6 +5790,7 @@ class FileDownloadListWindow(QDialog):
                     return
             logger.debug(f"File {file_path} not found for progress update, reloading table")
             self._load_files_with_logging()
+            self.filter_table(self.search_bar.text())
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
@@ -4931,7 +5809,6 @@ class FileDownloadListWindow(QDialog):
             system = platform.system()
             file_path = str(Path(file_path).resolve())
 
-            # Validate file existence
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
@@ -4949,7 +5826,6 @@ class FileDownloadListWindow(QDialog):
                 except ImportError as e:
                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
 
-                # Check environment variable for Photoshop path
                 photoshop_path = os.getenv("PHOTOSHOP_PATH")
                 if photoshop_path and Path(photoshop_path).exists():
                     logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
@@ -4971,11 +5847,9 @@ class FileDownloadListWindow(QDialog):
                     if not photoshop_path:
                         raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
-                # Verify Photoshop executable accessibility
                 if not os.access(photoshop_path, os.X_OK):
                     raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
 
-                # Try opening via COM first, skip if not registered
                 com_success = False
                 try:
                     logger.debug("Attempting to open via COM")
@@ -5009,7 +5883,6 @@ class FileDownloadListWindow(QDialog):
                 except Exception as e:
                     logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
 
-                # Try subprocess if COM fails
                 if not com_success:
                     for attempt in range(3):
                         try:
@@ -5034,7 +5907,6 @@ class FileDownloadListWindow(QDialog):
                                 time.sleep(2)
                             else:
                                 logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
-                                # Fallback to non-blocking Popen
                                 try:
                                     process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
                                     time.sleep(2)
@@ -5052,13 +5924,11 @@ class FileDownloadListWindow(QDialog):
                                     raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
 
             elif system == "Darwin":
-                # Check environment variable for custom Photoshop path
                 custom_path = os.getenv("PHOTOSHOP_PATH")
                 if custom_path and Path(custom_path).exists():
                     photoshop_path = str(Path(custom_path).resolve())
                     logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
 
-                # Try Spotlight search with broader query
                 if not photoshop_path:
                     try:
                         result = subprocess.run(
@@ -5071,7 +5941,6 @@ class FileDownloadListWindow(QDialog):
                     except subprocess.CalledProcessError as e:
                         logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
 
-                # Expanded search locations with deeper glob patterns
                 if not photoshop_path:
                     search_locations = [
                         Path("/Applications"),
@@ -5090,7 +5959,6 @@ class FileDownloadListWindow(QDialog):
                             logger.debug(f"Search directory does not exist: {search_dir}")
                             continue
                         logger.debug(f"Searching for Photoshop in: {search_dir}")
-                        # Search for .app files in the directory and its immediate subdirectories
                         photoshop_apps = (
                             list(search_dir.glob("Adobe*Photoshop*.app")) +
                             list(search_dir.glob("Photoshop*.app")) +
@@ -5103,10 +5971,9 @@ class FileDownloadListWindow(QDialog):
                             logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
                             break
 
-                # Check versioned paths, including exact match for 2025
                 if not photoshop_path:
                     versioned_paths = [
-                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),  # Exact match
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
@@ -5143,7 +6010,6 @@ class FileDownloadListWindow(QDialog):
                             logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
                             break
 
-                # Fallback to user selection via file dialog (if GUI is available)
                 if not photoshop_path and hasattr(self, 'window'):
                     from PySide6.QtWidgets import QFileDialog
                     logger.debug("Prompting user to select Photoshop application")
@@ -5163,7 +6029,6 @@ class FileDownloadListWindow(QDialog):
                     logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
 
-                # Open file and bring Photoshop to front
                 for attempt in range(3):
                     try:
                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
@@ -5251,81 +6116,47 @@ class FileDownloadListWindow(QDialog):
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
-    def copy_file_to_clipboard(self, file_path__: str):
+    def copy_file_to_clipboard(self, file_path):
+        """Copy the file path to the clipboard."""
         try:
-            file_path = os.path.join(BASE_TARGET_DIR, file_path__)
+            file_path = os.path.join(BASE_TARGET_DIR, file_path)
             if not os.path.exists(file_path):
                 raise FileNotFoundError(file_path)
-            
+
             system = platform.system()
             if system == "Windows":
                 import pyautogui
                 import ctypes
                 import pygetwindow as gw
-                
+
             folder, filename = os.path.split(os.path.abspath(file_path))
-            # print(f"Please open the file in Explorer/Finder and select it: {file_path}")
-            # time.sleep(3)  # time to select the file manually
-            
-            # Open folder in Explorer/Finder
             if system == "Windows":
-                # os.startfile(folder)  #this open the folder and focus...
-                
-                #this open the folder and without focus...
                 SW_SHOWNOACTIVATE = 4
                 ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
-                # SW_SHOWMINIMIZED = 2
-                # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
-                
-                # windows = gw.getWindowsWithTitle(os.path.basename(folder))
-                # hwnd = None
-                # hwnd = windows[0]._hWnd
-                # # Disable user input temporarily
-                # ctypes.windll.user32.EnableWindow(hwnd, False)
-
-
-            elif system == "Darwin":  # macOS
+            elif system == "Darwin":
                 subprocess.run(["open", folder])
             else:
-                raise NotImplementedError(f"Unsupported OS: {system }")
+                raise NotImplementedError(f"Unsupported OS: {system}")
 
-            # Give some time for folder window to open
             time.sleep(0.1)
-
-            # Focus on folder window (approximation)
-            # On Windows, assume folder window is focused
-            # Type filename to select it
             pyautogui.typewrite(filename)
             time.sleep(0.1)
 
-
-            # Copy shortcut
             if system == "Windows":
                 pyautogui.hotkey('ctrl', 'c')
-                # Close the Explorer window
                 pyautogui.hotkey('alt', 'f4')
-                # Re-enable input and close folder
-                # if hwnd:
-                #     ctypes.windll.user32.EnableWindow(hwnd, True)
-                #     windows[0].close()
-
             elif system == "Darwin":
                 pyautogui.hotkey('command', 'c')
-                # Close Finder window
                 pyautogui.hotkey('command', 'w')
             else:
                 raise NotImplementedError(f"Copy not supported on {system}")
         except Exception as e:
-            # Handle any exception
             print(f"An error occurred: {e}")
         finally:
-            # This always runs, whether there was an exception or not
             print("Cleanup or final steps executed.")
-            # if system == "Windows" and hwnd:
-            #         ctypes.windll.user32.EnableWindow(hwnd, True)
-            #         windows[0].close()
 
     def retry_file_process(self, meta_data_response):
+        """Retry a failed file process."""
         print(f"meta_data_response===={meta_data_response}")
         action_type = meta_data_response.get("request_type", "Unknown")
         if action_type == 'download':
@@ -5349,7 +6180,8 @@ class FileDownloadListWindow(QDialog):
             is_nas_src,
             is_nas_dest
         )
-
+        
+        
     # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
     #     """Update the table with file transfer status."""
     #     if action_type != self.file_type or not file_path:
@@ -5402,6 +6234,794 @@ class FileDownloadListWindow(QDialog):
     #         app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
 
 
+# class FileUploadListWindow(QDialog):
+#     def __init__(self, file_type, parent=None):
+#         super().__init__(parent)
+#         self.file_type = file_type.lower()
+#         self.setWindowTitle(f"{file_type.capitalize()} Files")
+#         self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
+#         self.setMinimumSize(800, 400)
+#         self.resize(800, 400)
+#         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
+#         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
+
+#         # Initialize table
+#         self.table = QTableWidget(self)
+#         # self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
+#         self.table.setColumnCount(8)        
+#         headers = ["Thumbnail","Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+#         if platform.system() == "Windows":
+#             headers.append("Copy")
+#         # if self.file_type == "downloaded":
+#         #     headers.insert(3, "Source")
+#         self.table.setHorizontalHeaderLabels(headers)
+#         header = self.table.horizontalHeader()
+#         header.setSectionsMovable(True)
+#         header.setStretchLastSection(True)
+#         for i in range(self.table.columnCount()):
+#             header.setSectionResizeMode(i, QHeaderView.Interactive)
+#         self.table.setSelectionMode(QTableWidget.SingleSelection)
+#         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+#         layout = QVBoxLayout()
+#         layout.addWidget(self.table)
+#         self.setLayout(layout)
+
+#         # Load files initially
+#         self._load_files_with_logging()
+
+#         # Connect signals
+#         self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
+#         self.file_watcher = FileWatcherWorker.get_instance(parent=self)
+#         self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+#     def showEvent(self, event):
+#         """Reload files when the window is shown."""
+#         super().showEvent(event)
+#         logger.debug(f"Window shown, reloading files for {self.file_type}")
+#         self._load_files_with_logging()
+#         app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
+
+#     def closeEvent(self, event):
+#         """Disconnect signals when the window is closed."""
+#         try:
+#             app_signals.update_file_list.disconnect(self.app_signals_connection)
+#             self.file_watcher.progress_update.disconnect(self.progress_connection)
+#             logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
+#         except Exception as e:
+#             logger.debug(f"Error disconnecting signals: {e}")
+#         super().closeEvent(event)
+
+#     def _load_files_with_logging(self):
+#         """Wrapper for load_files with additional logging for debugging."""
+#         try:
+#             self.load_files()
+#         except Exception as e:
+#             logger.error(f"Error loading files in FileListWindow: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+
+#     def load_files(self):
+#         """Load files into the table based on file_type."""
+#         try:
+#             cache = load_cache()
+#             logger.debug(f"Cache contents: {cache}")
+#             metadata_key = f"{self.file_type}_files_with_metadata"
+#             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+
+#             # Use metadata directly instead of relying on separate files key
+#             metadata = cache.get(metadata_key, {})
+#             files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
+#             logger.debug(f"Files for {self.file_type}: {files}")
+
+#             # Clear table
+#             self.table.clearContents()
+#             self.table.setRowCount(0)
+
+#             # Set headers
+#             headers = [
+#                 "Thumbnail",
+#                 "Project Name",
+#                 "Job Name",
+#                 "File Name",
+#                 "Date",
+#                 "Open Folder",
+#                 "Open in Photoshop",
+#                 "Status",
+#             ]
+#             if platform.system() == "Windows":
+#                 headers.append("Copy")
+
+#             self.table.setColumnCount(len(headers))
+#             self.table.setHorizontalHeaderLabels(headers)
+
+#             # Collect rows
+#             rows = []
+#             file_list = files.items()
+#             logger.debug(f"File list: {list(file_list)}")
+
+#             for task_id, file_path in file_list:
+#                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
+#                 if not file_path:
+#                     logger.warning(f"Skipping task_id {task_id} due to empty file_path")
+#                     continue
+
+#                 filename = Path(file_path).name
+#                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
+#                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
+
+#                 # Find metadata
+#                 meta = metadata.get(str(task_id), {})
+#                 if not meta:
+#                     logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
+#                     continue
+#                 thumbnail = meta.get("api_response", {}).get("thumbnail", "Unknown") or "Unknown"
+#                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
+#                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+
+#                 # Skip rows where project_name or job_name is "Unknown"
+#                 if project_name == "Unknown" or job_name == "Unknown":
+#                     logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
+#                     continue
+
+#                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
+
+#                 # Parse date
+#                 dt = None
+#                 display_date = ""
+#                 if created_at_raw:
+#                     try:
+#                         ts = int(created_at_raw)
+#                         if 0 < ts < 4102444800:  # until 2100
+#                             dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                     except Exception:
+#                         pass
+
+#                     if not dt and isinstance(created_at_raw, str):
+#                         s = created_at_raw.strip()
+#                         try:
+#                             dt = datetime.fromisoformat(s)
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                         except Exception:
+#                             fmts = [
+#                                 "%d-%b-%Y %I:%M %p",
+#                                 "%Y-%m-%d %H:%M:%S",
+#                                 "%Y-%m-%dT%H:%M:%S%z",
+#                                 "%Y-%m-%dT%H:%M:%S",
+#                             ]
+#                             for f in fmts:
+#                                 try:
+#                                     dt = datetime.strptime(s, f)
+#                                     display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                                     break
+#                                 except Exception:
+#                                     continue
+
+#                 # Use request_status from metadata
+#                 status = meta.get("api_response", {}).get("request_status", "Unknown")
+#                 if status == "Unknown" and file_path:
+#                     status = "Completed" if Path(file_path).exists() else "Failed"
+
+#                 meta_data_response = meta.get("api_response", {})
+
+#                 rows.append({
+#                     "thumbnail": thumbnail,
+#                     "project_name": project_name,
+#                     "job_name": job_name,
+#                     "file_name": filename,
+#                     "created_at": display_date or created_at_raw,
+#                     "folder_path": file_path,
+#                     "photoshop_path": file_path,
+#                     "Copy_path": file_path,
+#                     "status": status,
+#                     "dt": dt,
+#                     "meta_data_response": meta_data_response
+#                 })
+
+#             # Sort rows by date (latest first)
+#             rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+
+#             # Insert rows into table
+#             for row_data in rows:
+#                 row = self.table.rowCount()
+#                 self.table.insertRow(row)
+#                 logger.debug(f"Inserting row {row} with data: {row_data}")
+
+#                 # self.table.setItem(row, 0, QTableWidgetItem(row_data["thumbnail"]))
+#                     # ✅ Create thumbnail QLabel instead of text
+#                 # thumb_label = QLabel()
+#                 # thumb_label.setFixedSize(24, 24)  # Adjust size if needed
+#                 # thumb_label.setScaledContents(True)
+
+#                 # thumbnail_url = row_data["thumbnail"]
+
+#                 # pixmap = QPixmap()
+
+#                 # # If it's a local file path
+#                 # if Path(thumbnail_url).exists():
+#                 #     pixmap.load(thumbnail_url)
+
+#                 # # If it's a remote URL (http/https)
+#                 # elif thumbnail_url.startswith("http"):
+#                 #     try:
+#                 #         import requests
+#                 #         response = requests.get(thumbnail_url, timeout=5)
+#                 #         if response.status_code == 200:
+#                 #             from io import BytesIO
+#                 #             pixmap.loadFromData(response.content)
+#                 #     except Exception as ex:
+#                 #         logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
+
+#                 # # Fallback default icon
+#                 # if pixmap.isNull():
+#                 #     pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
+
+#                 # thumb_label.setPixmap(pixmap)
+#                 # self.table.setCellWidget(row, 0, thumb_label)
+
+#                 thumb_label = QLabel()
+#                 thumb_label.setFixedSize(24, 24)
+#                 thumb_label.setScaledContents(True)
+#                 thumb_label.setPixmap(QPixmap("default_thumbnail.png"))  # ✅ placeholder
+#                 self.table.setCellWidget(row, 0, thumb_label)
+
+#                 loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])  # ✅ NEW: load async
+#                 pool = QThreadPool.globalInstance()  # ✅ NEW: get thread pool
+#                 pool.start(loader)  # ✅ NEW: run loader in background
+
+#                 # ✅ Rest same as before
+
+
+#                 # ✅ Rest same as before
+
+#                 self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
+#                 self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
+#                 self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
+#                 self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
+
+#                 folder_btn = QPushButton()
+#                 folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+#                 folder_btn.setIconSize(QSize(24, 24))
+#                 folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+#                 self.table.setCellWidget(row, 5, folder_btn)
+
+#                 photoshop_btn = QPushButton()
+#                 photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+#                 photoshop_btn.setIconSize(QSize(24, 24))
+#                 photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+#                 self.table.setCellWidget(row, 6, photoshop_btn)
+
+#                 # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+#                 if row_data["status"] == 'Failed':
+#                     status_btn = QPushButton(row_data["status"])
+#                     status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
+#                     status_btn.setIconSize(QSize(24, 24))
+#                     status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+#                     self.table.setCellWidget(row, 7, status_btn)
+
+#                 else:    
+#                     self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+
+#                 if platform.system() == "Windows":
+#                     Copy_btn = QPushButton()
+#                     Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
+#                     Copy_btn.setIconSize(QSize(24, 24))
+#                     Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+#                     self.table.setCellWidget(row, 8, Copy_btn)
+
+#             self.table.resizeColumnsToContents()
+#             app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
+
+#         except Exception as e:
+#             logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
+#             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
+#             raise
+
+#     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
+#         """Refresh the file list if the action_type matches file_type."""
+#         try:
+#             if action_type == self.file_type:
+#                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
+#                 self._load_files_with_logging()
+#                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
+#         except Exception as e:
+#             logger.error(f"Error refreshing file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
+
+#     def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+#         """Update the table with file transfer status."""
+#         if action_type != self.file_type or not file_path:
+#             return
+#         try:
+#             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
+#                     # status_col = 6 if self.file_type == "downloaded" else 3
+#                     # progress_col = 5 if self.file_type == "downloaded" else 4
+#                     status_col = 3
+#                     progress_col = 5
+#                     self.table.setItem(row, status_col, QTableWidgetItem(status))
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                     progress_bar.setValue(progress)
+#                     # if self.file_type == "downloaded":
+#                     #     self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
+#                     self.table.resizeColumnsToContents()
+#                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+#                     return
+
+#             # If file not found, reload the entire table
+#             logger.debug(f"File {file_path} not found in table, reloading full list")
+#             self._load_files_with_logging()
+#             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+#         except Exception as e:
+#             logger.error(f"Error updating file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+
+#     def update_progress(self, file_path, progress):
+#         """Update progress for a file in the table."""
+#         try:
+#             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
+#                     # progress_col = 5 if self.file_type == "downloaded" else 4
+#                     progress_col = 4
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                     progress_bar.setValue(progress)
+#                     app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+#                     return
+#             logger.debug(f"File {file_path} not found for progress update, reloading table")
+#             self._load_files_with_logging()
+#         except Exception as e:
+#             logger.error(f"Error updating progress: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
+#     def open_with_photoshop(self, file_path):
+#         """Dynamically find Adobe Photoshop path and open the specified file."""
+#         try:
+#             import platform
+#             import subprocess
+#             import time
+#             import logging
+#             import os
+#             from pathlib import Path
+
+#             logger = logging.getLogger(__name__)
+#             system = platform.system()
+#             file_path = str(Path(file_path).resolve())
+
+#             # Validate file existence
+#             if not Path(file_path).exists():
+#                 raise FileNotFoundError(f"File does not exist: {file_path}")
+
+#             logger.debug(f"System: {system}, File path: {file_path}")
+#             photoshop_path = None
+
+#             if system == "Windows":
+#                 try:
+#                     import win32gui
+#                     import win32con
+#                     import win32com.client
+#                     import win32api
+#                     import win32process
+#                     import ctypes
+#                 except ImportError as e:
+#                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
+#                 # Check environment variable for Photoshop path
+#                 photoshop_path = os.getenv("PHOTOSHOP_PATH")
+#                 if photoshop_path and Path(photoshop_path).exists():
+#                     logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
+#                 else:
+#                     search_dirs = [
+#                         Path("C:/Program Files/Adobe"),
+#                         Path("C:/Program Files (x86)/Adobe")
+#                     ]
+#                     for base_dir in search_dirs:
+#                         if not base_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {base_dir}")
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             logger.debug(f"Found Photoshop at: {photoshop_path}")
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
+#                 # Verify Photoshop executable accessibility
+#                 if not os.access(photoshop_path, os.X_OK):
+#                     raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
+
+#                 # Try opening via COM first, skip if not registered
+#                 com_success = False
+#                 try:
+#                     logger.debug("Attempting to open via COM")
+#                     ps_app = win32com.client.Dispatch("Photoshop.Application")
+#                     ps_app.Visible = True
+#                     ps_app.Open(file_path)
+
+#                     def bring_to_front(title_contains="Adobe Photoshop"):
+#                         def enum_handler(hwnd, _):
+#                             if win32gui.IsWindowVisible(hwnd):
+#                                 title = win32gui.GetWindowText(hwnd)
+#                                 if title_contains.lower() in title.lower():
+#                                     try:
+#                                         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+#                                         fg_thread = win32process.GetWindowThreadProcessId(
+#                                             win32gui.GetForegroundWindow())[0]
+#                                         target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+#                                         this_thread = win32api.GetCurrentThreadId()
+#                                         if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+#                                             win32gui.SetForegroundWindow(hwnd)
+#                                             ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+#                                     except Exception as e:
+#                                         logger.debug(f"Window activation failed: {e}")
+#                         win32gui.EnumWindows(enum_handler, None)
+
+#                     time.sleep(1.5)
+#                     bring_to_front()
+#                     logger.info(f"Opened {Path(file_path).name} via COM")
+#                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                     com_success = True
+#                 except Exception as e:
+#                     logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
+
+#                 # Try subprocess if COM fails
+#                 if not com_success:
+#                     for attempt in range(3):
+#                         try:
+#                             cmd = [photoshop_path, file_path]
+#                             logger.debug(f"Executing subprocess command: {cmd}")
+#                             result = subprocess.run(cmd, check=True, stderr=subprocess.PIPE, text=True)
+#                             time.sleep(2)
+#                             def enum_windows_callback(hwnd, hwnds):
+#                                 if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                     hwnds.append(hwnd)
+#                             hwnds = []
+#                             win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                             if hwnds:
+#                                 win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                 win32gui.SetForegroundWindow(hwnds[0])
+#                             logger.info(f"Opened {Path(file_path).name} via subprocess")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Subprocess attempt {attempt+1} failed: {e}, stderr: {e.stderr}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
+#                                 # Fallback to non-blocking Popen
+#                                 try:
+#                                     process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
+#                                     time.sleep(2)
+#                                     def enum_windows_callback(hwnd, hwnds):
+#                                         if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                             hwnds.append(hwnd)
+#                                     hwnds = []
+#                                     win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                                     if hwnds:
+#                                         win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                         win32gui.SetForegroundWindow(hwnds[0])
+#                                     logger.info(f"Opened {Path(file_path).name} via Popen fallback")
+#                                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                                 except Exception as e2:
+#                                     raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
+
+#             elif system == "Darwin":
+#                 # Check environment variable for custom Photoshop path
+#                 custom_path = os.getenv("PHOTOSHOP_PATH")
+#                 if custom_path and Path(custom_path).exists():
+#                     photoshop_path = str(Path(custom_path).resolve())
+#                     logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
+
+#                 # Try Spotlight search with broader query
+#                 if not photoshop_path:
+#                     try:
+#                         result = subprocess.run(
+#                             ["mdfind", "kMDItemKind == 'Application' && (kMDItemFSName == 'Adobe Photoshop*.app' || kMDItemFSName == 'Photoshop*.app' || kMDItemFSName == 'Adobe*Photoshop*.app')"],
+#                             capture_output=True, text=True, check=True
+#                         )
+#                         if result.stdout.strip():
+#                             photoshop_path = result.stdout.strip().split("\n")[0]
+#                             logger.debug(f"Found Photoshop via mdfind: {photoshop_path}")
+#                     except subprocess.CalledProcessError as e:
+#                         logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
+
+#                 # Expanded search locations with deeper glob patterns
+#                 if not photoshop_path:
+#                     search_locations = [
+#                         Path("/Applications"),
+#                         Path("~/Applications").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud"),
+#                         Path("~/Applications/Adobe Creative Cloud").expanduser(),
+#                         Path("/Applications/Adobe"),
+#                         Path("~/Applications/Adobe").expanduser(),
+#                         Path("/Applications/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Photoshop*").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop*").expanduser(),
+#                     ]
+#                     for search_dir in search_locations:
+#                         if not search_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {search_dir}")
+#                             continue
+#                         logger.debug(f"Searching for Photoshop in: {search_dir}")
+#                         # Search for .app files in the directory and its immediate subdirectories
+#                         photoshop_apps = (
+#                             list(search_dir.glob("Adobe*Photoshop*.app")) +
+#                             list(search_dir.glob("Photoshop*.app")) +
+#                             list(search_dir.glob("*/Adobe*Photoshop*.app"))
+#                         )
+#                         if photoshop_apps:
+#                             logger.debug(f"Found potential Photoshop apps: {[str(app) for app in photoshop_apps]}")
+#                             photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+#                             photoshop_path = str(photoshop_apps[0])
+#                             logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
+#                             break
+
+#                 # Check versioned paths, including exact match for 2025
+#                 if not photoshop_path:
+#                     versioned_paths = [
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),  # Exact match
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                     ]
+#                     for path in versioned_paths:
+#                         if path.exists():
+#                             photoshop_path = str(path)
+#                             logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
+#                             break
+
+#                 # Fallback to user selection via file dialog (if GUI is available)
+#                 if not photoshop_path and hasattr(self, 'window'):
+#                     from PySide6.QtWidgets import QFileDialog
+#                     logger.debug("Prompting user to select Photoshop application")
+#                     photoshop_path, _ = QFileDialog.getOpenFileName(
+#                         self.window(), "Locate Adobe Photoshop", "/Applications", "Applications (*.app)"
+#                     )
+#                     if photoshop_path:
+#                         logger.debug(f"User-selected Photoshop path: {photoshop_path}")
+#                     else:
+#                         logger.debug("User cancelled Photoshop path selection")
+
+#                 if not photoshop_path:
+#                     error_msg = (
+#                         "Adobe Photoshop application not found in /Applications, ~/Applications, "
+#                         "Adobe Creative Cloud, or Adobe directories. Please set PHOTOSHOP_PATH environment variable."
+#                     )
+#                     logger.error(error_msg)
+#                     raise FileNotFoundError(error_msg)
+
+#                 # Open file and bring Photoshop to front
+#                 for attempt in range(3):
+#                     try:
+#                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+#                         applescript = f'tell application "{Path(photoshop_path).name}" to activate'
+#                         subprocess.run(["osascript", "-e", applescript], check=True)
+#                         logger.info(f"Opened {Path(file_path).name} via open -a at {photoshop_path}")
+#                         print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                         break
+#                     except subprocess.CalledProcessError as e:
+#                         if attempt < 2:
+#                             logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                             time.sleep(2)
+#                         else:
+#                             raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+
+#             elif system == "Linux":
+#                 try:
+#                     subprocess.run(["wine", "--version"], capture_output=True, check=True)
+#                     wine_dirs = [
+#                         Path.home() / ".wine/drive_c/Program Files/Adobe",
+#                         Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+#                     ]
+#                     for base_dir in wine_dirs:
+#                         if not base_dir.exists():
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+
+#                     for attempt in range(3):
+#                         try:
+#                             subprocess.run(["wine", photoshop_path, file_path], check=True)
+#                             try:
+#                                 subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
+#                             except Exception as e:
+#                                 logger.debug(f"Could not raise Photoshop window: {e}")
+#                             logger.info(f"Opened {Path(file_path).name} via wine")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+#                 except subprocess.CalledProcessError:
+#                     raise FileNotFoundError("Wine is not installed or not functioning")
+
+#             else:
+#                 error_message = f"Unsupported platform for Photoshop: {system}"
+#                 logger.warning(error_message)
+#                 print(f"[Photoshop] {error_message}")
+#                 raise ValueError(error_message)
+
+#         except Exception as e:
+#             error_message = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+#             logger.error(error_message)
+#             print(f"[Photoshop] {error_message}")
+#             raise
+
+#     def open_folder(self, file_path):
+#         """Open the folder containing the file."""
+#         try:
+#             folder_path = str(Path(file_path).parent)
+#             system = platform.system()
+#             if system == "Windows":
+#                 subprocess.run(["explorer", folder_path], check=True)
+#             elif system == "Darwin":
+#                 subprocess.run(["open", folder_path], check=True)
+#             elif system == "Linux":
+#                 subprocess.run(["xdg-open", folder_path], check=True)
+#             else:
+#                 logger.warning(f"Unsupported platform for opening folder: {system}")
+#                 app_signals.append_log.emit(f"[Folder] Unsupported platform for opening folder: {system}")
+#                 app_signals.update_status.emit(f"Unsupported platform for opening folder: {system}")
+#                 return
+#             app_signals.update_status.emit(f"Opened folder for {Path(file_path).name}")
+#             app_signals.append_log.emit(f"[Folder] Opened folder for {Path(file_path).name}")
+#         except Exception as e:
+#             logger.error(f"Failed to open folder {file_path}: {e}")
+#             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
+#             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
+
+    
+#     def copy_file_to_clipboard(self, file_path__: str):
+#         try:
+#             file_path = os.path.join(BASE_TARGET_DIR, file_path__)
+#             if not os.path.exists(file_path):
+#                 raise FileNotFoundError(file_path)
+            
+#             system = platform.system()
+#             if system == "Windows":
+#                 import pyautogui
+#                 import ctypes
+#                 import pygetwindow as gw
+                
+#             folder, filename = os.path.split(os.path.abspath(file_path))
+#             # print(f"Please open the file in Explorer/Finder and select it: {file_path}")
+#             # time.sleep(3)  # time to select the file manually
+            
+#             # Open folder in Explorer/Finder
+#             if system == "Windows":
+#                 # os.startfile(folder)  #this open the folder and focus...
+                
+#                 #this open the folder and without focus...
+#                 SW_SHOWNOACTIVATE = 4
+#                 ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
+#                 # SW_SHOWMINIMIZED = 2
+#                 # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
+                
+#                 # windows = gw.getWindowsWithTitle(os.path.basename(folder))
+#                 # hwnd = None
+#                 # hwnd = windows[0]._hWnd
+#                 # # Disable user input temporarily
+#                 # ctypes.windll.user32.EnableWindow(hwnd, False)
+
+
+#             elif system == "Darwin":  # macOS
+#                 subprocess.run(["open", folder])
+#             else:
+#                 raise NotImplementedError(f"Unsupported OS: {system }")
+
+#             # Give some time for folder window to open
+#             time.sleep(0.1)
+
+#             # Focus on folder window (approximation)
+#             # On Windows, assume folder window is focused
+#             # Type filename to select it
+#             pyautogui.typewrite(filename)
+#             time.sleep(0.1)
+
+
+#             # Copy shortcut
+#             if system == "Windows":
+#                 pyautogui.hotkey('ctrl', 'c')
+#                 # Close the Explorer window
+#                 pyautogui.hotkey('alt', 'f4')
+#                 # Re-enable input and close folder
+#                 # if hwnd:
+#                 #     ctypes.windll.user32.EnableWindow(hwnd, True)
+#                 #     windows[0].close()
+
+#             elif system == "Darwin":
+#                 pyautogui.hotkey('command', 'c')
+#                 # Close Finder window
+#                 pyautogui.hotkey('command', 'w')
+#             else:
+#                 raise NotImplementedError(f"Copy not supported on {system}")
+#         except Exception as e:
+#             # Handle any exception
+#             print(f"An error occurred: {e}")
+#         finally:
+#             # This always runs, whether there was an exception or not
+#             print("Cleanup or final steps executed.")
+#             # if system == "Windows" and hwnd:
+#             #         ctypes.windll.user32.EnableWindow(hwnd, True)
+#             #         windows[0].close()
+
+#     def retry_file_process(self, meta_data_response):
+#         print(f"meta_data_response===={meta_data_response}")
+#         action_type = meta_data_response.get("request_type", "Unknown")
+#         if action_type == 'download':
+#             src_path = meta_data_response.get("file_path", "")
+#             dest_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+#             is_nas_src = True
+#             is_nas_dest = False
+#             print(f"===={src_path}==={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
+#         if action_type == 'upload':
+#             dest_path = meta_data_response.get("file_path", "")
+#             src_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
+#             is_nas_src = False
+#             is_nas_dest = True
+#         file_worker = FileWatcherWorker.get_instance()
+
+#         file_worker.perform_file_transfer(
+#             src_path,
+#             dest_path,
+#             action_type,
+#             meta_data_response,
+#             is_nas_src,
+#             is_nas_dest
+#         )
+
+
 class FileUploadListWindow(QDialog):
     def __init__(self, file_type, parent=None):
         super().__init__(parent)
@@ -5413,15 +7033,88 @@ class FileUploadListWindow(QDialog):
         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
 
+        # Initialize search bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText("Search by Project Name, Job Name, or File Name")
+        # --- QLineEdit Style ---
+        self.search_bar.setStyleSheet("""
+            QLineEdit {
+                background-color: #ffffff;
+                border: 1.5px solid #ccc;
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 14px;
+                color: #333;
+                selection-background-color: #0078d7;
+            }
+
+            QLineEdit:hover {
+                border: 1.5px solid #999;
+                background-color: #f9f9f9;
+            }
+
+            QLineEdit:focus {
+                border: 1.5px solid #0078d7;
+                background-color: #ffffff;
+            }
+
+            QLineEdit::placeholder {
+                color: #888;
+                font-style: italic;
+            }
+        """)
+
+
+        # Initialize search button
+        self.search_button = QPushButton("Search", self)
+        # --- QPushButton (Search) Style ---
+        self.search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 20px;
+                font-weight: 500;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #005fa3;
+            }
+            QPushButton:pressed {
+                background-color: #004b82;
+            }
+        """)
+        self.search_button.clicked.connect(lambda: self.filter_table(self.search_bar.text()))
+
+        # Initialize clear button
+        self.clear_button = QPushButton("Clear", self)
+        # --- QPushButton (Clear) Style ---
+        self.clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f5f5f5;
+                color: #333;
+                border: 1.2px solid #ccc;
+                border-radius: 8px;
+                padding: 6px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #eaeaea;
+                border-color: #999;
+            }
+            QPushButton:pressed {
+                background-color: #dcdcdc;
+            }
+        """)
+        self.clear_button.clicked.connect(self.clear_search)
+
         # Initialize table
         self.table = QTableWidget(self)
-        # self.table.setColumnCount(6 if self.file_type == "downloaded" else 5)
-        self.table.setColumnCount(8)        
-        headers = ["Thumbnail","Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status", "Progress"]
+        self.table.setColumnCount(8)
+        headers = ["Thumbnail", "Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status"]
         if platform.system() == "Windows":
             headers.append("Copy")
-        # if self.file_type == "downloaded":
-        #     headers.insert(3, "Source")
         self.table.setHorizontalHeaderLabels(headers)
         header = self.table.horizontalHeader()
         header.setSectionsMovable(True)
@@ -5431,9 +7124,19 @@ class FileUploadListWindow(QDialog):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
+        # Layout
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.search_bar)
+        search_layout.addWidget(self.search_button)
+        search_layout.addWidget(self.clear_button)
+
         layout = QVBoxLayout()
+        layout.addLayout(search_layout)
         layout.addWidget(self.table)
         self.setLayout(layout)
+
+        # Store original rows for filtering
+        self.original_rows = []
 
         # Load files initially
         self._load_files_with_logging()
@@ -5442,6 +7145,12 @@ class FileUploadListWindow(QDialog):
         self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
         self.file_watcher = FileWatcherWorker.get_instance(parent=self)
         self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+    def keyPressEvent(self, event):
+        """Handle Enter key press in the search bar."""
+        super().keyPressEvent(event)
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.search_bar.hasFocus():
+            self.filter_table(self.search_bar.text())
 
     def showEvent(self, event):
         """Reload files when the window is shown."""
@@ -5476,7 +7185,6 @@ class FileUploadListWindow(QDialog):
             metadata_key = f"{self.file_type}_files_with_metadata"
             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
 
-            # Use metadata directly instead of relying on separate files key
             metadata = cache.get(metadata_key, {})
             files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
             logger.debug(f"Files for {self.file_type}: {files}")
@@ -5503,7 +7211,7 @@ class FileUploadListWindow(QDialog):
             self.table.setHorizontalHeaderLabels(headers)
 
             # Collect rows
-            rows = []
+            self.original_rows = []
             file_list = files.items()
             logger.debug(f"File list: {list(file_list)}")
 
@@ -5517,7 +7225,6 @@ class FileUploadListWindow(QDialog):
                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
 
-                # Find metadata
                 meta = metadata.get(str(task_id), {})
                 if not meta:
                     logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
@@ -5526,20 +7233,18 @@ class FileUploadListWindow(QDialog):
                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
 
-                # Skip rows where project_name or job_name is "Unknown"
                 if project_name == "Unknown" or job_name == "Unknown":
                     logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
                     continue
 
                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
 
-                # Parse date
                 dt = None
                 display_date = ""
                 if created_at_raw:
                     try:
                         ts = int(created_at_raw)
-                        if 0 < ts < 4102444800:  # until 2100
+                        if 0 < ts < 4102444800:
                             dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
                     except Exception:
@@ -5565,14 +7270,13 @@ class FileUploadListWindow(QDialog):
                                 except Exception:
                                     continue
 
-                # Use request_status from metadata
                 status = meta.get("api_response", {}).get("request_status", "Unknown")
                 if status == "Unknown" and file_path:
                     status = "Completed" if Path(file_path).exists() else "Failed"
 
                 meta_data_response = meta.get("api_response", {})
 
-                rows.append({
+                row_data = {
                     "thumbnail": thumbnail,
                     "project_name": project_name,
                     "job_name": job_name,
@@ -5584,106 +7288,109 @@ class FileUploadListWindow(QDialog):
                     "status": status,
                     "dt": dt,
                     "meta_data_response": meta_data_response
-                })
+                }
+                self.original_rows.append(row_data)
 
             # Sort rows by date (latest first)
-            rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+            self.original_rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
 
-            # Insert rows into table
-            for row_data in rows:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                logger.debug(f"Inserting row {row} with data: {row_data}")
+            # Populate table with all rows initially
+            self._populate_table(self.original_rows)
 
-                # self.table.setItem(row, 0, QTableWidgetItem(row_data["thumbnail"]))
-                    # ✅ Create thumbnail QLabel instead of text
-                # thumb_label = QLabel()
-                # thumb_label.setFixedSize(24, 24)  # Adjust size if needed
-                # thumb_label.setScaledContents(True)
-
-                # thumbnail_url = row_data["thumbnail"]
-
-                # pixmap = QPixmap()
-
-                # # If it's a local file path
-                # if Path(thumbnail_url).exists():
-                #     pixmap.load(thumbnail_url)
-
-                # # If it's a remote URL (http/https)
-                # elif thumbnail_url.startswith("http"):
-                #     try:
-                #         import requests
-                #         response = requests.get(thumbnail_url, timeout=5)
-                #         if response.status_code == 200:
-                #             from io import BytesIO
-                #             pixmap.loadFromData(response.content)
-                #     except Exception as ex:
-                #         logger.warning(f"Failed to load thumbnail from URL {thumbnail_url}: {ex}")
-
-                # # Fallback default icon
-                # if pixmap.isNull():
-                #     pixmap.load("default_thumbnail.png")  # <-- keep one small default image in your project folder
-
-                # thumb_label.setPixmap(pixmap)
-                # self.table.setCellWidget(row, 0, thumb_label)
-
-                thumb_label = QLabel()
-                thumb_label.setFixedSize(24, 24)
-                thumb_label.setScaledContents(True)
-                thumb_label.setPixmap(QPixmap("default_thumbnail.png"))  # ✅ placeholder
-                self.table.setCellWidget(row, 0, thumb_label)
-
-                loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])  # ✅ NEW: load async
-                pool = QThreadPool.globalInstance()  # ✅ NEW: get thread pool
-                pool.start(loader)  # ✅ NEW: run loader in background
-
-                # ✅ Rest same as before
-
-
-                # ✅ Rest same as before
-
-                self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
-                self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
-                self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
-                self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
-
-                folder_btn = QPushButton()
-                folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-                folder_btn.setIconSize(QSize(24, 24))
-                folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
-                self.table.setCellWidget(row, 5, folder_btn)
-
-                photoshop_btn = QPushButton()
-                photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-                photoshop_btn.setIconSize(QSize(24, 24))
-                photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
-                self.table.setCellWidget(row, 6, photoshop_btn)
-
-                # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
-                if row_data["status"] == 'Failed':
-                    status_btn = QPushButton(row_data["status"])
-                    status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
-                    status_btn.setIconSize(QSize(24, 24))
-                    status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
-                    self.table.setCellWidget(row, 7, status_btn)
-
-                else:    
-                    self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
-
-                if platform.system() == "Windows":
-                    Copy_btn = QPushButton()
-                    Copy_btn.setIcon(load_icon(COPY_ICON_PATH, "Copy"))
-                    Copy_btn.setIconSize(QSize(24, 24))
-                    Copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
-                    self.table.setCellWidget(row, 8, Copy_btn)
-
-            self.table.resizeColumnsToContents()
-            app_signals.append_log.emit(f"[Files] Loaded {len(rows)} {self.file_type} files")
+            app_signals.append_log.emit(f"[Files] Loaded {len(self.original_rows)} {self.file_type} files")
 
         except Exception as e:
             logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
             raise
+
+    def _populate_table(self, rows):
+        """Populate the table with the given rows."""
+        self.table.clearContents()
+        self.table.setRowCount(0)
+
+        for row_data in rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            logger.debug(f"Inserting row {row} with data: {row_data}")
+
+            thumb_label = QLabel()
+            thumb_label.setFixedSize(24, 24)
+            thumb_label.setScaledContents(True)
+            thumb_label.setPixmap(QPixmap("default_thumbnail.png"))
+            self.table.setCellWidget(row, 0, thumb_label)
+
+            loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])
+            pool = QThreadPool.globalInstance()
+            pool.start(loader)
+
+            self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
+            self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
+            self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
+            self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
+
+            folder_btn = QPushButton()
+            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+            folder_btn.setIconSize(QSize(24, 24))
+            folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+            self.table.setCellWidget(row, 5, folder_btn)
+
+            photoshop_btn = QPushButton()
+            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+            photoshop_btn.setIconSize(QSize(24, 24))
+            photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+            self.table.setCellWidget(row, 6, photoshop_btn)
+
+            if row_data["status"] == 'Failed':
+                status_btn = QPushButton(row_data["status"])
+                status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
+                status_btn.setIconSize(QSize(24, 24))
+                status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+                self.table.setCellWidget(row, 7, status_btn)
+            else:
+                self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+
+            if platform.system() == "Windows":
+                copy_btn = QPushButton()
+                copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
+                copy_btn.setIconSize(QSize(24, 24))
+                copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+                self.table.setCellWidget(row, 8, copy_btn)
+
+        self.table.resizeColumnsToContents()
+
+    def filter_table(self, search_text):
+        """Filter table rows based on search text."""
+        search_text = search_text.lower().strip()
+        filtered_rows = []
+
+        for row_data in self.original_rows:
+            if (search_text in row_data["project_name"].lower() or
+                search_text in row_data["job_name"].lower() or
+                search_text in row_data["file_name"].lower()):
+                filtered_rows.append(row_data)
+
+        if not filtered_rows:
+            # Clear table and show "Content not available" message
+            self.table.clearContents()
+            self.table.setRowCount(1)
+            label = QLabel("Content not available")
+            label.setAlignment(Qt.AlignCenter)
+            self.table.setCellWidget(0, 0, label)
+            self.table.setSpan(0, 0, 1, self.table.columnCount())
+            logger.debug("No matching rows found, displaying 'Content not available'")
+            app_signals.append_log.emit(f"[Files] No {self.file_type} files match the search: {search_text}")
+        else:
+            self._populate_table(filtered_rows)
+            logger.debug(f"Filtered table to {len(filtered_rows)} rows with search: {search_text}")
+            app_signals.append_log.emit(f"[Files] Filtered {self.file_type} files to {len(filtered_rows)} rows")
+
+    def clear_search(self):
+        """Clear the search bar and repopulate the table with all rows."""
+        self.search_bar.clear()
+        self._populate_table(self.original_rows)
+        logger.debug(f"Cleared search and restored {len(self.original_rows)} rows")
+        app_signals.append_log.emit(f"[Files] Cleared search and restored {len(self.original_rows)} {self.file_type} files")
 
     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
         """Refresh the file list if the action_type matches file_type."""
@@ -5691,6 +7398,8 @@ class FileUploadListWindow(QDialog):
             if action_type == self.file_type:
                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
                 self._load_files_with_logging()
+                # Reapply filter after refresh
+                self.filter_table(self.search_bar.text())
                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
         except Exception as e:
             logger.error(f"Error refreshing file list: {e}")
@@ -5703,11 +7412,9 @@ class FileUploadListWindow(QDialog):
         try:
             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    # status_col = 6 if self.file_type == "downloaded" else 3
-                    # progress_col = 5 if self.file_type == "downloaded" else 4
-                    status_col = 3
-                    progress_col = 5
+                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
+                    status_col = 7
+                    progress_col = 4
                     self.table.setItem(row, status_col, QTableWidgetItem(status))
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
@@ -5717,8 +7424,6 @@ class FileUploadListWindow(QDialog):
                         progress_bar.setFixedHeight(20)
                         self.table.setCellWidget(row, progress_col, progress_bar)
                     progress_bar.setValue(progress)
-                    # if self.file_type == "downloaded":
-                    #     self.table.setItem(row, 3, QTableWidgetItem("NAS" if is_nas_src else "DOMAIN"))
                     self.table.resizeColumnsToContents()
                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
                     return
@@ -5726,6 +7431,7 @@ class FileUploadListWindow(QDialog):
             # If file not found, reload the entire table
             logger.debug(f"File {file_path} not found in table, reloading full list")
             self._load_files_with_logging()
+            self.filter_table(self.search_bar.text())
             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
         except Exception as e:
             logger.error(f"Error updating file list: {e}")
@@ -5736,8 +7442,7 @@ class FileUploadListWindow(QDialog):
         try:
             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
             for row in range(self.table.rowCount()):
-                if self.table.item(row, 2) and self.table.item(row, 2).text() == Path(file_path).name:  # Check File Name (col 2)
-                    # progress_col = 5 if self.file_type == "downloaded" else 4
+                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
                     progress_col = 4
                     progress_bar = self.table.cellWidget(row, progress_col)
                     if not isinstance(progress_bar, QProgressBar):
@@ -5751,6 +7456,7 @@ class FileUploadListWindow(QDialog):
                     return
             logger.debug(f"File {file_path} not found for progress update, reloading table")
             self._load_files_with_logging()
+            self.filter_table(self.search_bar.text())
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
@@ -5769,7 +7475,6 @@ class FileUploadListWindow(QDialog):
             system = platform.system()
             file_path = str(Path(file_path).resolve())
 
-            # Validate file existence
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"File does not exist: {file_path}")
 
@@ -5787,7 +7492,6 @@ class FileUploadListWindow(QDialog):
                 except ImportError as e:
                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
 
-                # Check environment variable for Photoshop path
                 photoshop_path = os.getenv("PHOTOSHOP_PATH")
                 if photoshop_path and Path(photoshop_path).exists():
                     logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
@@ -5809,11 +7513,9 @@ class FileUploadListWindow(QDialog):
                     if not photoshop_path:
                         raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
 
-                # Verify Photoshop executable accessibility
                 if not os.access(photoshop_path, os.X_OK):
                     raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
 
-                # Try opening via COM first, skip if not registered
                 com_success = False
                 try:
                     logger.debug("Attempting to open via COM")
@@ -5847,7 +7549,6 @@ class FileUploadListWindow(QDialog):
                 except Exception as e:
                     logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
 
-                # Try subprocess if COM fails
                 if not com_success:
                     for attempt in range(3):
                         try:
@@ -5872,7 +7573,6 @@ class FileUploadListWindow(QDialog):
                                 time.sleep(2)
                             else:
                                 logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
-                                # Fallback to non-blocking Popen
                                 try:
                                     process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
                                     time.sleep(2)
@@ -5890,13 +7590,11 @@ class FileUploadListWindow(QDialog):
                                     raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
 
             elif system == "Darwin":
-                # Check environment variable for custom Photoshop path
                 custom_path = os.getenv("PHOTOSHOP_PATH")
                 if custom_path and Path(custom_path).exists():
                     photoshop_path = str(Path(custom_path).resolve())
                     logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
 
-                # Try Spotlight search with broader query
                 if not photoshop_path:
                     try:
                         result = subprocess.run(
@@ -5909,7 +7607,6 @@ class FileUploadListWindow(QDialog):
                     except subprocess.CalledProcessError as e:
                         logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
 
-                # Expanded search locations with deeper glob patterns
                 if not photoshop_path:
                     search_locations = [
                         Path("/Applications"),
@@ -5928,7 +7625,6 @@ class FileUploadListWindow(QDialog):
                             logger.debug(f"Search directory does not exist: {search_dir}")
                             continue
                         logger.debug(f"Searching for Photoshop in: {search_dir}")
-                        # Search for .app files in the directory and its immediate subdirectories
                         photoshop_apps = (
                             list(search_dir.glob("Adobe*Photoshop*.app")) +
                             list(search_dir.glob("Photoshop*.app")) +
@@ -5941,10 +7637,9 @@ class FileUploadListWindow(QDialog):
                             logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
                             break
 
-                # Check versioned paths, including exact match for 2025
                 if not photoshop_path:
                     versioned_paths = [
-                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),  # Exact match
+                        Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
@@ -5981,7 +7676,6 @@ class FileUploadListWindow(QDialog):
                             logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
                             break
 
-                # Fallback to user selection via file dialog (if GUI is available)
                 if not photoshop_path and hasattr(self, 'window'):
                     from PySide6.QtWidgets import QFileDialog
                     logger.debug("Prompting user to select Photoshop application")
@@ -6001,7 +7695,6 @@ class FileUploadListWindow(QDialog):
                     logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
 
-                # Open file and bring Photoshop to front
                 for attempt in range(3):
                     try:
                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
@@ -6089,82 +7782,47 @@ class FileUploadListWindow(QDialog):
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
-    
-    def copy_file_to_clipboard(self, file_path__: str):
+    def copy_file_to_clipboard(self, file_path):
+        """Copy the file path to the clipboard."""
         try:
-            file_path = os.path.join(BASE_TARGET_DIR, file_path__)
+            file_path = os.path.join(BASE_TARGET_DIR, file_path)
             if not os.path.exists(file_path):
                 raise FileNotFoundError(file_path)
-            
+
             system = platform.system()
             if system == "Windows":
                 import pyautogui
                 import ctypes
                 import pygetwindow as gw
-                
+
             folder, filename = os.path.split(os.path.abspath(file_path))
-            # print(f"Please open the file in Explorer/Finder and select it: {file_path}")
-            # time.sleep(3)  # time to select the file manually
-            
-            # Open folder in Explorer/Finder
             if system == "Windows":
-                # os.startfile(folder)  #this open the folder and focus...
-                
-                #this open the folder and without focus...
                 SW_SHOWNOACTIVATE = 4
                 ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
-                # SW_SHOWMINIMIZED = 2
-                # ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWMINIMIZED)
-                
-                # windows = gw.getWindowsWithTitle(os.path.basename(folder))
-                # hwnd = None
-                # hwnd = windows[0]._hWnd
-                # # Disable user input temporarily
-                # ctypes.windll.user32.EnableWindow(hwnd, False)
-
-
-            elif system == "Darwin":  # macOS
+            elif system == "Darwin":
                 subprocess.run(["open", folder])
             else:
-                raise NotImplementedError(f"Unsupported OS: {system }")
+                raise NotImplementedError(f"Unsupported OS: {system}")
 
-            # Give some time for folder window to open
             time.sleep(0.1)
-
-            # Focus on folder window (approximation)
-            # On Windows, assume folder window is focused
-            # Type filename to select it
             pyautogui.typewrite(filename)
             time.sleep(0.1)
 
-
-            # Copy shortcut
             if system == "Windows":
                 pyautogui.hotkey('ctrl', 'c')
-                # Close the Explorer window
                 pyautogui.hotkey('alt', 'f4')
-                # Re-enable input and close folder
-                # if hwnd:
-                #     ctypes.windll.user32.EnableWindow(hwnd, True)
-                #     windows[0].close()
-
             elif system == "Darwin":
                 pyautogui.hotkey('command', 'c')
-                # Close Finder window
                 pyautogui.hotkey('command', 'w')
             else:
                 raise NotImplementedError(f"Copy not supported on {system}")
         except Exception as e:
-            # Handle any exception
             print(f"An error occurred: {e}")
         finally:
-            # This always runs, whether there was an exception or not
             print("Cleanup or final steps executed.")
-            # if system == "Windows" and hwnd:
-            #         ctypes.windll.user32.EnableWindow(hwnd, True)
-            #         windows[0].close()
 
     def retry_file_process(self, meta_data_response):
+        """Retry a failed file process."""
         print(f"meta_data_response===={meta_data_response}")
         action_type = meta_data_response.get("request_type", "Unknown")
         if action_type == 'download':
@@ -6188,7 +7846,8 @@ class FileUploadListWindow(QDialog):
             is_nas_src,
             is_nas_dest
         )
-
+    
+    
     
     # def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
     #     """Update the table with file transfer status."""
