@@ -185,7 +185,7 @@ API_URL_UPLOAD_DOWNLOAD_UPDATE = f"{BASE_DOMAIN}/api/save_download_upload/update
 API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
-
+IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 # NAS_IP = "192.168.3.20"
 # NAS_USERNAME = "irnasappprod"
 # NAS_PASSWORD = "D&*qmn012@12"
@@ -485,6 +485,7 @@ def initialize_cache():
     """Create a new cache file safely."""
     cache = get_default_cache()
     try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
         with open(CACHE_FILE, "w") as f:
             json.dump(cache, f, indent=2)
     except OSError as e:
@@ -6357,24 +6358,29 @@ class LoginWorker(QObject):
 
             cache = load_cache() or {}  # Handle case where load_cache returns None
             logger.debug(f"Loaded cache: {cache}")
-            cache_data = {
-                "token": access_token,
-                "user": self.username,
-                "user_id": user_info.get('uid', ''),
-                "user_info": dict(user_info),
-                "info_resp": dict(user_info),
-                "user_data": dict(user_data),
-                "data": self.username,
-                "downloaded_files": cache.get("downloaded_files", []),
-                "uploaded_files": cache.get("uploaded_files", []),
-                "timer_responses": cache.get("timer_responses", {}),
-                "saved_username": self.username if self.rememberme else cache.get("saved_username", ""),
-                "saved_password": self.password if self.rememberme else cache.get("saved_password", ""),
-                "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
-            }
-            save_cache(cache_data)
-            logger.debug(f"Cache saved: {cache_data}")
-            app_signals.append_log.emit(f"[Login] Cache saved for user: {self.username}")
+            print(f"Loaded cacheaaa: {cache}")
+            
+           
+
+            if not load_cache() or self.username != load_cache().get("user"):
+                cache_data = {
+                    "token": access_token,
+                    "user": self.username,
+                    "user_id": user_info.get('uid', ''),
+                    "user_info": dict(user_info),
+                    "info_resp": dict(user_info),
+                    "user_data": dict(user_data),
+                    "data": self.username,
+                    "downloaded_files": cache.get("downloaded_files", []),
+                    "uploaded_files": cache.get("uploaded_files", []),
+                    "timer_responses": cache.get("timer_responses", {}),
+                    "saved_username": self.username if self.rememberme else cache.get("saved_username", ""),
+                    "saved_password": self.password if self.rememberme else cache.get("saved_password", ""),
+                    "cached_at": datetime.now(ZoneInfo("UTC")).isoformat()
+                }
+                save_cache(cache_data)
+                logger.debug(f"Cache saved: {cache_data}")
+                app_signals.append_log.emit(f"[Login] Cache saved for user: {self.username}")
             
             logger.debug("Emitting success signal")
             self.success.emit(user_info, access_token)
@@ -7057,7 +7063,43 @@ class PremediaApp(QApplication):
             logger.debug(f"Cache contents: {json.dumps(cache, indent=2)}")
             app_signals.append_log.emit(f"[Init] Cache contents: {json.dumps(cache, indent=2)}")
             #cache validation
+            
+            cache_created_ts = cache.get("created_at")  # Unix timestamp
+            logger.debug(f"[TEST] Cache created_at: {cache_created_ts}")
+            app_signals.append_log.emit(f"[TEST] Cache created_at: {cache_created_ts}")
 
+            print(f"cache_created_ts:{cache_created_ts}")
+
+            if cache_created_ts:
+                try:
+                    print('working fine')
+                    cache_created = datetime.fromtimestamp(cache_created_ts, tz=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    age_days = (now - cache_created).days
+                    logger.debug(f"[TEST] Cache created_at: {cache_created_ts}")
+                    app_signals.append_log.emit(f"[TEST] Cache created_at: {cache_created_ts}")
+                    print('now:', now)
+                    print('cache_created:', cache_created)
+                    print('timedelta(days=7):', timedelta(days=7))
+                    if now - cache_created > timedelta(days=7):
+                    # if now - cache_created > timedelta(minutes=1):
+                        logger.info("Cache is older than 7 days. Clearing cache...")
+                        app_signals.append_log.emit("[Init] Cache is older than 7 days. Clearing cache...")
+                        self.clear_cache()  # Make sure your clear_cache() resets CACHE_FILE too
+                        cache = {}  # Reset cache variable
+                    else:
+                        logger.debug(f"Cache is valid. Age: {(now - cache_created).days} days")
+                        print("Cache is valid. Age:", (now - cache_created).days, "days")
+                        app_signals.append_log.emit(f"[Init] Cache is valid. Age: {(now - cache_created).days} days")
+                except Exception as e:
+                    logger.error(f"Failed to validate cache date: {e}")
+                    app_signals.append_log.emit(f"[Init] Failed to validate cache date: {str(e)}")
+                    self.clear_cache()
+                    cache = {}
+            else:
+                logger.debug("No cache creation timestamp found, skipping validation")
+                app_signals.append_log.emit("[Init] No cache creation timestamp found, skipping validation")
+                
 
 
 
