@@ -148,7 +148,7 @@ ICON_PATH = get_icon_path({
 
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
-REYTRY_ICON_PATH = get_icon_path("retry.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+RETRY_ICON_PATH = get_icon_path("retry.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
 def get_cache_file_path():
     # Use BASE_TARGET_DIR as the base for cache file generation
@@ -2428,6 +2428,7 @@ class FileWatcherWorker(QObject):
     request_reauth = Signal()
     task_list_update = Signal(list)
     cleanup_signal = Signal()
+    error_occurred = Signal(str, str)  # msg_code, msg_text
 
     _instance = None
     _instance_thread = None
@@ -2483,11 +2484,14 @@ class FileWatcherWorker(QObject):
         else:
             logger.debug("FileWatcherWorker timer already active")
             self.log_update.emit("[FileWatcher] Timer already active")
+            
 
     def _prepare_download_path(self, item):
         """Prepare the local destination path for download using file_path."""
         file_path = item.get("file_path", "").lstrip("/")
         if not file_path:
+            # self.error_occurred.emit("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise ValueError("Empty file_path in item")
         dest_path = BASE_TARGET_DIR / file_path
         logger.debug(f"Preparing download path: file_path={file_path}, dest_path={dest_path}")
@@ -2499,6 +2503,8 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             logger.error(f"Failed to create directory {dest_path.parent}: {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to create directory {dest_path.parent}: {str(e)}")
+            # self.error_occurred.emit("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise
         resolved_dest_path = str(dest_path.resolve())
         logger.debug(f"Prepared local path: {resolved_dest_path}")
@@ -2535,15 +2541,29 @@ class FileWatcherWorker(QObject):
 
     def _download_from_nas(self, src_path, dest_path, item):
         """Download a file from NAS via SFTP and measure speed/time."""
+        task_id = item.get("id", '')
+        spec_id = str(item.get("spec_id"))
+        metadata_key = "downloaded_files_with_metadata"
+        cache = load_cache()
+        cache.setdefault(metadata_key, {})
+
         try:
             # Measure connection time
-            conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, 22))
-            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-            sftp = paramiko.SFTPClient.from_transport(transport)
-            conn_end = time.time()
-            connection_time = (conn_end - conn_start) * 1000  # ms
-
+            try:
+                conn_start = time.time()
+                transport = paramiko.Transport((NAS_IP, 22))
+                transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+                sftp = paramiko.SFTPClient.from_transport(transport)
+                conn_end = time.time()
+                connection_time = (conn_end - conn_start) * 1000  # ms
+            except Exception as e:
+                print(f"❌ Download connection: {e}")
+                task_id = item.get("id", '')
+                update_download_upload_metadata(task_id, "failed")
+                cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+                save_cache(cache, significant_change=True)
+                # QMessageBox.warning(None, "ERROR (D1)", f"Please check VPN Connection")
+                return
             # Pick path: either from item dict or src_path
             nas_path = item.get("file_path", src_path) if isinstance(item, dict) else src_path
 
@@ -2569,6 +2589,12 @@ class FileWatcherWorker(QObject):
 
         except Exception as e:
             print(f"❌ Download failed: {e}")
+            task_id = item.get("id", '')
+            update_download_upload_metadata(task_id, "failed")
+            cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+            save_cache(cache, significant_change=True)
+            # self.error_occurred.emit("ERROR (D2)", "Download failed try again.")
+            # QMessageBox.warning(None, "ERROR (D2)", "Download failed try again.")
             raise
 
 
@@ -2620,18 +2646,39 @@ class FileWatcherWorker(QObject):
     
     def _upload_to_nas(self, src_path, dest_path, item):
         """Upload a file to NAS via SFTP and measure speed/time."""
+        task_id = item.get("id", '')
+        spec_id = str(item.get("spec_id"))
+        metadata_key = "uploaded_files_with_metadata"
+        cache = load_cache()
+        cache.setdefault(metadata_key, {})
+
         try:
+
             src_path = Path(src_path)
             if not src_path.exists():
+                cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+                save_cache(cache, significant_change=True)
+                update_download_upload_metadata(task_id, "failed")
+                # self.error_occurred.emit("Error (U1)", "Upload failed try again.")
+                # QMessageBox.warning(None, "Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
-
-            # Measure connection time
-            conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, 22))
-            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-            sftp = paramiko.SFTPClient.from_transport(transport)
-            conn_end = time.time()
-            connection_time = (conn_end - conn_start) * 1000  # ms
+            
+            try:
+                # Measure connection time
+                conn_start = time.time()
+                transport = paramiko.Transport((NAS_IP, 22))
+                transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+                sftp = paramiko.SFTPClient.from_transport(transport)
+                conn_end = time.time()
+                connection_time = (conn_end - conn_start) * 1000  # ms
+            except Exception as e:    
+                print(f"❌ Upload connection failed: {e}")
+                task_id = item.get("id", '')
+                cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+                save_cache(cache, significant_change=True)
+                update_download_upload_metadata(task_id, "failed")
+                # self.error_occurred.emit("Error (U2)", "Please check VPN Connection.")
+                # QMessageBox.warning(None, "Error (U2)", "Please check VPN Connection.")
 
             # Destination path (from item dict or param)
             dest_path = item.get("file_path", dest_path) if isinstance(item, dict) else dest_path
@@ -2673,6 +2720,10 @@ class FileWatcherWorker(QObject):
 
         except Exception as e:
             print(f"❌ Upload failed: {e}")
+            cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+            save_cache(cache, significant_change=True)
+            # self.error_occurred.emit("Error (U3)", "Upload failed try again.")
+            # QMessageBox.warning(None, "Error (U3)", "Upload failed try again.")
             raise
             
         
@@ -4832,7 +4883,7 @@ class ThumbnailLoader(QRunnable):
 #                 # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
 #                 if row_data["status"] == 'Failed':
 #                     status_btn = QPushButton(row_data["status"])
-#                     status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
+#                     status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
 #                     status_btn.setIconSize(QSize(24, 24))
 #                     status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
 #                     self.table.setCellWidget(row, 7, status_btn)
@@ -5675,7 +5726,7 @@ class FileDownloadListWindow(QDialog):
             photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
             self.table.setCellWidget(row, 6, photoshop_btn)
 
-            if row_data["status"] == 'Failed':
+            if row_data["status"] == 'Failed' or row_data["status"] == 'Download Failed':
                 status_btn = QPushButton(row_data["status"])
                 status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
                 status_btn.setIconSize(QSize(24, 24))
@@ -6494,7 +6545,7 @@ class FileDownloadListWindow(QDialog):
 #                 # self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
 #                 if row_data["status"] == 'Failed':
 #                     status_btn = QPushButton(row_data["status"])
-#                     status_btn.setIcon(load_icon(REYTRY_ICON_PATH, "status"))
+#                     status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
 #                     status_btn.setIconSize(QSize(24, 24))
 #                     status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
 #                     self.table.setCellWidget(row, 7, status_btn)
@@ -7340,9 +7391,10 @@ class FileUploadListWindow(QDialog):
             photoshop_btn.setIconSize(QSize(24, 24))
             photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
             self.table.setCellWidget(row, 6, photoshop_btn)
-
-            if row_data["status"] == 'Failed':
-                status_btn = QPushButton(row_data["status"])
+            
+            print(f"row_data['status']=========={row_data['status']}")
+            if row_data["status"] == 'Failed' or row_data["status"] == 'Upload Failed':
+                status_btn = QPushButton("Failed")
                 status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
                 status_btn.setIconSize(QSize(24, 24))
                 status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
@@ -8841,7 +8893,7 @@ class PremediaApp(QApplication):
             else:
                 QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
             self.cleanup_and_quit()
-
+            
     def event(self, event):
         try:
             if event.type() == QEvent.ApplicationActivate:
@@ -9618,7 +9670,7 @@ class PremediaApp(QApplication):
                 logger.warning(f"Cache file does not exist: {cache_file}")
                 app_signals.append_log.emit(f"[Cache] Cache file does not exist: {cache_file}")
                 app_signals.update_status.emit("Cache file does not exist")
-                QMessageBox.warning(None, "Cache Error", f"Cache file does not exist:\n{cache_file}")
+                # QMessageBox.warning(None, "Cache Error", f"Cache file does not exist:\n{cache_file}")
                 return
 
             # Verify file is readable
@@ -9626,7 +9678,7 @@ class PremediaApp(QApplication):
                 logger.warning(f"Cache file is not a valid file: {cache_file}")
                 app_signals.append_log.emit(f"[Cache] Invalid file: {cache_file}")
                 app_signals.update_status.emit("Invalid cache file")
-                QMessageBox.warning(None, "Cache Error", f"Invalid cache file:\n{cache_file}")
+                # QMessageBox.warning(None, "Cache Error", f"Invalid cache file:\n{cache_file}")
                 return
 
             # Read and beautify file content
