@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
-    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel, QLineEdit
+    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel
 )
 
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap
@@ -9,6 +9,8 @@ from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTime
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from login import Ui_Dialog
+from PySide6.QtWidgets import QLineEdit
+
 import sys
 import logging
 import os
@@ -2428,7 +2430,6 @@ class FileWatcherWorker(QObject):
     request_reauth = Signal()
     task_list_update = Signal(list)
     cleanup_signal = Signal()
-    error_occurred = Signal(str, str)  # msg_code, msg_text
 
     _instance = None
     _instance_thread = None
@@ -2484,14 +2485,11 @@ class FileWatcherWorker(QObject):
         else:
             logger.debug("FileWatcherWorker timer already active")
             self.log_update.emit("[FileWatcher] Timer already active")
-            
 
     def _prepare_download_path(self, item):
         """Prepare the local destination path for download using file_path."""
         file_path = item.get("file_path", "").lstrip("/")
         if not file_path:
-            # self.error_occurred.emit("ERROR (MD2)", "Please check Nas Connection.")
-            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise ValueError("Empty file_path in item")
         dest_path = BASE_TARGET_DIR / file_path
         logger.debug(f"Preparing download path: file_path={file_path}, dest_path={dest_path}")
@@ -2503,8 +2501,6 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             logger.error(f"Failed to create directory {dest_path.parent}: {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to create directory {dest_path.parent}: {str(e)}")
-            # self.error_occurred.emit("ERROR (MD2)", "Please check Nas Connection.")
-            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise
         resolved_dest_path = str(dest_path.resolve())
         logger.debug(f"Prepared local path: {resolved_dest_path}")
@@ -2653,7 +2649,6 @@ class FileWatcherWorker(QObject):
         cache.setdefault(metadata_key, {})
 
         try:
-
             src_path = Path(src_path)
             if not src_path.exists():
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
@@ -7391,8 +7386,7 @@ class FileUploadListWindow(QDialog):
             photoshop_btn.setIconSize(QSize(24, 24))
             photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
             self.table.setCellWidget(row, 6, photoshop_btn)
-            
-            print(f"row_data['status']=========={row_data['status']}")
+
             if row_data["status"] == 'Failed' or row_data["status"] == 'Upload Failed':
                 status_btn = QPushButton("Failed")
                 status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
@@ -8070,10 +8064,15 @@ class LoginWorker(QObject):
             cache = load_cache() or {}  # Handle case where load_cache returns None
             logger.debug(f"Loaded cache: {cache}")
             print(f"Loaded cacheaaa: {cache}")
-            
-           
+            cached_user = cache.get("user")
+            cached_token = cache.get("token")
 
-            if not load_cache() or self.username != load_cache().get("user"):
+            # if not load_cache() or self.username != load_cache().get("user"):
+
+            # If new user or cache empty → save cache
+            if not cached_user or self.username != cached_user:
+                logger.debug("New user login or cache empty. Saving full cache data.")
+       
                 cache_data = {
                     "token": access_token,
                     "user": self.username,
@@ -8092,6 +8091,15 @@ class LoginWorker(QObject):
                 save_cache(cache_data)
                 logger.debug(f"Cache saved: {cache_data}")
                 app_signals.append_log.emit(f"[Login] Cache saved for user: {self.username}")
+
+            elif self.username == cached_user and not cached_token:
+                # Same user but token empty → only update token
+                logger.debug("Same user re-login detected. Updating token only.")
+                cache["token"] = access_token
+                cache["cached_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+                save_cache(cache)
+                logger.debug(f"[Login] Token updated for user: {self.username}")
+
             
             logger.debug("Emitting success signal")
             self.success.emit(user_info, access_token)
@@ -8893,7 +8901,7 @@ class PremediaApp(QApplication):
             else:
                 QMessageBox.critical(None, "Initialization Error", f"Failed to initialize application: {str(e)}")
             self.cleanup_and_quit()
-            
+
     def event(self, event):
         try:
             if event.type() == QEvent.ApplicationActivate:
@@ -9670,7 +9678,7 @@ class PremediaApp(QApplication):
                 logger.warning(f"Cache file does not exist: {cache_file}")
                 app_signals.append_log.emit(f"[Cache] Cache file does not exist: {cache_file}")
                 app_signals.update_status.emit("Cache file does not exist")
-                # QMessageBox.warning(None, "Cache Error", f"Cache file does not exist:\n{cache_file}")
+                QMessageBox.warning(None, "Cache Error", f"Cache file does not exist:\n{cache_file}")
                 return
 
             # Verify file is readable
@@ -9678,7 +9686,7 @@ class PremediaApp(QApplication):
                 logger.warning(f"Cache file is not a valid file: {cache_file}")
                 app_signals.append_log.emit(f"[Cache] Invalid file: {cache_file}")
                 app_signals.update_status.emit("Invalid cache file")
-                # QMessageBox.warning(None, "Cache Error", f"Invalid cache file:\n{cache_file}")
+                QMessageBox.warning(None, "Cache Error", f"Invalid cache file:\n{cache_file}")
                 return
 
             # Read and beautify file content
