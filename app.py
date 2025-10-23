@@ -1201,6 +1201,37 @@ def process_single_file(full_file_path):
 
 # ===================== image covertion logic =====================
 
+
+def show_alert_notification(title, message):
+    # if platform.system() == "Windows":
+        # Uses PowerShell toast notification
+        # ps_script = f'''
+        # [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+        # $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+        # $toastXml = $template.GetXml()
+        # $toastNode = $toastXml.GetElementsByTagName("text")
+        # $toastNode.Item(0).AppendChild($toastXml.CreateTextNode("{title}")) > $null
+        # $toastNode.Item(1).AppendChild($toastXml.CreateTextNode("{message}")) > $null
+        # $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+        # [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Python App").Show($toast)
+        # '''
+        # subprocess.run(["powershell", "-Command", ps_script], check=True)
+
+    # if platform.system() != "Windows":
+    #     subprocess.run(["osascript", "-e", f'display notification "{message}" with title "{title}"'])
+    
+    system = platform.system()
+    if system == "Windows":
+        import ctypes
+        # fallback: simple message box
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0)
+    elif system == "Darwin":
+        subprocess.run(["osascript", "-e", f'display notification "{message}" with title "{title}"'])
+    else:
+        print(f"{title}: {message}")
+
+
+
 class FileConversionWorker(QObject):
     finished = Signal(str, str, str)
     error = Signal(str, str)
@@ -2490,6 +2521,8 @@ class FileWatcherWorker(QObject):
         """Prepare the local destination path for download using file_path."""
         file_path = item.get("file_path", "").lstrip("/")
         if not file_path:
+            show_alert_notification("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise ValueError("Empty file_path in item")
         dest_path = BASE_TARGET_DIR / file_path
         logger.debug(f"Preparing download path: file_path={file_path}, dest_path={dest_path}")
@@ -2501,6 +2534,8 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             logger.error(f"Failed to create directory {dest_path.parent}: {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to create directory {dest_path.parent}: {str(e)}")
+            show_alert_notification("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise
         resolved_dest_path = str(dest_path.resolve())
         logger.debug(f"Prepared local path: {resolved_dest_path}")
@@ -2558,6 +2593,7 @@ class FileWatcherWorker(QObject):
                 update_download_upload_metadata(task_id, "failed")
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
                 save_cache(cache, significant_change=True)
+                show_alert_notification("ERROR (D1)", "Please check VPN Connection!")
                 # QMessageBox.warning(None, "ERROR (D1)", f"Please check VPN Connection")
                 return
             # Pick path: either from item dict or src_path
@@ -2589,7 +2625,7 @@ class FileWatcherWorker(QObject):
             update_download_upload_metadata(task_id, "failed")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
             save_cache(cache, significant_change=True)
-            # self.error_occurred.emit("ERROR (D2)", "Download failed try again.")
+            show_alert_notification("ERROR (D2)", "Download failed try again.")
             # QMessageBox.warning(None, "ERROR (D2)", "Download failed try again.")
             raise
 
@@ -2654,7 +2690,7 @@ class FileWatcherWorker(QObject):
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "failed")
-                # self.error_occurred.emit("Error (U1)", "Upload failed try again.")
+                show_alert_notification("Error (U1)", "Upload failed try again.")
                 # QMessageBox.warning(None, "Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
             
@@ -2672,7 +2708,7 @@ class FileWatcherWorker(QObject):
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "failed")
-                # self.error_occurred.emit("Error (U2)", "Please check VPN Connection.")
+                show_alert_notification("Error (U2)", "Please check VPN Connection.")
                 # QMessageBox.warning(None, "Error (U2)", "Please check VPN Connection.")
 
             # Destination path (from item dict or param)
@@ -2717,7 +2753,7 @@ class FileWatcherWorker(QObject):
             print(f"❌ Upload failed: {e}")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
-            # self.error_occurred.emit("Error (U3)", "Upload failed try again.")
+            show_alert_notification("Error (U3)", "Upload failed try again.")
             # QMessageBox.warning(None, "Error (U3)", "Upload failed try again.")
             raise
             
