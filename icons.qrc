@@ -40,7 +40,11 @@
         <file>icons/retry.icns</file>
         <file>icons/retry.ico</file>
         <file>icons/retry.png</file>
-
+        
         <file>icons/vmg-premedia-logo.png</file>
+        <file>icons/vesion_icon.png</file>
+        <file>icons/vesion_icon.ico</file>
+        <file>icons/vesion_icon.icns</file>
+
     </qresource>
 </RCC>

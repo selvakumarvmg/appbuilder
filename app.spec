@@ -60,6 +60,10 @@ icon_files = [
     ("icons/retry.ico", "icons"),
     ("icons/retry.png", "icons"),
     ("icons/vmg-premedia-logo.png", "icons"),
+    ("icons/version_icon.png", "icons"),
+    ("icons/version_icon.ico", "icons"),
+    ("icons/version_icon.icns", "icons"),
+
 ]
 ui_files = [
     ("login.ui", "."),
