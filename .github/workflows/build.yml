@@ -37,35 +37,53 @@ jobs:
         run: pip cache purge
         shell: bash
 
-      # Install dependencies
-      - name: Install dependencies
+      - name: Install dependencies1
         run: |
           echo "Starting dependency installation at $(date)"
           python -m pip install --upgrade pip
           pip install --upgrade wheel setuptools
-          echo "Inspecting requirements.txt..."
-          cat requirements.txt
-          echo "Installing requirements..."
-          pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
+          echo "Filtering requirements for macOS..."
+          grep -v "pyautogui" requirements.txt > requirements-macos.txt
+          echo "Installing filtered requirements..."
+          pip install -r requirements-macos.txt --no-cache-dir --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
           echo "Installing PySide6 and dependencies..."
-          pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
+          pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
           echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
+          pip install pyinstaller==6.14.0 --no-cache-dir --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
           echo "Installing dmgbuild..."
-          pip install dmgbuild --no-cache-dir --force-reinstall --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
-          pip list > installed_packages.txt
-          python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
-          python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
-          echo "Checking PySide6 plugins..."
-          python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
-          cat plugins_path.txt
-          ls -ld "$(cat plugins_path.txt)/platforms" || (echo "❌ PySide6 platforms directory not found" && exit 1)
-          ls -ld "$(cat plugins_path.txt)/imageformats" || (echo "❌ PySide6 imageformats directory not found" && exit 1)
-          find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
-          find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
-          cat plugin_check.txt
+          pip install dmgbuild --no-cache-dir --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
           echo "Dependency installation completed at $(date)"
         shell: bash
+
+      # Install dependencies
+      # - name: Install dependencies
+      #   run: |
+      #     echo "Starting dependency installation at $(date)"
+      #     python -m pip install --upgrade pip
+      #     pip install --upgrade wheel setuptools
+      #     echo "Inspecting requirements.txt..."
+      #     cat requirements.txt
+      #     echo "Installing requirements..."
+      #     pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
+      #     echo "Installing PySide6 and dependencies..."
+      #     pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
+      #     echo "Installing PyInstaller..."
+      #     pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
+      #     echo "Installing dmgbuild..."
+      #     pip install dmgbuild --no-cache-dir --force-reinstall --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
+      #     pip list > installed_packages.txt
+      #     python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+      #     python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
+      #     echo "Checking PySide6 plugins..."
+      #     python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+      #     cat plugins_path.txt
+      #     ls -ld "$(cat plugins_path.txt)/platforms" || (echo "❌ PySide6 platforms directory not found" && exit 1)
+      #     ls -ld "$(cat plugins_path.txt)/imageformats" || (echo "❌ PySide6 imageformats directory not found" && exit 1)
+      #     find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
+      #     find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
+      #     cat plugin_check.txt
+      #     echo "Dependency installation completed at $(date)"
+      #   shell: bash
 
       # Upload install logs
       - name: Upload requirements install log
