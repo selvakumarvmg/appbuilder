@@ -10,7 +10,6 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from login import Ui_Dialog
 from PySide6.QtWidgets import QLineEdit
-import pikepdf
 
 import sys
 import logging
@@ -129,6 +128,29 @@ BASE_TARGET_DIR.mkdir(parents=True, exist_ok=True)
 ICON_CACHE = {}
 def load_icon(path, description):
     return QIcon(path)
+
+def add_version_footer(window, version_text):
+    """
+    Adds a version label to the bottom of any QDialog or QMainWindow.
+    """
+    from PySide6.QtWidgets import QLabel, QVBoxLayout
+    from PySide6.QtCore import Qt
+
+    version_label = QLabel(f"Version: {version_text}")
+    version_label.setAlignment(Qt.AlignRight)
+    version_label.setStyleSheet("color: gray; font-size: 10px; margin-right: 10px;")
+
+    # If the window already has a layout, append it
+    layout = window.layout()
+    if layout:
+        layout.addWidget(version_label)
+    else:
+        new_layout = QVBoxLayout(window)
+        new_layout.addStretch()
+        new_layout.addWidget(version_label)
+        window.setLayout(new_layout)
+
+
 def get_icon_path(icon_name):
     if icon_name in ICON_CACHE:
         return str(ICON_CACHE[icon_name])
@@ -143,10 +165,10 @@ def get_icon_path(icon_name):
     return icon_path
 
 ICON_PATH = get_icon_path({
-    "Windows": "premedia.ico",
-    "Darwin": "premedia.icns",
-    "Linux": "premedia.png"
-}.get(platform.system(), "premedia.png"))
+    "Windows": "login-logo.ico",
+    "Darwin": "login-logo.icns",
+    "Linux": "login-logo.png"
+}.get(platform.system(), "login-logo.png"))
 
 
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
@@ -204,7 +226,7 @@ NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
-
+APPVERSION = "1.0.0"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
@@ -1201,6 +1223,37 @@ def process_single_file(full_file_path):
 
 
 # ===================== image covertion logic =====================
+
+
+def show_alert_notification(title, message):
+    # if platform.system() == "Windows":
+        # Uses PowerShell toast notification
+        # ps_script = f'''
+        # [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+        # $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+        # $toastXml = $template.GetXml()
+        # $toastNode = $toastXml.GetElementsByTagName("text")
+        # $toastNode.Item(0).AppendChild($toastXml.CreateTextNode("{title}")) > $null
+        # $toastNode.Item(1).AppendChild($toastXml.CreateTextNode("{message}")) > $null
+        # $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+        # [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Python App").Show($toast)
+        # '''
+        # subprocess.run(["powershell", "-Command", ps_script], check=True)
+
+    # if platform.system() != "Windows":
+    #     subprocess.run(["osascript", "-e", f'display notification "{message}" with title "{title}"'])
+    
+    system = platform.system()
+    if system == "Windows":
+        import ctypes
+        # fallback: simple message box
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0)
+    elif system == "Darwin":
+        subprocess.run(["osascript", "-e", f'display notification "{message}" with title "{title}"'])
+    else:
+        print(f"{title}: {message}")
+
+
 
 class FileConversionWorker(QObject):
     finished = Signal(str, str, str)
@@ -2491,6 +2544,8 @@ class FileWatcherWorker(QObject):
         """Prepare the local destination path for download using file_path."""
         file_path = item.get("file_path", "").lstrip("/")
         if not file_path:
+            show_alert_notification("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise ValueError("Empty file_path in item")
         dest_path = BASE_TARGET_DIR / file_path
         logger.debug(f"Preparing download path: file_path={file_path}, dest_path={dest_path}")
@@ -2502,6 +2557,8 @@ class FileWatcherWorker(QObject):
         except Exception as e:
             logger.error(f"Failed to create directory {dest_path.parent}: {str(e)}")
             self.log_update.emit(f"[Transfer] Failed to create directory {dest_path.parent}: {str(e)}")
+            show_alert_notification("ERROR (MD2)", "Please check Nas Connection.")
+            # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
             raise
         resolved_dest_path = str(dest_path.resolve())
         logger.debug(f"Prepared local path: {resolved_dest_path}")
@@ -2559,6 +2616,7 @@ class FileWatcherWorker(QObject):
                 update_download_upload_metadata(task_id, "failed")
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
                 save_cache(cache, significant_change=True)
+                show_alert_notification("ERROR (D1)", "Please check VPN Connection!")
                 # QMessageBox.warning(None, "ERROR (D1)", f"Please check VPN Connection")
                 return
             # Pick path: either from item dict or src_path
@@ -2590,7 +2648,7 @@ class FileWatcherWorker(QObject):
             update_download_upload_metadata(task_id, "failed")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
             save_cache(cache, significant_change=True)
-            # self.error_occurred.emit("ERROR (D2)", "Download failed try again.")
+            show_alert_notification("ERROR (D2)", "Download failed try again.")
             # QMessageBox.warning(None, "ERROR (D2)", "Download failed try again.")
             raise
 
@@ -2639,16 +2697,7 @@ class FileWatcherWorker(QObject):
     #         self.log_update.emit(f"[Transfer] Set permissions to 777 for uploaded file: {dest_path}")
     #     finally:
     #         transport.close()
-    ### 🔹 NEW: Function added to validate if a PDF is correct or corrupted
-    def is_pdf_valid(file_path: Path) -> bool:
-        """Check if a PDF is valid or corrupted using qpdf engine."""
-        try:
-            with pikepdf.open(file_path) as pdf:
-                pdf.check()  # Integrity validation
-            return True
-        except Exception as e:
-            print(f"❌ Corrupted PDF detected: {file_path.name} ({e})")
-            return False
+    
     
     def _upload_to_nas(self, src_path, dest_path, item):
         """Upload a file to NAS via SFTP and measure speed/time."""
@@ -2664,7 +2713,7 @@ class FileWatcherWorker(QObject):
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "failed")
-                # self.error_occurred.emit("Error (U1)", "Upload failed try again.")
+                show_alert_notification("Error (U1)", "Upload failed try again.")
                 # QMessageBox.warning(None, "Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
             
@@ -2682,7 +2731,7 @@ class FileWatcherWorker(QObject):
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "failed")
-                # self.error_occurred.emit("Error (U2)", "Please check VPN Connection.")
+                show_alert_notification("Error (U2)", "Please check VPN Connection.")
                 # QMessageBox.warning(None, "Error (U2)", "Please check VPN Connection.")
 
             # Destination path (from item dict or param)
@@ -2719,40 +2768,6 @@ class FileWatcherWorker(QObject):
             print(f"Connection time: {connection_time:.1f} ms")
             print(f"✅ Uploaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
 
-            ### 🔹 NEW: Compare source vs NAS file size after upload
-            src_size = src_path.stat().st_size
-            dest_attr = sftp.stat(dest_path)
-            dest_size = dest_attr.st_size
-
-            if src_size != dest_size:
-                cache[metadata_key][spec_id]["api_response"]["request_status"] = "Invalid Format"
-                save_cache(cache, significant_change=True)
-                print("❌ Upload failed - size mismatch (possible corruption)")
-                return
-
-            ### 🔹 NEW: Check PDF validity (even if same file size)
-            if src_path.suffix.lower() == ".pdf":
-                print("🔍 Checking PDF validity...")
-
-                # 1️⃣ Check local file
-                if not is_pdf_valid(src_path):
-                    cache[metadata_key][spec_id]["api_response"]["request_status"] = "Invalid Format"
-                    save_cache(cache, significant_change=True)
-                    print("❌ Source PDF is corrupted.")
-                    return
-
-                # 2️⃣ Check uploaded NAS copy (download and verify)
-                temp_local_copy = Path("/tmp/verify_uploaded.pdf")
-                sftp.get(dest_path, str(temp_local_copy))
-
-                if not is_pdf_valid(temp_local_copy):
-                    cache[metadata_key][spec_id]["api_response"]["request_status"] = "Invalid Format"
-                    save_cache(cache, significant_change=True)
-                    print("❌ Uploaded PDF is corrupted (cannot open).")
-                    return
-
-                print("✅ PDF integrity verified successfully.")
-
             # Close connection
             sftp.close()
             transport.close()
@@ -2761,7 +2776,7 @@ class FileWatcherWorker(QObject):
             print(f"❌ Upload failed: {e}")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
-            # self.error_occurred.emit("Error (U3)", "Upload failed try again.")
+            show_alert_notification("Error (U3)", "Upload failed try again.")
             # QMessageBox.warning(None, "Error (U3)", "Upload failed try again.")
             raise
             
@@ -5559,6 +5574,7 @@ class FileDownloadListWindow(QDialog):
         layout.addLayout(search_layout)
         layout.addWidget(self.table)
         self.setLayout(layout)
+        add_version_footer(self, APPVERSION)
 
         # Store original rows for filtering
         self.original_rows = []
@@ -7224,6 +7240,7 @@ class FileUploadListWindow(QDialog):
         layout.addLayout(search_layout)
         layout.addWidget(self.table)
         self.setLayout(layout)
+        add_version_footer(self, APPVERSION)
 
         # Store original rows for filtering
         self.original_rows = []
@@ -8229,6 +8246,7 @@ class LoginDialog(QDialog):
             main_layout.setContentsMargins(5, 5, 5, 5)
             main_layout.setSpacing(5)
             self.setLayout(main_layout)
+            add_version_footer(self, APPVERSION)
 
             cache = load_cache()
             token = cache.get("token")
@@ -8391,7 +8409,7 @@ class LoginDialog(QDialog):
             logger.error(f"Error in cleanup_progress: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Error in cleanup_progress - {str(e)}")
 
-    
+ 
     def on_login_success(self, user_info: dict, token: str):
         try:
             logger.info(f"Login successful for user_id: {user_info['uid']}")
@@ -9029,6 +9047,173 @@ class PremediaApp(QApplication):
 
 
 
+    # def update_tray_menu(self):
+    #     try:
+    #         # Check if system tray is available and tray_icon is initialized
+    #         if not self.tray_icon or not QSystemTrayIcon.isSystemTrayAvailable():
+    #             logger.warning("System tray not available or tray_icon not initialized")
+    #             return
+
+    #         # Clear the existing tray menu to rebuild it
+    #         self.tray_menu.clear()
+    #         user_fullname = "Unknown"  # Default value
+
+    #         # Load user full name (with fallback) from cache if logged in
+    #         if self.logged_in:
+    #             try:
+    #                 cache_file = Path(self.CACHE_FILE).resolve()
+    #                 if cache_file.exists() and cache_file.is_file():
+    #                     with cache_file.open('r', encoding='utf-8') as f:
+    #                         cache_data = json.load(f)
+
+    #                     user_data = cache_data.get('user_data', {}).get('data', [])
+    #                     if user_data and isinstance(user_data, list):
+    #                         attributes = user_data[0].get('attributes', {})
+
+    #                         # Fallback order: field_fullname → name → mail → "Unknown"
+    #                         user_fullname = (
+    #                             attributes.get('field_fullname')
+    #                             or attributes.get('name')
+    #                             or attributes.get('mail')
+    #                             or "Unknown"
+    #                         )
+
+    #                         user_fullname = str(user_fullname).strip()
+    #                         if not user_fullname:
+    #                             user_fullname = "Unknown"
+
+    #                         logger.debug(f"Resolved tray user name: {user_fullname}")
+    #                         app_signals.append_log.emit(f"[Tray] User name resolved: {user_fullname}")
+    #                     else:
+    #                         logger.warning("Cache user_data missing or not a list")
+    #                         user_fullname = "Unknown"
+    #                 else:
+    #                     logger.warning(f"Cache file missing or invalid: {cache_file}")
+    #                     app_signals.append_log.emit(f"[Tray] Cache file missing: {cache_file}")
+    #                     user_fullname = "Unknown"
+    #             except (json.JSONDecodeError, IOError) as e:
+    #                 logger.error(f"Failed to read fullname from cache: {e}")
+    #                 app_signals.append_log.emit(f"[Tray] Failed to read cache: {str(e)}")
+    #                 user_fullname = "Unknown"
+
+    #         # Clear icon cache to ensure fresh icons are loaded
+    #         ICON_CACHE.clear()
+    #         logger.debug(f"update_tray_menu: self.logged_in = {self.logged_in}")
+
+    #         # Select platform-specific tray icon based on login status
+    #         tray_icon_name = {
+    #             "Windows": "logged_in_icon.ico" if self.logged_in else "logout-logo.ico",
+    #             "Darwin": "logged_in_icon.icns" if self.logged_in else "logout-logo.icns",
+    #             "Linux": "logged_in_icon.png" if self.logged_in else "logout-logo.png"
+    #         }.get(platform.system(), "logout-logo.png")
+
+    #         icon_path = get_icon_path(tray_icon_name)
+
+    #         # Windows-specific workaround to refresh tray icon
+    #         if platform.system() == "Windows":
+    #             dummy_icon_path = get_icon_path("premedia.png")
+    #             self.tray_icon.setIcon(QIcon(dummy_icon_path))  # Set temporary icon
+    #             QApplication.processEvents()
+
+    #         # Set the actual tray icon, falling back to default if invalid
+    #         if not Path(icon_path).exists() or QIcon(icon_path).isNull():
+    #             icon_path = get_icon_path("premedia.png")
+    #         self.tray_icon.setIcon(QIcon(icon_path))
+    #         self.tray_icon.setToolTip(
+    #             f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in else 'Not logged in'}"
+    #         )
+    #         QApplication.processEvents()
+
+    #         logger.debug(f"Tray icon updated: {icon_path}, logged_in={self.logged_in}")
+
+    #         # Helper function to set up action icons with fallback
+    #         def setup_action(action, icon_name, visible=True, enabled=True):
+    #             path = get_icon_path(icon_name)
+    #             if not Path(path).exists() or QIcon(path).isNull():
+    #                 path = get_icon_path("premedia.png")  # Fallback icon
+    #             action.setIcon(QIcon(path))
+    #             action.setVisible(visible)
+    #             action.setEnabled(enabled)
+
+    #         # Create user info action (always shown when logged in)
+    #         user_icon_name = {
+    #             "Windows": "user_icon.ico",
+    #             "Darwin": "user_icon.icns",
+    #             "Linux": "user_icon.png"
+    #         }.get(platform.system(), "user_icon.png")
+
+    #         user_action = QAction(f"{user_fullname}", self.tray_menu)
+    #         user_action.setEnabled(False)  # Non-interactive user info
+    #         font = QFont()
+    #         font.setBold(True)
+    #         user_action.setFont(font)
+    #         setup_action(user_action, user_icon_name)
+
+    #         if self.logged_in:
+    #             self.tray_menu.addAction(user_action)
+    #             self.tray_menu.addSeparator()
+
+    #         # Set up main actions with platform-specific icons
+    #         setup_action(self.login_action, {
+    #             "Windows": "login_icon.ico",
+    #             "Darwin": "login_icon.icns",
+    #             "Linux": "login_icon.png"
+    #         }.get(platform.system(), "login_icon.png"), visible=not self.logged_in, enabled=not self.logged_in)
+
+    #         setup_action(self.logout_action, {
+    #             "Windows": "logout_icon.ico",
+    #             "Darwin": "logout_icon.icns",
+    #             "Linux": "logout_icon.png"
+    #         }.get(platform.system(), "logout_icon.png"), visible=self.logged_in, enabled=self.logged_in)
+
+    #         setup_action(self.downloaded_files_action, {
+    #             "Windows": "download_icon.ico",
+    #             "Darwin": "download_icon.icns",
+    #             "Linux": "download_icon.png"
+    #         }.get(platform.system(), "download_icon.png"), visible=True, enabled=self.logged_in)
+
+    #         setup_action(self.uploaded_files_action, {
+    #             "Windows": "upload_icon.ico",
+    #             "Darwin": "upload_icon.icns",
+    #             "Linux": "upload_icon.png"
+    #         }.get(platform.system(), "upload_icon.png"), visible=True, enabled=self.logged_in)
+
+    #         setup_action(self.clear_cache_action, {
+    #             "Windows": "clear_cache_icon.ico",
+    #             "Darwin": "clear_cache_icon.icns",
+    #             "Linux": "clear_cache_icon.png"
+    #         }.get(platform.system(), "clear_cache_icon.png"), visible=True, enabled=self.logged_in)
+
+    #         setup_action(self.quit_action, {
+    #             "Windows": "quit_icon.ico",
+    #             "Darwin": "quit_icon.icns",
+    #             "Linux": "quit_icon.png"
+    #         }.get(platform.system(), "quit_icon.png"), visible=True, enabled=True)
+
+    #         # Add actions to tray menu in order
+    #         self.tray_menu.addSeparator()
+    #         self.tray_menu.addAction(self.downloaded_files_action)
+    #         self.tray_menu.addAction(self.uploaded_files_action)
+    #         self.tray_menu.addSeparator()
+    #         self.tray_menu.addAction(self.clear_cache_action)
+    #         self.tray_menu.addSeparator()
+    #         self.tray_menu.addAction(self.login_action)
+    #         self.tray_menu.addAction(self.logout_action)
+    #         self.tray_menu.addSeparator()
+    #         self.tray_menu.addAction(self.quit_action)
+
+    #         # Set the context menu for the tray icon
+    #         self.tray_icon.setContextMenu(self.tray_menu)
+
+    #         logger.debug(f"Tray menu updated: logged_in={self.logged_in}, user={user_fullname}")
+    #         app_signals.append_log.emit(f"[Tray] Menu updated: User={user_fullname}")
+
+    #     except Exception as e:
+    #         logger.error(f"Error updating tray menu: {e}\n{traceback.format_exc()}")
+    #         app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
+    #         app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
+    #         QMessageBox.critical(None, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
+
     def update_tray_menu(self):
         try:
             # Check if system tray is available and tray_icon is initialized
@@ -9084,22 +9269,22 @@ class PremediaApp(QApplication):
 
             # Select platform-specific tray icon based on login status
             tray_icon_name = {
-                "Windows": "logged_in_icon.ico" if self.logged_in else "premedia.ico",
-                "Darwin": "logged_in_icon.icns" if self.logged_in else "premedia.icns",
-                "Linux": "logged_in_icon.png" if self.logged_in else "premedia.png"
-            }.get(platform.system(), "premedia.png")
+                "Windows": "logged_in_icon.ico" if self.logged_in else "logout-logo.ico",
+                "Darwin": "logged_in_icon.icns" if self.logged_in else "logout-logo.icns",
+                "Linux": "logged_in_icon.png" if self.logged_in else "logout-logo.png"
+            }.get(platform.system(), "logout-logo.png")
 
             icon_path = get_icon_path(tray_icon_name)
 
             # Windows-specific workaround to refresh tray icon
             if platform.system() == "Windows":
-                dummy_icon_path = get_icon_path("premedia.png")
+                dummy_icon_path = get_icon_path("logged_in_icon.png")
                 self.tray_icon.setIcon(QIcon(dummy_icon_path))  # Set temporary icon
                 QApplication.processEvents()
 
             # Set the actual tray icon, falling back to default if invalid
             if not Path(icon_path).exists() or QIcon(icon_path).isNull():
-                icon_path = get_icon_path("premedia.png")
+                icon_path = get_icon_path("logged_in_icon.png")
             self.tray_icon.setIcon(QIcon(icon_path))
             self.tray_icon.setToolTip(
                 f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in else 'Not logged in'}"
@@ -9184,19 +9369,39 @@ class PremediaApp(QApplication):
             self.tray_menu.addSeparator()
             self.tray_menu.addAction(self.quit_action)
 
+            # Add version display at the bottom with icon
+            try:
+                version_text = f"Version: {APPVERSION}"
+            except NameError:
+                version_text = "Version: Unknown"
+                logger.warning("APPVERSION global variable not defined")
+                app_signals.append_log.emit("[Tray] APPVERSION global variable not defined")
+            version_action = QAction(version_text, self.tray_menu)
+            version_action.setEnabled(False)  # Non-interactive
+            font = QFont()
+            font.setBold(True)
+            version_action.setFont(font)
+            # Set platform-specific version icon
+            version_icon_name = {
+                "Windows": "version_icon.ico",
+                "Darwin": "version_icon.icns",
+                "Linux": "version_icon.png"
+            }.get(platform.system(), "version_icon.png")
+            setup_action(version_action, version_icon_name)
+            self.tray_menu.addSeparator()
+            self.tray_menu.addAction(version_action)
+
             # Set the context menu for the tray icon
             self.tray_icon.setContextMenu(self.tray_menu)
 
-            logger.debug(f"Tray menu updated: logged_in={self.logged_in}, user={user_fullname}")
-            app_signals.append_log.emit(f"[Tray] Menu updated: User={user_fullname}")
+            logger.debug(f"Tray menu updated: logged_in={self.logged_in}, user={user_fullname}, version={version_text}")
+            app_signals.append_log.emit(f"[Tray] Menu updated: User={user_fullname}, Version={version_text}")
 
         except Exception as e:
             logger.error(f"Error updating tray menu: {e}\n{traceback.format_exc()}")
             app_signals.append_log.emit(f"[Tray] Failed to update tray menu: {str(e)}")
             app_signals.update_status.emit(f"Failed to update tray menu: {str(e)}")
             QMessageBox.critical(None, "Tray Menu Error", f"Failed to update tray menu: {str(e)}")
-
-
 
     # def start_file_watcher(self):
     #     global FILE_WATCHER_RUNNING
