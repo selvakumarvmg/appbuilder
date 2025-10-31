@@ -172,25 +172,18 @@ def get_icon_path(icon_name):
     # Use cache if available
     if icon_name in ICON_CACHE:
         return str(ICON_CACHE[icon_name])
-
     try:
         # Detect if app is running as a PyInstaller bundle
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             icons_dir = Path(sys._MEIPASS) / "icons"
         else:
             icons_dir = BASE_DIR / "icons"
-
         icon_path = icons_dir / icon_name
-
         if not icon_path.exists():
-            logger.warning(f"Icon not found: {icon_path}")
             app_signals.append_log.emit(f"[Icons] Missing icon: {icon_path}")
-
         ICON_CACHE[icon_name] = icon_path
         return str(icon_path)
-
     except Exception as e:
-        logger.error(f"Error resolving icon path for {icon_name}: {e}")
         app_signals.append_log.emit(f"[Icons] Error resolving {icon_name}: {str(e)}")
         return str(BASE_DIR / "icons" / icon_name)
 
