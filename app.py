@@ -168,23 +168,28 @@ def add_version_footer(window, version_text):
 def get_icon_path(icon_name):
     """
     Returns the correct path to an icon for both source and frozen (PyInstaller) builds.
+    Safe version: does not rely on app_signals during startup.
     """
-    # Use cache if available
+    # Use cached path if already resolved
     if icon_name in ICON_CACHE:
         return str(ICON_CACHE[icon_name])
+
     try:
-        # Detect if app is running as a PyInstaller bundle
+        # Detect PyInstaller frozen mode
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             icons_dir = Path(sys._MEIPASS) / "icons"
         else:
             icons_dir = BASE_DIR / "icons"
+
         icon_path = icons_dir / icon_name
+
         if not icon_path.exists():
-            app_signals.append_log.emit(f"[Icons] Missing icon: {icon_path}")
+            print(f"[Icons] Missing icon file: {icon_path}")
+
         ICON_CACHE[icon_name] = icon_path
         return str(icon_path)
     except Exception as e:
-        app_signals.append_log.emit(f"[Icons] Error resolving {icon_name}: {str(e)}")
+        # Fallback path (won’t raise further exceptions)
         return str(BASE_DIR / "icons" / icon_name)
 
 ICON_PATH = get_icon_path({
@@ -192,7 +197,6 @@ ICON_PATH = get_icon_path({
     "Darwin": "login-logo.icns",
     "Linux": "login-logo.png"
 }.get(platform.system(), "login-logo.png"))
-
 
 PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
