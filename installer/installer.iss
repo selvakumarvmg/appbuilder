@@ -88,6 +88,14 @@ Source: "..\icons\user_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\version_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\version_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\version_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+
+Source: "..\icons\login-logo.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\login-logo.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\login-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+
+Source: "..\icons\logout-logo.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\logout-logo.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\logout-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\vmg-premedia-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]

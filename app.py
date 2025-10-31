@@ -164,41 +164,37 @@ def add_version_footer(window, version_text):
 #     ICON_CACHE[icon_name] = icon_path
 #     return icon_path
 
+ICON_CACHE = {}
+BASE_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 
-def get_icon_path(icon_name):
+def get_icon_path(icon_name: str) -> str:
     """
-    Returns the correct icon path or Qt resource URL.
-    Supports both compiled resources (:/icons/) and filesystem paths.
+    Returns a safe and correct path to an icon file for both source and frozen builds.
     """
     if icon_name in ICON_CACHE:
-        return ICON_CACHE[icon_name]
+        return str(ICON_CACHE[icon_name])
 
-    try:
-        # Prefer Qt resource path if exists in .qrc
-        qrc_path = f":/icons/{icon_name}"
-        icon = QIcon(qrc_path)
-        if not icon.isNull():
-            ICON_CACHE[icon_name] = qrc_path
-            return qrc_path
+    # Detect icon directory (inside _MEIPASS for frozen apps)
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        icons_dir = Path(sys._MEIPASS) / "icons"
+    else:
+        icons_dir = BASE_DIR / "icons"
 
-        # Fallback: check filesystem (frozen or normal)
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            icons_dir = Path(sys._MEIPASS) / "icons"
-        else:
-            icons_dir = BASE_DIR / "icons"
+    icon_path = icons_dir / icon_name
 
-        icon_path = icons_dir / icon_name
-        ICON_CACHE[icon_name] = str(icon_path)
-        return str(icon_path)
-    except Exception:
-        return str(BASE_DIR / "icons" / icon_name)
-    
+    # Debug log to help verify path at runtime
+    if not icon_path.exists():
+        print(f"[Icons] ⚠️ Missing icon: {icon_path}")
+
+    ICON_CACHE[icon_name] = icon_path
+    return str(icon_path)
+
 # OS-specific main icon
 ICON_PATH = get_icon_path({
-    "Windows": "premedia.ico",
-    "Darwin": "premedia.icns",
-    "Linux": "premedia.png"
-}.get(platform.system(), "premedia.png"))
+    "Windows": "login-logo.ico",
+    "Darwin": "login-logo.icns",
+    "Linux": "login-logo.png"
+}.get(platform.system(), "login-logo.png"))
 
 # PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
 # COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
