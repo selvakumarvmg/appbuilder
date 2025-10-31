@@ -14,6 +14,7 @@
         <file>icons/folder.png</file>
         <file>icons/login_icon.ico</file>
         <file>icons/login_icon.png</file>
+        <file>icons/login_icon.icns</file>
         <file>icons/logout_icon.icns</file>
         <file>icons/logout_icon.ico</file>
         <file>icons/logout_icon.png</file>
@@ -40,7 +41,9 @@
         <file>icons/retry.icns</file>
         <file>icons/retry.ico</file>
         <file>icons/retry.png</file>
-
+        <file>icons/version_icon.png</file>
+        <file>icons/version_icon.ico</file>
+        <file>icons/version_icon.icns</file>
         <file>icons/vmg-premedia-logo.png</file>
     </qresource>
 </RCC>

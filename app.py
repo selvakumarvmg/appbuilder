@@ -9269,9 +9269,9 @@ class PremediaApp(QApplication):
 
             # Select platform-specific tray icon based on login status
             tray_icon_name = {
-                "Windows": "logged_in_icon.ico" if self.logged_in else "logout-logo.ico",
-                "Darwin": "logged_in_icon.icns" if self.logged_in else "logout-logo.icns",
-                "Linux": "logged_in_icon.png" if self.logged_in else "logout-logo.png"
+                "Windows": "login-logo.ico" if self.logged_in else "logout-logo.ico",
+                "Darwin": "login-logo.icns" if self.logged_in else "logout-logo.icns",
+                "Linux": "login-logo.png" if self.logged_in else "logout-logo.png"
             }.get(platform.system(), "logout-logo.png")
 
             icon_path = get_icon_path(tray_icon_name)
