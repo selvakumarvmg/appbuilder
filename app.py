@@ -167,41 +167,50 @@ def add_version_footer(window, version_text):
 
 def get_icon_path(icon_name):
     """
-    Returns the correct path to an icon for both source and frozen (PyInstaller) builds.
-    Safe version: does not rely on app_signals during startup.
+    Returns the correct icon path or Qt resource URL.
+    Supports both compiled resources (:/icons/) and filesystem paths.
     """
-    # Use cached path if already resolved
     if icon_name in ICON_CACHE:
-        return str(ICON_CACHE[icon_name])
+        return ICON_CACHE[icon_name]
 
     try:
-        # Detect PyInstaller frozen mode
+        # Prefer Qt resource path if exists in .qrc
+        qrc_path = f":/icons/{icon_name}"
+        icon = QIcon(qrc_path)
+        if not icon.isNull():
+            ICON_CACHE[icon_name] = qrc_path
+            return qrc_path
+
+        # Fallback: check filesystem (frozen or normal)
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             icons_dir = Path(sys._MEIPASS) / "icons"
         else:
             icons_dir = BASE_DIR / "icons"
 
         icon_path = icons_dir / icon_name
-
-        if not icon_path.exists():
-            print(f"[Icons] Missing icon file: {icon_path}")
-
-        ICON_CACHE[icon_name] = icon_path
+        ICON_CACHE[icon_name] = str(icon_path)
         return str(icon_path)
-    except Exception as e:
-        # Fallback path (won’t raise further exceptions)
+    except Exception:
         return str(BASE_DIR / "icons" / icon_name)
-
+    
+# OS-specific main icon
 ICON_PATH = get_icon_path({
-    "Windows": "login-logo.ico",
-    "Darwin": "login-logo.icns",
-    "Linux": "login-logo.png"
-}.get(platform.system(), "login-logo.png"))
+    "Windows": "premedia.ico",
+    "Darwin": "premedia.icns",
+    "Linux": "premedia.png"
+}.get(platform.system(), "premedia.png"))
 
-PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
-COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
-RETRY_ICON_PATH = get_icon_path("retry.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
-FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+# PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png") if (BASE_DIR / "icons" / "photoshop.png").exists() else ""
+# COPY_ICON_PATH = get_icon_path("copy_icon.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+# RETRY_ICON_PATH = get_icon_path("retry.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+# FOLDER_ICON_PATH = get_icon_path("folder.png") if (BASE_DIR / "icons" / "folder.png").exists() else ""
+
+PHOTOSHOP_ICON_PATH = get_icon_path("photoshop.png")
+COPY_ICON_PATH = get_icon_path("copy_icon.png")
+RETRY_ICON_PATH = get_icon_path("retry.png")
+FOLDER_ICON_PATH = get_icon_path("folder.png")
+
+
 def get_cache_file_path():
     # Use BASE_TARGET_DIR as the base for cache file generation
     cache_dir = Path(BASE_TARGET_DIR) / "PremediaApp"
