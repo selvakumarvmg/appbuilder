@@ -283,9 +283,26 @@ jobs:
           echo "Installing Visual Studio 2022 Build Tools at $(Get-Date)"
           choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
           echo "Verifying MSVC installation..."
-          dir "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
-          echo "Visual Studio 2022 Build Tools installation completed at $(Get-Date)"
+          $msvcPaths = @(
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC",
+            "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
+          )
+          $found = $false
+          foreach ($path in $msvcPaths) {
+            if (Test-Path $path) {
+              Write-Host "✅ Found MSVC at: $path"
+              dir $path
+              $found = $true
+              break
+            }
+          }
+          if (-not $found) {
+            Write-Error "❌ MSVC path not found in either Program Files or Program Files (x86)."
+            exit 1
+          }
+          echo "Visual Studio Build Tools installation completed at $(Get-Date)"
         shell: powershell
+
 
 
       # Cache pip packages
