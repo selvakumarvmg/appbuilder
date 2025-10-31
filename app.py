@@ -1,3 +1,5 @@
+import socket
+import uuid
 from PySide6.QtWidgets import (
     QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
@@ -5,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap
-from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir
+from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QEventLoop
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from login import Ui_Dialog
@@ -72,6 +74,8 @@ if platform.system() == "Windows":
     import win32com.client
     import win32gui
     import win32con
+
+
 SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
     "psd", "psb", "cr2", "nef", "arw", "dng", "raf", "pef", "srw"
@@ -271,6 +275,7 @@ app_signals = None
 LAST_API_HIT_TIME = None
 NEXT_API_HIT_TIME = None
 
+USER_SYSTEM_INFO = {}
 # === Logging Setup ===
 logger = logging.getLogger("PremediaApp")
 logger.setLevel(logging.INFO)  # Only INFO and higher allowed
@@ -522,6 +527,136 @@ CACHE_DAYS = 7
 #         initialize_cache()
 #         return default_cache
 
+def get_system_info():
+    try:
+        uname = platform.uname()
+    except Exception:
+        uname = None
+        print("uname not found")
+
+    info = {}
+    
+    
+    # === CPU Info ===
+    try:
+        info["cpu"] = {
+            "physical_cores": psutil.cpu_count(logical=False),
+            "total_cores": psutil.cpu_count(logical=True),
+            "max_frequency_mhz": psutil.cpu_freq().max if psutil.cpu_freq() else None,
+            "min_frequency_mhz": psutil.cpu_freq().min if psutil.cpu_freq() else None,
+            "current_frequency_mhz": psutil.cpu_freq().current if psutil.cpu_freq() else None,
+            "cpu_usage_percent": psutil.cpu_percent(interval=1),
+            "per_core_usage_percent": psutil.cpu_percent(interval=1, percpu=True)
+        }
+    except Exception as e:
+        info["cpu"] = {"error": str(e)}
+
+
+
+    # === OS and System Info ===
+    info["system"] = {
+        "os": uname.system if uname else platform.system(),
+        "node_name": uname.node if uname else socket.gethostname(),
+        "release": uname.release if uname else "",
+        "version": uname.version if uname else "",
+        "machine": uname.machine if uname else platform.machine(),
+        "processor": uname.processor if uname else platform.processor(),
+        "architecture": platform.architecture()[0],
+    }
+    try:
+        system = platform.system().lower()
+        if system == "darwin":  # macOS
+            print('darwin')
+            serial = subprocess.check_output(["system_profiler", "SPHardwareDataType"], text=True)
+            info["system"]["hardware_serial"] = next((line.split(":")[1].strip()
+                                                    for line in serial.splitlines()
+                                                    if "Serial Number" in line), None)
+        elif system == "windows":
+            serial = subprocess.check_output(["wmic", "bios", "get", "serialnumber"], text=True)
+            lines = [line.strip() for line in serial.split("\n") if line.strip()]
+            if len(lines) >= 2:
+                # First line is usually "SerialNumber", second is actual value
+                info["system"]["hardware_serial"] = lines[1]
+            else:
+                info["system"]["hardware_serial"] = 'None'
+            
+    except Exception:
+        info["system"]["hardware_serial"] = 'None'
+        
+        
+    # === System Identifiers ===
+    try:
+        if platform.system().lower() == "windows":
+            info["identifiers"] = {
+                "hostname": socket.gethostname(),
+                "ip_address": socket.gethostbyname(socket.gethostname()),
+                "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
+                                        for elements in range(0, 2 * 6, 8)][::-1]),
+                "uuid": str(uuid.uuid1())
+            }
+        elif platform.system().lower() == "darwin":
+            # safer way to get local IP address
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))  # connect to Google DNS (no data sent)
+            ip_address = s.getsockname()[0]
+            s.close()
+
+            info["identifiers"] = {
+                "hostname": socket.gethostname(),
+                "ip_address": ip_address,
+                "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
+                                        for elements in range(0, 2 * 6, 8)][::-1]),
+                "uuid": str(uuid.uuid1())
+            }
+    except Exception as e:
+        info["identifiers"] = {"error": str(e)}
+
+
+
+    # === Additional macOS/Windows Specific Info ===
+    try:
+        net_if_addrs = psutil.net_if_addrs()
+        net_if_stats = psutil.net_if_stats()
+        network_info = []
+        for interface_name, addrs in net_if_addrs.items():
+            iface = {"name": interface_name, "mac": None, "ipv4": [], "ipv6": [], "is_up": False}
+            for addr in addrs:
+                if addr.family == socket.AF_INET:
+                    iface["ipv4"].append({
+                        "address": addr.address,
+                        "netmask": addr.netmask,
+                        "broadcast": addr.broadcast
+                    })
+                elif addr.family == socket.AF_INET6:
+                    iface["ipv6"].append({
+                        "address": addr.address.split('%')[0],
+                        "netmask": addr.netmask
+                    })
+                elif getattr(psutil, "AF_LINK", None) and addr.family == psutil.AF_LINK:
+                    iface["mac"] = addr.address
+            iface["is_up"] = net_if_stats.get(interface_name, None) and net_if_stats[interface_name].isup
+            network_info.append(iface)
+        info["network"] = network_info
+        data = {}
+        data["ip_address"] = info.get("identifiers", {}).get("ip_address", "")
+        data["mac_address"] = info.get("identifiers", {}).get("mac_address", "")
+        
+        mac_address = info.get("identifiers", {}).get("mac_address", "")
+        if mac_address:
+            encoded_mac = hashlib.md5(mac_address.encode()).hexdigest()
+        else:
+            encoded_mac = ""
+
+        data["encoded_mac"] = encoded_mac
+        
+        data["details"] = info
+        global USER_SYSTEM_INFO
+        USER_SYSTEM_INFO = data
+        print(f"USER_SYSTEM_INFO ======== {USER_SYSTEM_INFO}")
+    except Exception as e:
+        info["network"] = {"error": str(e)}
+
+get_system_info()
 
 def get_default_cache():
     """Return a fresh cache dictionary with created_at set once."""
@@ -4151,7 +4286,8 @@ class FileWatcherWorker(QObject):
             headers = {"Authorization": f"Bearer {token}"}
             max_retries = 3
             tasks = []
-            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}"
+            print(f"USER_SYSTEM_INFO.get(identifiers,).get(encoded_mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
+            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
 
             for attempt in range(max_retries):
                 try:
@@ -8041,21 +8177,23 @@ class FileUploadListWindow(QDialog):
 
 
 # LoginWorker (provided, with fixes)
-
 class LoginWorker(QObject):
     success = Signal(dict, str) 
     failure = Signal(str)
-    
-    def __init__(self, username, password, remember_me, tray_icon, status_bar):
+    user_in_use = Signal(str)
+    proceed = None
+    def __init__(self, username, password, remember_me, tray_icon, status_bar, switch_login):
         super().__init__()
         self.username = username
         self.password = password
         self.rememberme = remember_me
         self.tray_icon = tray_icon
         self.status_bar = status_bar
-    
+        self.switch_login = switch_login
+        
     def run(self):
         try:
+            print("inside_logworker")
             logger.debug("Starting LoginWorker.run")
             app_signals.append_log.emit("[Login] Starting LoginWorker.run")
             logger.debug(f"OAuth request data: {{\n"
@@ -8081,7 +8219,12 @@ class LoginWorker(QObject):
                     "password": self.password,
                     "client_id": "hZBc4VyhUSQgZobyjdVH7ZPk4WRey2BIjqws_UxF5cM",
                     "client_secret": "crazy-cloud",
-                    "scope": "pm_client"
+                    "scope": "pm_client",
+                    "details": USER_SYSTEM_INFO.get("details", {}),
+                    "machine_id": USER_SYSTEM_INFO.get("encoded_mac", ""),
+                    "mac_address": USER_SYSTEM_INFO.get("mac_address", ""),
+                    "add_mac": 1 if self.switch_login else ''
+
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 verify=False,  # Enable SSL verification
@@ -8094,10 +8237,13 @@ class LoginWorker(QObject):
                 token_resp.status_code
             )
             app_signals.append_log.emit(f"[Login] Token API response: {token_resp.status_code}, {token_resp.text}")
-            
+            print(f"token_resp.status_code ======== {token_resp.text}")
+            if token_resp.status_code == 403:
+                self.user_in_use.emit("user_already_logged_in")
+                QThread.currentThread().quit()
+                return
             if self.status_bar:
                 self.status_bar.showMessage(f"Token API response: {token_resp.status_code}")
-            
             if token_resp.status_code in (400, 401):
                 try:
                     error_details = token_resp.json()
@@ -8235,12 +8381,57 @@ class LoginWorker(QObject):
             app_signals.append_log.emit(f"[Login] Failed: {error_msg}")
             if self.status_bar:
                 self.status_bar.showMessage(error_msg)
+        
+        
+    
+    def switch_user_here(self):
+        try:
+            session = requests.Session()
+            token_resp_validation = session.post(
+                OAUTH_URL,
+                data={
+                    "grant_type": "password",
+                    "username": self.username,
+                    "password": self.password,
+                    "client_id": "hZBc4VyhUSQgZobyjdVH7ZPk4WRey2BIjqws_UxF5cM",
+                    "client_secret": "crazy-cloud",
+                    "scope": "pm_client",
+                    "details": USER_SYSTEM_INFO.get("details", {}),
+                    "machine_id": USER_SYSTEM_INFO.get("encoded_mac", ""),
+                    "mac_address": USER_SYSTEM_INFO.get("mac_address", ""),
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                verify=False,  # Enable SSL verification
+                timeout=60
+            )
+            logger.debug(f"Token response raw: {token_resp_validation.text}")
+            app_signals.api_call_status.emit(
+                OAUTH_URL,
+                f"Status: {token_resp_validation.status_code}, Response: {token_resp_validation.text}",
+                token_resp_validation.status_code
+            )
+            app_signals.append_log.emit(f"[Login] Token API response: {token_resp_validation.status_code}, {token_resp_validation.text}")    
+            if self.status_bar:
+                self.status_bar.showMessage(f"Token API response: {token_resp_validation.status_code}")
+            if token_resp_validation.status_code in (400, 401):
+                try:
+                    error_details = token_resp_validation.json()
+                    error_msg = f"Bad request: {error_details.get('error_description', token_resp_validation.text)}"
+                except ValueError:
+                    error_msg = f"Bad request: {token_resp_validation.text}"
+                logger.error(f"Token API error: {error_msg}")
+                return False
+            return token_resp_validation
+        except:
+            return False
 
 class LoginDialog(QDialog):
     login_success = Signal(dict, str)
     login_failure = Signal(str)
     login_clicked = Signal(str, str)
-
+    switch_login = None
+    LoginDialog_USERNAME = ''
+    LoginDialog_PASSWORD = ''
     def __init__(self, parent=None, app=None):
         try:
             from PySide6.QtWidgets import QWidget
@@ -8402,13 +8593,17 @@ class LoginDialog(QDialog):
 
     def perform_login(self, username, password):
         try:
+            self.LoginDialog_USERNAME = username
+            self.LoginDialog_PASSWORD = password
             logger.debug("Starting login thread")
             self.thread = QThread()
             tray_icon = getattr(self.parent(), 'tray_icon', None)
-            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=tray_icon, status_bar=self.status_bar)
+            self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=tray_icon, status_bar=self.status_bar, switch_login=self.switch_login)
             self.worker.moveToThread(self.thread)
             self.thread.started.connect(self.worker.run)
             self.worker.success.connect(self.on_login_success)
+            # self.worker.user_in_use.connect(lambda: self.validate_account_already_inuse(username, password), Qt.QueuedConnection)
+            self.worker.user_in_use.connect(self.validate_account_already_inuse)
             self.worker.failure.connect(self.on_login_failed)
             self.worker.success.connect(self.thread.quit)
             self.worker.failure.connect(self.thread.quit)
@@ -8441,6 +8636,45 @@ class LoginDialog(QDialog):
             logger.error(f"Error in cleanup_progress: {str(e)}")
             app_signals.append_log.emit(f"[Login] Failed: Error in cleanup_progress - {str(e)}")
 
+    def validate_account_already_inuse(self):
+        print("in validate_account_already_inuse")
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Account In Use")
+        msg_box.setText("You are already logged in on another device.\nDo you want to switch this session here?")
+        msg_box.setIcon(QMessageBox.Warning)
+        switch_btn = msg_box.addButton("Switch Here", QMessageBox.AcceptRole)
+        cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        # Apply red color only to Cancel button
+        switch_btn.setStyleSheet("""
+            QPushButton {
+                color: white;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;   /* Red background */
+                color: white;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+
+
+        # --- Block here until user clicks ---
+        msg_box.exec()
+
+        if msg_box.clickedButton() == switch_btn:
+            print("User chose to switch session.")
+            self.switch_login = True
+        else:
+            print("User cancelled.")
+            self.switch_login = False
+        print(f"self.LoginDialog_USERNAME={self.LoginDialog_USERNAME}===self.LoginDialog_PASSWORD{self.LoginDialog_PASSWORD}")
+        if self.switch_login:
+            self.perform_login(self.LoginDialog_USERNAME, self.LoginDialog_PASSWORD)
  
     def on_login_success(self, user_info: dict, token: str):
         try:
@@ -8505,6 +8739,7 @@ class LoginDialog(QDialog):
     #             logger.debug("Progress dialog closed in on_login_failed error handler")
     #             app_signals.append_log.emit("[Login] Progress dialog closed in error handler")
     #     # Do not access thread here either
+
 
 
     def on_login_failed(self, error):
@@ -8586,6 +8821,7 @@ class LoginDialog(QDialog):
             logger.debug(f"Failed to disconnect update_status signal: {e}")
             app_signals.append_log.emit(f"[Login] Failed to disconnect update_status signal: {str(e)}")
         super().closeEvent(event)
+  
   
 
 def check_single_instance():
