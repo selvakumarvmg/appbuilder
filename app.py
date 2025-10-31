@@ -8614,6 +8614,23 @@ class LoginDialog(QDialog):
         msg_box.setIcon(QMessageBox.Warning)
         switch_btn = msg_box.addButton("Switch Here", QMessageBox.AcceptRole)
         cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        # Apply red color only to Cancel button
+        switch_btn.setStyleSheet("""
+            QPushButton {
+                color: white;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;   /* Red background */
+                color: white;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+
 
         # --- Block here until user clicks ---
         msg_box.exec()
