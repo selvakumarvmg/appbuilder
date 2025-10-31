@@ -8,23 +8,249 @@ on:
   workflow_dispatch:
 
 jobs:
+  # build-macos:
+  #   name: 🛠️ Build macOS x86_64 App
+  #   runs-on: macos-13
+
+  #   steps:
+  #     # Checkout the repository
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     # Set up Python
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.9.13'
+  #         architecture: 'x64'
+
+  #     # Cache pip packages
+  #     - name: Cache pip packages
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: ~/.cache/pip
+  #         key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+  #         restore-keys: ${{ runner.os }}-pip-
+
+  #     # Clear pip cache
+  #     - name: Clear pip cache
+  #       run: pip cache purge
+  #       shell: bash
+
+  #     # Install dependencies
+  #     - name: Install dependencies
+  #       run: |
+  #         echo "Starting dependency installation at $(date)"
+  #         python -m pip install --upgrade pip
+  #         pip install --upgrade wheel setuptools
+  #         echo "Inspecting requirements.txt..."
+  #         cat requirements.txt
+  #         echo "Installing requirements..."
+  #         pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
+  #         echo "Installing PySide6 and dependencies..."
+  #         pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
+  #         echo "Installing PyInstaller..."
+  #         pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
+  #         echo "Installing dmgbuild..."
+  #         pip install dmgbuild --no-cache-dir --force-reinstall --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
+  #         pip list > installed_packages.txt
+  #         python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+  #         python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
+  #         echo "Checking PySide6 plugins..."
+  #         python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+  #         cat plugins_path.txt
+  #         ls -ld "$(cat plugins_path.txt)/platforms" || (echo "❌ PySide6 platforms directory not found" && exit 1)
+  #         ls -ld "$(cat plugins_path.txt)/imageformats" || (echo "❌ PySide6 imageformats directory not found" && exit 1)
+  #         find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
+  #         find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
+  #         cat plugin_check.txt
+  #         echo "Dependency installation completed at $(date)"
+  #       shell: bash
+
+  #     # Upload install logs
+  #     - name: Upload requirements install log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: requirements-install-log-macos
+  #         path: requirements_install.log
+  #       if: always()
+
+  #     - name: Upload PySide6 install log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: pyside6-install-log-macos
+  #         path: pyside6_install.log
+  #       if: always()
+
+  #     - name: Upload PyInstaller install log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: pyinstaller-install-log-macos
+  #         path: pyinstaller_install.log
+  #       if: always()
+
+  #     - name: Upload dmgbuild install log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: dmgbuild-install-log-macos
+  #         path: dmgbuild_install.log
+  #       if: always()
+
+  #     - name: Upload plugin check log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: plugin-check-log-macos
+  #         path: plugin_check.txt
+  #       if: always()
+
+  #     # Show installed packages
+  #     - name: Show installed packages
+  #       run: cat installed_packages.txt
+  #       shell: bash
+
+  #     # Verify required files
+  #     - name: Verify required files
+  #       run: |
+  #         test -f app.py || (echo "❌ app.py missing" && exit 1)
+  #         test -f login.py || (echo "❌ login.py missing" && exit 1)
+  #         test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
+  #         test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
+  #         test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
+  #         test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
+  #         test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
+  #         test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
+  #         test -f license.txt || (echo "❌ license.txt missing" && exit 1)
+  #         test -f login.ui || (echo "❌ login.ui missing" && exit 1)
+  #         test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
+  #         test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
+  #         test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
+  #         test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
+  #         test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
+  #         test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
+  #         test -f cache/cache.json || (echo "❌ cache.json missing" && exit 1)
+  #       shell: bash
+
+  #     # Build app with PyInstaller
+  #     - name: Build App with PyInstaller
+  #       run: |
+  #         echo "Starting PyInstaller build at $(date)"
+  #         echo "Checking syntax of app.py..."
+  #         python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+  #         echo "Finding PySide6 plugins..."
+  #         python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+  #         export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+  #         echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+  #         ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
+  #         ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
+  #         echo "Running PyInstaller..."
+  #         python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
+  #           --name PremediaApp \
+  #           --icon=icons/premedia.icns \
+  #           --add-data "cache/cache.json:cache" \
+  #           --add-data "icons/premedia.icns:icons" \
+  #           --add-data "icons/photoshop.png:icons" \
+  #           --add-data "icons/folder.png:icons" \
+  #           --add-data "icons/premedia.png:icons" \
+  #           --add-data "icons/vmg-premedia-logo.png:icons" \
+  #           --add-data "terms.txt:." \
+  #           --add-data "license.txt:." \
+  #           --add-data "login.ui:." \
+  #           --add-data "premediaapp.ui:." \
+  #           --add-data "icons.qrc:." \
+  #           --add-data "icons_rc.py:." \
+  #           --add-data "login.py:." \
+  #           --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+  #           --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+  #           --hidden-import=paramiko \
+  #           --hidden-import=requests \
+  #           --hidden-import=cryptography \
+  #           --hidden-import=tzdata \
+  #           --hidden-import=PySide6.QtWidgets \
+  #           --hidden-import=PySide6.QtCore \
+  #           --hidden-import=PySide6.QtGui \
+  #           --hidden-import=PySide6.uic \
+  #           --hidden-import=PIL.Image \
+  #           --hidden-import=login \
+  #           --hidden-import=icons_rc \
+  #           --runtime-hook=runtime-hook.py \
+  #           app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
+  #         echo "📁 dist/ contents:"
+  #         ls -lh dist
+  #         echo "PyInstaller build completed at $(date)"
+  #       shell: bash
+
+  #     # Upload PyInstaller log
+  #     - name: Upload PyInstaller log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: pyinstaller-log-macos
+  #         path: pyinstaller.log
+  #       if: always()
+
+  #     # Upload plugins path log
+  #     - name: Upload platforms path log
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: platforms-path-log-macos
+  #         path: plugins_path.txt
+  #       if: always()
+
+  #     # Sign app
+  #     - name: Sign App
+  #       run: codesign --deep --force --verbose --sign - dist/PremediaApp.app
+  #       if: ${{ env.APPLE_CERTIFICATE == '' }}
+  #       shell: bash
+
+  #     - name: Sign App with Developer ID
+  #       run: |
+  #         codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
+  #       if: ${{ env.APPLE_CERTIFICATE != '' }}
+  #       env:
+  #         APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  #       shell: bash
+
+  #     # Inspect built .app
+  #     - name: Inspect built .app
+  #       run: |
+  #         du -sh dist/PremediaApp.app
+  #         find dist/PremediaApp.app
+  #       shell: bash
+
+  #     # Build DMG
+  #     - name: Build DMG
+  #       run: |
+  #         mkdir -p dmg-build
+  #         cp -R dist/PremediaApp.app dmg-build/
+  #         dmgbuild -s installer/dmg-settings.py \
+  #                  -D app_path="dmg-build/PremediaApp.app" \
+  #                  "PremediaApp" dist/PremediaApp.dmg
+  #       shell: bash
+
+  #     # Upload DMG artifact
+  #     - name: Upload DMG Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: PremediaApp-macos-dmg
+  #         path: dist/PremediaApp.dmg
+  #         retention-days: 7
+
+  # Production macOS build job — PyInstaller -> dmgbuild (unsigned by default)
+# Includes thorough debugging/logging, quarantine removal, and artifact uploads.
   build-macos:
-    name: 🛠️ Build macOS x86_64 App
+    name: 🛠️ Build macOS x86_64 App (Production, unsigned by default)
     runs-on: macos-13
+    timeout-minutes: 90
 
     steps:
-      # Checkout the repository
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up Python
-      - name: Set up Python
+      - name: Set up Python 3.9
         uses: actions/setup-python@v5
         with:
           python-version: '3.9.13'
           architecture: 'x64'
 
-      # Cache pip packages
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
@@ -32,126 +258,113 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: ${{ runner.os }}-pip-
 
-      # Clear pip cache
-      - name: Clear pip cache
-        run: pip cache purge
-        shell: bash
-
-      # Install dependencies
-      - name: Install dependencies
+      - name: Clear pip cache (optional)
         run: |
-          echo "Starting dependency installation at $(date)"
-          python -m pip install --upgrade pip
-          pip install --upgrade wheel setuptools
-          echo "Inspecting requirements.txt..."
-          cat requirements.txt
-          echo "Installing requirements..."
-          pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
-          echo "Installing PySide6 and dependencies..."
-          pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
-          echo "Installing PyInstaller..."
-          pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
-          echo "Installing dmgbuild..."
-          pip install dmgbuild --no-cache-dir --force-reinstall --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
-          pip list > installed_packages.txt
-          python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
-          python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
-          echo "Checking PySide6 plugins..."
-          python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
-          cat plugins_path.txt
-          ls -ld "$(cat plugins_path.txt)/platforms" || (echo "❌ PySide6 platforms directory not found" && exit 1)
-          ls -ld "$(cat plugins_path.txt)/imageformats" || (echo "❌ PySide6 imageformats directory not found" && exit 1)
-          find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
-          find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
-          cat plugin_check.txt
-          echo "Dependency installation completed at $(date)"
+          pip cache purge || true
         shell: bash
 
-      # Upload install logs
-      - name: Upload requirements install log
-        uses: actions/upload-artifact@v4
-        with:
-          name: requirements-install-log-macos
-          path: requirements_install.log
-        if: always()
-
-      - name: Upload PySide6 install log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyside6-install-log-macos
-          path: pyside6_install.log
-        if: always()
-
-      - name: Upload PyInstaller install log
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyinstaller-install-log-macos
-          path: pyinstaller_install.log
-        if: always()
-
-      - name: Upload dmgbuild install log
-        uses: actions/upload-artifact@v4
-        with:
-          name: dmgbuild-install-log-macos
-          path: dmgbuild_install.log
-        if: always()
-
-      - name: Upload plugin check log
-        uses: actions/upload-artifact@v4
-        with:
-          name: plugin-check-log-macos
-          path: plugin_check.txt
-        if: always()
-
-      # Show installed packages
-      - name: Show installed packages
-        run: cat installed_packages.txt
-        shell: bash
-
-      # Verify required files
-      - name: Verify required files
+      - name: Install Python dependencies (production) and dbg logs
+        id: install_deps
         run: |
-          test -f app.py || (echo "❌ app.py missing" && exit 1)
-          test -f login.py || (echo "❌ login.py missing" && exit 1)
-          test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
-          test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
-          test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
-          test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
-          test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
-          test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
-          test -f license.txt || (echo "❌ license.txt missing" && exit 1)
-          test -f login.ui || (echo "❌ login.ui missing" && exit 1)
-          test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
-          test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
-          test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
-          test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
-          test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
-          test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
-          test -f cache/cache.json || (echo "❌ cache.json missing" && exit 1)
+          set -euo pipefail
+          echo ">>> Start dependency install: $(date)"
+          python -m pip install --upgrade pip setuptools wheel
+          # Install pinned project requirements (if present)
+          if [ -f requirements.txt ]; then
+            echo "Installing requirements.txt..."
+            python -m pip install --no-cache-dir --force-reinstall -r requirements.txt \
+              2>&1 | tee requirements_install.log
+          else
+            echo "No requirements.txt found — skipping."
+          fi
+
+          # Install core build tools and dmg dependencies (include biplist)
+          echo "Installing packaging/build tools..."
+          python -m pip install --no-cache-dir --force-reinstall \
+            PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 \
+            pyinstaller==6.14.0 dmgbuild==1.6.2 biplist==1.0.3 \
+            pillow requests psutil rawpy imageio psd-tools cairosvg \
+            2>&1 | tee dmg_and_pkg_install.log
+
+          echo "Recording installed packages..."
+          pip list --format=columns > installed_packages.txt || true
+          python -m pip show pyinstaller PySide6 dmgbuild biplist > installed_info.txt || true
+
+          echo ">>> Dependency install finished: $(date)"
         shell: bash
 
-      # Build app with PyInstaller
-      - name: Build App with PyInstaller
+      - name: Upload dependency & install logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-macos
+          path: |
+            requirements_install.log
+            dmg_and_pkg_install.log
+            installed_packages.txt
+            installed_info.txt
+        if: always()
+
+      - name: Check PySide6 plugin paths & Qt libs (debug)
+        id: check_plugins
         run: |
-          echo "Starting PyInstaller build at $(date)"
-          echo "Checking syntax of app.py..."
-          python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
-          echo "Finding PySide6 plugins..."
-          python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
-          export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-          echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
-          ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
-          ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
-          echo "Running PyInstaller..."
+          set -euo pipefail
+          echo ">>> Checking PySide6 plugin path and plugin dirs"
+          python - <<'PY'
+          import PySide6, os, sys
+          base = os.path.dirname(PySide6.__file__)
+          plugins = os.path.join(base, "Qt", "plugins")
+          print("PYSIDE6 base:", base)
+          print("PYSIDE6 plugins:", plugins)
+          for sub in ("platforms","imageformats"):
+              p = os.path.join(plugins, sub)
+              print(p, "exists?", os.path.isdir(p))
+          PY
+        shell: bash
+
+      - name: Verify required repository files (fail fast)
+        run: |
+          set -euo pipefail
+          echo ">>> Verifying required files..."
+          REQUIRED=(
+            "app.py" "login.py" "login.ui" "premediaapp.ui" "icons.qrc" "icons_rc.py"
+            "runtime-hook.py" "terms.txt" "license.txt" "cache/cache.json"
+            "icons/premedia.icns" "icons/photoshop.png" "icons/folder.png"
+            "icons/premedia.png" "icons/vmg-premedia-logo.png"
+            "installer/dmg-settings.py" "installer-assets/dmg-background.bmp"
+          )
+          MISSING=0
+          for f in "${REQUIRED[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"
+              MISSING=1
+            else
+              echo "OK: $f"
+            fi
+          done
+          if [ "$MISSING" -ne 0 ]; then
+            echo "❌ One or more required files are missing. Aborting."
+            exit 1
+          fi
+          echo "✅ All required files present."
+        shell: bash
+
+      - name: Build app with PyInstaller (capture logs)
+        id: pybuild
+        run: |
+          set -euo pipefail
+          echo ">>> Starting PyInstaller build at $(date)"
+          python -m py_compile app.py || (echo "Syntax error in app.py" && exit 1)
+
+          # Determine PySide6 plugin path for packaging
+          PYSIDE6_PLUGINS=$(python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__),'Qt','plugins'))")
+          echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS" > plugins_path.txt
+
+          echo "Running PyInstaller (this may take a few minutes)..."
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
             --name PremediaApp \
             --icon=icons/premedia.icns \
             --add-data "cache/cache.json:cache" \
-            --add-data "icons/premedia.icns:icons" \
-            --add-data "icons/photoshop.png:icons" \
-            --add-data "icons/folder.png:icons" \
-            --add-data "icons/premedia.png:icons" \
-            --add-data "icons/vmg-premedia-logo.png:icons" \
+            --add-data "icons:icons" \
             --add-data "terms.txt:." \
             --add-data "license.txt:." \
             --add-data "login.ui:." \
@@ -173,70 +386,109 @@ jobs:
             --hidden-import=login \
             --hidden-import=icons_rc \
             --runtime-hook=runtime-hook.py \
-            app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
-          echo "📁 dist/ contents:"
-          ls -lh dist
-          echo "PyInstaller build completed at $(date)"
+            app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed. Dumping last 400 lines of pyinstaller.log" && tail -n 400 pyinstaller.log && exit 1)
+          echo ">>> PyInstaller finished at $(date)"
+          # Quick basic inspection
+          du -sh dist/PremediaApp.app || true
+          ls -lah dist || true
         shell: bash
 
-      # Upload PyInstaller log
-      - name: Upload PyInstaller log
+      - name: Upload PyInstaller log & plugin path
         uses: actions/upload-artifact@v4
         with:
-          name: pyinstaller-log-macos
-          path: pyinstaller.log
+          name: pyinstaller-debug-artifacts
+          path: |
+            pyinstaller.log
+            plugins_path.txt
         if: always()
 
-      # Upload plugins path log
-      - name: Upload platforms path log
-        uses: actions/upload-artifact@v4
-        with:
-          name: platforms-path-log-macos
-          path: plugins_path.txt
-        if: always()
+      - name: Post-build cleanup & size reduction (safe)
+        run: |
+          set -euo pipefail
+          echo ">>> Cleaning caches and unused files..."
+          # remove caches and pyc
+          find dist/PremediaApp.app -name "__pycache__" -type d -exec rm -rf {} + || true
+          find dist/PremediaApp.app -name "*.pyc" -type f -delete || true
+          # remove tests/docs that may bloat the bundle (conservative)
+          find dist/PremediaApp.app -type d -name "tests" -maxdepth 5 -exec rm -rf {} + || true
+          # attempt to strip native binaries (best-effort; ignore errors)
+          if command -v strip >/dev/null 2>&1; then
+            echo "Attempting to strip some native binaries (best-effort) ..."
+            find dist/PremediaApp.app -type f \( -name "*.dylib" -o -name "*.so" -o -name "PremediaApp" \) -print0 | xargs -0 -I{} sh -c 'strip -x "{}" 2>/dev/null || true'
+          fi
+          echo "Post-cleanup size:"
+          du -sh dist/PremediaApp.app || true
+        shell: bash
 
-      # Sign app
-      - name: Sign App
-        run: codesign --deep --force --verbose --sign - dist/PremediaApp.app
+      - name: Inspect built .app (safe listing)
+        run: |
+          echo ">>> App summary:"
+          du -sh dist/PremediaApp.app || true
+          echo "Top-level dist:"
+          ls -lah dist || true
+          echo "Contents/MacOS:"
+          ls -lah dist/PremediaApp.app/Contents/MacOS || true
+        shell: bash
+
+      - name: Remove macOS quarantine & ensure executable perms
+        run: |
+          set -euo pipefail
+          echo ">>> Removing quarantine attributes (xattr -cr) and fixing perms"
+          # clear quarantine extended attributes (so Gatekeeper won't mark as 'damaged')
+          xattr -cr dist/PremediaApp.app || true
+          # ensure binary is executable
+          chmod +x dist/PremediaApp.app/Contents/MacOS/PremediaApp || true
+          echo "xattr and chmod completed."
+          # show xattr for debug
+          echo "xattr -l (top-level)"; xattr -l dist/PremediaApp.app || true
+        shell: bash
+
+      - name: (Optional) Ad-hoc codesign for local testing
         if: ${{ env.APPLE_CERTIFICATE == '' }}
+        run: |
+          echo ">>> No Apple certificate found in env — using ad-hoc codesign to avoid some runtime quirks"
+          # ad-hoc sign (no Apple ID required) — helpful for local testing; safe fallback
+          codesign --force --deep --sign - dist/PremediaApp.app || echo "⚠️ ad-hoc codesign failed or not available"
+          echo "codesign status:"; codesign -v --deep --strict --verbose=2 dist/PremediaApp.app || true
         shell: bash
 
-      - name: Sign App with Developer ID
+      - name: Create DMG (unsigned) with dmgbuild
         run: |
-          codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
-        if: ${{ env.APPLE_CERTIFICATE != '' }}
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-        shell: bash
-
-      # Inspect built .app
-      - name: Inspect built .app
-        run: |
-          du -sh dist/PremediaApp.app
-          find dist/PremediaApp.app
-        shell: bash
-
-      # Build DMG
-      - name: Build DMG
-        run: |
+          set -euo pipefail
+          echo ">>> Packaging DMG..."
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
+          # run dmgbuild (uses installer/dmg-settings.py — edit to customize background/icons)
           dmgbuild -s installer/dmg-settings.py \
-                   -D app_path="dmg-build/PremediaApp.app" \
-                   "PremediaApp" dist/PremediaApp.dmg
+            -D app_path="dmg-build/PremediaApp.app" \
+            "PremediaApp" dist/PremediaApp.dmg
+          echo ">>> DMG created:"
+          du -sh dist/PremediaApp.dmg || true
         shell: bash
 
-      # Upload DMG artifact
-      - name: Upload DMG Artifact
+      - name: Upload DMG and App artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PremediaApp-macos-dmg
-          path: dist/PremediaApp.dmg
-          retention-days: 7
+          name: PremediaApp-macOS-artifacts
+          path: |
+            dist/PremediaApp.dmg
+            dist/PremediaApp.app
+        if: always()
 
-  
-
-
+      - name: Final debug output (logs + env)
+        if: always()
+        run: |
+          echo ">>> Final debug summary:"
+          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo "Runner: macos-13"
+          echo "Listing root of workspace:"
+          ls -lah
+          echo "Check installed python (for debug):"
+          python -V
+          pip --version
+          echo "Tail pyinstaller.log (if exists):"
+          [ -f pyinstaller.log ] && tail -n 200 pyinstaller.log || echo "no pyinstaller.log"
+        shell: bash
 
   build-windows:
     name: 🪟 Build Windows EXE Installer
