@@ -402,16 +402,25 @@ jobs:
       - name: Create DMG (unsigned) with dmgbuild
         run: |
           set -euo pipefail
+          echo "Installing dmgbuild dependencies..."
+          # Ensure required modules are available
+          python -m pip install --upgrade pip setuptools "<81"
+          python -m pip install --no-cache-dir --force-reinstall \
+            dmgbuild==1.4.0 biplist==1.0.3
+
           echo "Packaging DMG..."
           mkdir -p dmg-build
           cp -R dist/PremediaApp.app dmg-build/
-          # Use your existing dmg-settings.py in installer/dmg-settings.py — dmgbuild reads settings module
+
+          # Use your existing dmg-settings.py configuration
           dmgbuild -s installer/dmg-settings.py \
             -D app_path="dmg-build/PremediaApp.app" \
             "PremediaApp" dist/PremediaApp.dmg
-          echo "DMG created:"
+
+          echo "✅ DMG successfully created:"
           du -sh dist/PremediaApp.dmg || true
         shell: bash
+
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
