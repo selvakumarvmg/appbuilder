@@ -553,13 +553,28 @@ def get_system_info():
         
     # === System Identifiers ===
     try:
-        info["identifiers"] = {
-            "hostname": socket.gethostname(),
-            "ip_address": socket.gethostbyname(socket.gethostname()),
-            "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
-                                     for elements in range(0, 2 * 6, 8)][::-1]),
-            "uuid": str(uuid.uuid1())
-        }
+        if platform.system().lower() == "windows":
+            info["identifiers"] = {
+                "hostname": socket.gethostname(),
+                "ip_address": socket.gethostbyname(socket.gethostname()),
+                "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
+                                        for elements in range(0, 2 * 6, 8)][::-1]),
+                "uuid": str(uuid.uuid1())
+            }
+        elif platform.system().lower() == "darwin":
+            # safer way to get local IP address
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))  # connect to Google DNS (no data sent)
+            ip_address = s.getsockname()[0]
+            s.close()
+
+            info["identifiers"] = {
+                "hostname": socket.gethostname(),
+                "ip_address": ip_address,
+                "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> elements) & 0xff)
+                                        for elements in range(0, 2 * 6, 8)][::-1]),
+                "uuid": str(uuid.uuid1())
+            }
     except Exception as e:
         info["identifiers"] = {"error": str(e)}
 
