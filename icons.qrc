@@ -45,5 +45,12 @@
         <file>icons/version_icon.ico</file>
         <file>icons/version_icon.icns</file>
         <file>icons/vmg-premedia-logo.png</file>
+
+        <file>icons/login-logo.icns</file>
+        <file>icons/login-logo.png</file>
+        <file>icons/login-logo.ico</file>
+        <file>icons/logout-logo.icns</file>
+        <file>icons/logout-logo.png</file>
+        <file>icons/logout-logo.ico</file>
     </qresource>
 </RCC>
