@@ -4287,7 +4287,9 @@ class FileWatcherWorker(QObject):
             max_retries = 3
             tasks = []
             print(f"USER_SYSTEM_INFO.get(identifiers,).get(encoded_mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
-            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
+            # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
+            machine_id = USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")
+            api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
 
             for attempt in range(max_retries):
                 try:
