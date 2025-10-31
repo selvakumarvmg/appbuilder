@@ -151,18 +151,48 @@ def add_version_footer(window, version_text):
         window.setLayout(new_layout)
 
 
+# def get_icon_path(icon_name):
+#     if icon_name in ICON_CACHE:
+#         return str(ICON_CACHE[icon_name])
+#     icons_dir = BASE_DIR / "icons"
+#     try:
+#         icons_dir.mkdir(exist_ok=True)
+#     except Exception as e:
+#         logger.error(f"Failed to create icons directory {icons_dir}: {e}")
+#         app_signals.append_log.emit(f"[Init] Failed to create icons directory {icons_dir}: {str(e)}")
+#     icon_path = str(icons_dir / icon_name)
+#     ICON_CACHE[icon_name] = icon_path
+#     return icon_path
+
+
 def get_icon_path(icon_name):
+    """
+    Returns the correct path to an icon for both source and frozen (PyInstaller) builds.
+    """
+    # Use cache if available
     if icon_name in ICON_CACHE:
         return str(ICON_CACHE[icon_name])
-    icons_dir = BASE_DIR / "icons"
+
     try:
-        icons_dir.mkdir(exist_ok=True)
+        # Detect if app is running as a PyInstaller bundle
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            icons_dir = Path(sys._MEIPASS) / "icons"
+        else:
+            icons_dir = BASE_DIR / "icons"
+
+        icon_path = icons_dir / icon_name
+
+        if not icon_path.exists():
+            logger.warning(f"Icon not found: {icon_path}")
+            app_signals.append_log.emit(f"[Icons] Missing icon: {icon_path}")
+
+        ICON_CACHE[icon_name] = icon_path
+        return str(icon_path)
+
     except Exception as e:
-        logger.error(f"Failed to create icons directory {icons_dir}: {e}")
-        app_signals.append_log.emit(f"[Init] Failed to create icons directory {icons_dir}: {str(e)}")
-    icon_path = str(icons_dir / icon_name)
-    ICON_CACHE[icon_name] = icon_path
-    return icon_path
+        logger.error(f"Error resolving icon path for {icon_name}: {e}")
+        app_signals.append_log.emit(f"[Icons] Error resolving {icon_name}: {str(e)}")
+        return str(BASE_DIR / "icons" / icon_name)
 
 ICON_PATH = get_icon_path({
     "Windows": "login-logo.ico",
@@ -9278,13 +9308,13 @@ class PremediaApp(QApplication):
 
             # Windows-specific workaround to refresh tray icon
             if platform.system() == "Windows":
-                dummy_icon_path = get_icon_path("logged_in_icon.png")
+                dummy_icon_path = get_icon_path("login-logo.png")
                 self.tray_icon.setIcon(QIcon(dummy_icon_path))  # Set temporary icon
                 QApplication.processEvents()
 
             # Set the actual tray icon, falling back to default if invalid
             if not Path(icon_path).exists() or QIcon(icon_path).isNull():
-                icon_path = get_icon_path("logged_in_icon.png")
+                icon_path = get_icon_path("login-logo.png")
             self.tray_icon.setIcon(QIcon(icon_path))
             self.tray_icon.setToolTip(
                 f"PremediaApp - {'Logged in as ' + user_fullname if self.logged_in else 'Not logged in'}"
