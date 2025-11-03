@@ -68,6 +68,8 @@ Source: "..\icons\premedia.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\premedia.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\premedia.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\quit_icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\quit_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\quit_icon.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\report.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\report.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\upload_icon.icns"; DestDir: "{app}\icons"; Flags: ignoreversion

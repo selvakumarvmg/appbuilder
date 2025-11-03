@@ -45,6 +45,8 @@ icon_files = [
     ("icons/premedia.ico", "icons"),
     ("icons/premedia.png", "icons"),
     ("icons/quit_icon.ico", "icons"),
+    ("icons/quit_icon.icns", "icons"),
+    ("icons/quit_icon.png", "icons"),
     ("icons/report.ico", "icons"),
     ("icons/report.png", "icons"),
     ("icons/upload_icon.icns", "icons"),

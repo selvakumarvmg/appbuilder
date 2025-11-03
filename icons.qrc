@@ -27,6 +27,8 @@
         <file>icons/premedia.ico</file>
         <file>icons/premedia.png</file>
         <file>icons/quit_icon.ico</file>
+        <file>icons/quit_icon.icns</file>
+        <file>icons/quit_icon.png</file>
         <file>icons/report.ico</file>
         <file>icons/report.png</file>
         <file>icons/upload_icon.icns</file>
