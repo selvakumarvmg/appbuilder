@@ -269,7 +269,7 @@ NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
-APPVERSION = "1.0.0"
+APPVERSION = "1.1.1"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
