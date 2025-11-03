@@ -663,7 +663,6 @@ def get_system_info():
     except Exception as e:
         info["network"] = {"error": str(e)}
 
-get_system_info()
 
 def get_default_cache():
     """Return a fresh cache dictionary with created_at set once."""
@@ -764,6 +763,7 @@ def validate_user(access_key, status_bar=None):
             logger.info("No access_key provided, using default key")
             app_signals.append_log.emit("[API Scan] No access_key provided, using default key")
         
+        machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
         cache = load_cache()
         validation_url = USER_VALIDATE_URL
         logger.debug(f"Validating user with access_key: {access_key[:8]}... at {validation_url}")
@@ -771,8 +771,8 @@ def validate_user(access_key, status_bar=None):
         
         resp = HTTP_SESSION.get(
             validation_url,
-            params={"key": access_key},
-            headers={"Authorization": f"Bearer {cache.get('token', '')}"},
+            params={"key": access_key, "machine_id": machine_id},
+            # headers={"Authorization": f"Bearer {cache.get('token', '')}"},
             verify=False,  # Replace with verify="/path/to/server-ca.pem" in production
             timeout=30
         )
@@ -788,6 +788,8 @@ def validate_user(access_key, status_bar=None):
         
         resp.raise_for_status()
         result = resp.json()
+        if result.get("status") == 403:
+            return result
         
         if not result.get("uuid"):
             raise ValueError(f"Validation failed: {result.get('message', 'No uuid in response')}")
@@ -4295,7 +4297,7 @@ class FileWatcherWorker(QObject):
             tasks = []
             print(f"USER_SYSTEM_INFO.get(identifiers,).get(encoded_mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
             # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
-            machine_id = USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")
+            machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
             api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
 
             for attempt in range(max_retries):
@@ -8191,6 +8193,7 @@ class LoginWorker(QObject):
     failure = Signal(str)
     user_in_use = Signal(str)
     proceed = None
+    switch_login = False
     def __init__(self, username, password, remember_me, tray_icon, status_bar, switch_login):
         super().__init__()
         self.username = username
@@ -8220,9 +8223,7 @@ class LoginWorker(QObject):
             
             # Create a new session for thread safety
             session = requests.Session()
-            token_resp = session.post(
-                OAUTH_URL,
-                data={
+            payload = {
                     "grant_type": "password",
                     "username": self.username,
                     "password": self.password,
@@ -8232,13 +8233,19 @@ class LoginWorker(QObject):
                     "details": USER_SYSTEM_INFO.get("details", {}),
                     "machine_id": USER_SYSTEM_INFO.get("encoded_mac", ""),
                     "mac_address": USER_SYSTEM_INFO.get("mac_address", ""),
-                    "add_mac": 1 if self.switch_login else ''
+                    "add_mac": 1 if self.switch_login else 0
 
-                },
+                }
+            print(f"payload of login {payload}")
+            token_resp = session.post(
+                OAUTH_URL,
+                data = payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 verify=False,  # Enable SSL verification
                 timeout=60
             )
+            self.switch_login = False
+            
             logger.debug(f"Token response raw: {token_resp.text}")
             app_signals.api_call_status.emit(
                 OAUTH_URL,
@@ -8438,7 +8445,8 @@ class LoginDialog(QDialog):
     login_success = Signal(dict, str)
     login_failure = Signal(str)
     login_clicked = Signal(str, str)
-    switch_login = None
+    user_in_other_system = Signal(str)
+    switch_login = False
     LoginDialog_USERNAME = ''
     LoginDialog_PASSWORD = ''
     def __init__(self, parent=None, app=None):
@@ -8507,19 +8515,24 @@ class LoginDialog(QDialog):
 
                 # Validate cached token/access_key
                 validation_result = validate_user(access_key, status_bar=self.status_bar)
-                print(validation_result)
+                
+                if validation_result.get("status") == 403:
+                    
+                    self.user_in_other_system.emit("user_already_logged_in")
+                    # QThread.currentThread().quit()
+                    return
 
                 if validation_result.get("uuid"):
                     # Token valid, schedule login success
                     QTimer.singleShot(300, lambda: self.on_login_success(user_info, token))
-                    print('-------------------------------------------------')
-                    print(f"Auto-login scheduled for user: {user_id}")
+                    # print('-------------------------------------------------')
+                    # print(f"Auto-login scheduled for user: {user_id}")
                     app_signals.append_log.emit(f"[Login] Auto-login scheduled for user: {user_id}")
                 else:
                     # Token invalid, call existing on_login_failed
                     error_msg = "Cached login expired, please log in manually"
-                    print("=================================================")
-                    print(f"{error_msg} for user: {user_id}")
+                    # print("=================================================")
+                    # print(f"{error_msg} for user: {user_id}")
                     app_signals.append_log.emit(f"[Login] Cached token invalid for user: {user_id}")
                     self.status_bar.showMessage(error_msg)
 
@@ -8538,7 +8551,7 @@ class LoginDialog(QDialog):
 
             app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
             self.ui.buttonBox.accepted.connect(self.handle_login)
-
+            print(f"---------handle")
             self.progress = None
             self.thread = None
             logger.debug("[Login] LoginDialog initialized")
@@ -8608,6 +8621,7 @@ class LoginDialog(QDialog):
             self.thread = QThread()
             tray_icon = getattr(self.parent(), 'tray_icon', None)
             self.worker = LoginWorker(username, password, self.ui.rememberme.isChecked(), tray_icon=tray_icon, status_bar=self.status_bar, switch_login=self.switch_login)
+            self.switch_login = False
             self.worker.moveToThread(self.thread)
             self.thread.started.connect(self.worker.run)
             self.worker.success.connect(self.on_login_success)
@@ -9095,7 +9109,9 @@ class PremediaApp(QApplication):
             self.downloaded_files_window = None
             self.uploaded_files_window = None
             try:
-                self.login_dialog = LoginDialog(parent=None, app=self)
+                self.login_dialog = LoginDialog(parent=None, app=self)   
+                self.login_dialog.user_in_other_system.connect(self.show_login_page)
+                             
             except Exception as e:
                 logger.error(f"Failed to initialize LoginDialog: {e}")
                 app_signals.append_log.emit(f"[Init] Failed to initialize LoginDialog: {str(e)}")
@@ -9168,6 +9184,13 @@ class PremediaApp(QApplication):
                 user_info = cache.get("user_info", {})
                 access_key = user_info.get("access_key", "")
                 validation_result = validate_user(access_key, self.log_window.status_bar)
+                
+                if validation_result.get("status") == 403:
+                #   
+                    self.logout()
+                    # self.set_logged_out_state()
+                    # self.show_login()
+                    # raise
                 if validation_result.get("uuid"):
                     try:
                         info_resp = HTTP_SESSION.get(
@@ -9212,13 +9235,15 @@ class PremediaApp(QApplication):
                     except Exception as e:
                         logger.error(f"Auto-login failed during user info fetch: {e}")
                         app_signals.append_log.emit(f"[Init] Auto-login failed during user info fetch: {str(e)}")
-                        self.set_logged_out_state()
-                        self.show_login()
+                        self.logout()
+                        # self.set_logged_out_state()
+                        # self.show_login()
                 else:
                     logger.warning(f"Auto-login failed: {validation_result.get('message', 'Unknown error')}")
                     app_signals.append_log.emit(f"[Init] Auto-login failed: {validation_result.get('message', 'Unknown error')}")
-                    self.set_logged_out_state()
-                    self.show_login()
+                    self.logout()
+                    # self.set_logged_out_state()
+                    # self.show_login()
             elif cache.get("saved_username") and cache.get("saved_password"):
                 logger.debug("Attempting auto-login with saved credentials")
                 app_signals.append_log.emit("[Init] Attempting auto-login with saved credentials")
@@ -9258,6 +9283,11 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit(f"[App] Failed: Error in event handler - {str(e)}")
             return super().event(event)
 
+    def show_login_page(self):
+        
+        self.set_logged_out_state()
+        self.show_login()
+
     # def handle_tray_icon_activated(self, reason):
     #     try:
     #         logger.debug(f"Tray icon activated with reason: {reason}")
@@ -9294,26 +9324,26 @@ class PremediaApp(QApplication):
 
     def handle_tray_icon_activated(self, reason):
         try:
+            system = platform.system().lower()  # "windows", "darwin", "linux"
+
             if reason == QSystemTrayIcon.Trigger:
-                # Left click → show tray menu
-                if self.tray_icon.contextMenu():
-                    self.tray_icon.contextMenu().popup(QCursor.pos())
-                    logger.debug("Tray icon left-click: Showing context menu")
-                    app_signals.append_log.emit("[Tray] Left-click: Showing context menu")
+                # Left-click: only show menu manually on Windows/Linux
+                if system != "darwin":  # Skip on macOS
+                    if self.tray_icon.contextMenu():
+                        self.tray_icon.contextMenu().popup(QCursor.pos())
+                        logger.debug("Tray icon left-click: Showing context menu")
+                        app_signals.append_log.emit("[Tray] Left-click: Showing context menu")
+                else:
+                    logger.debug("Tray icon clicked (macOS auto-handles menu display)")
+                    app_signals.append_log.emit("[Tray] macOS: Skipped manual popup")
 
             elif reason == QSystemTrayIcon.DoubleClick:
-                # Do nothing on double click
-                pass
-
+                pass  # No action
             elif reason == QSystemTrayIcon.Context:
-                # Right click → Qt shows menu automatically
-                pass
-
+                pass  # macOS auto-shows menu
             elif reason == QSystemTrayIcon.MiddleClick:
-                # No action
                 pass
 
-            # Update status (generic)
             app_signals.update_status.emit("Tray icon activated")
 
         except Exception as e:
@@ -10121,9 +10151,36 @@ class PremediaApp(QApplication):
             logger.error(f"Error posting metadata to API (Logout): {e}")
 
 
+    # def logout(self):
+    #     if IS_APP_ACTIVE_UPLOAD_DOWNLOAD:
+    #         QMessageBox.information(None, "Action blocked", "An upload/download is currently in progress. Try again once it is complete.")
+    #         print(f"Skip log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
+    #         return
+
+    #     try:
+    #         self.logged_in = False
+    #         cache = load_cache()
+    #         cache["token"] = ""
+    #         if not self.login_dialog.ui.rememberme.isChecked():
+    #             cache["saved_username"] = ""
+    #             cache["saved_password"] = ""
+    #         save_cache(cache)
+    #         self.update_tray_menu()
+    #         logger.info("Logged out successfully")
+    #         app_signals.append_log.emit("[Login] Logged out successfully")
+    #         app_signals.update_status.emit("Logged out successfully")
+    #         self.show_login()
+    #     except Exception as e:
+    #         logger.error(f"Logout error: {e}")
+    #         app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
+    #         app_signals.update_status.emit(f"Logout error: {str(e)}")
+    #         QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
+    
+    
     def logout(self):
         if IS_APP_ACTIVE_UPLOAD_DOWNLOAD:
-            QMessageBox.information(None, "Action blocked", "An upload/download is currently in progress. Try again once it is complete.")
+            QMessageBox.information(None, "Action blocked",
+                                    "An upload/download is currently in progress. Try again once it is complete.")
             print(f"Skip log out: {IS_APP_ACTIVE_UPLOAD_DOWNLOAD}")
             return
 
@@ -10143,12 +10200,29 @@ class PremediaApp(QApplication):
             logger.info("Logged out successfully")
             app_signals.append_log.emit("[Login] Logged out successfully")
             app_signals.update_status.emit("Logged out successfully")
-            self.show_login()
+
+            # 🧩 FIX: Create a fresh login dialog before showing
+            try:
+                self.login_dialog.close()
+            except Exception:
+                pass
+
+            self.login_dialog = LoginDialog(parent=None, app=self)
+            self.login_dialog.show()
+            self.login_dialog.raise_()
+            self.login_dialog.activateWindow()
+            self.login_dialog.setWindowState(Qt.WindowActive)
+            self.login_dialog.showNormal()
+
+            logger.info("Login dialog opened successfully")
+            app_signals.append_log.emit("[Login] Login dialog opened successfully")
+
         except Exception as e:
             logger.error(f"Logout error: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
             app_signals.update_status.emit(f"Logout error: {str(e)}")
             # QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
+
 
     def set_logged_in_state(self):
         try:
@@ -10394,25 +10468,69 @@ class PremediaApp(QApplication):
             stop_logging()
             self.app.quit()
 
+    # def show_login(self):
+    #     try:
+    #         if not self.logged_in:
+    #             self.login_dialog.show()
+    #             self.login_dialog.raise_()
+    #             self.login_dialog.activateWindow()
+    #             # Ensure the window is visible and brought to front
+    #             self.login_dialog.setWindowState(Qt.WindowActive)
+    #             self.login_dialog.showNormal()  # Restore to normal state if minimized
+    #             app_signals.update_status.emit("Login dialog opened")
+    #             app_signals.append_log.emit("[Login] Login dialog opened")
+    #         else:
+    #             app_signals.update_status.emit("Already logged in")
+    #             app_signals.append_log.emit("[Login] Already logged in")
+    #     except Exception as e:
+    #         logger.error(f"Error in show_login: {e}")
+    #         app_signals.append_log.emit(f"[Login] Failed: Error opening login dialog - {str(e)}")
+    #         app_signals.update_status.emit(f"Error opening login dialog: {str(e)}")
+    #         QMessageBox.critical(self, "Login Error", f"Failed to open login dialog: {str(e)}")
+    
     def show_login(self):
         try:
             if not self.logged_in:
-                self.login_dialog.show()
+                # If the old dialog was closed or deleted, recreate it safely
+                if self.login_dialog is None or not isinstance(self.login_dialog, LoginDialog):
+                    logger.warning("Recreating login dialog (previous instance lost or invalid)")
+                    self.login_dialog = LoginDialog(parent=None, app=self)
+                    self.login_dialog.user_in_other_system.connect(self.show_login_page)
+
+                # If signals were lost after logout, rebind them
+                try:
+                    if hasattr(self.login_dialog.ui, "login_button") and \
+                    not self.login_dialog.ui.login_button.receivers(self.login_dialog.ui.login_button.clicked):
+                        self.login_dialog.ui.login_button.clicked.connect(self.login_dialog.handle_login)
+                        logger.debug("Reconnected login button signal")
+
+                    if hasattr(self.login_dialog.ui, "cancel_button") and \
+                    not self.login_dialog.ui.cancel_button.receivers(self.login_dialog.ui.cancel_button.clicked):
+                        self.login_dialog.ui.cancel_button.clicked.connect(self.login_dialog.reject)
+                        logger.debug("Reconnected cancel button signal")
+                except Exception as signal_error:
+                    logger.warning(f"Could not verify/reconnect signals: {signal_error}")
+
+                # Make absolutely sure the dialog is visible and interactive
+                self.login_dialog.showNormal()
                 self.login_dialog.raise_()
                 self.login_dialog.activateWindow()
-                # Ensure the window is visible and brought to front
                 self.login_dialog.setWindowState(Qt.WindowActive)
-                self.login_dialog.showNormal()  # Restore to normal state if minimized
+                QApplication.processEvents()
+
                 app_signals.update_status.emit("Login dialog opened")
                 app_signals.append_log.emit("[Login] Login dialog opened")
+                logger.info("Login dialog opened successfully")
             else:
                 app_signals.update_status.emit("Already logged in")
                 app_signals.append_log.emit("[Login] Already logged in")
+                logger.info("User is already logged in")
         except Exception as e:
             logger.error(f"Error in show_login: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Error opening login dialog - {str(e)}")
             app_signals.update_status.emit(f"Error opening login dialog: {str(e)}")
-            QMessageBox.critical(self, "Login Error", f"Failed to open login dialog: {str(e)}")
+            QMessageBox.critical(None, "Login Error", f"Failed to open login dialog: {str(e)}")
+
 
     def show_logs(self):
         try:
@@ -10698,12 +10816,14 @@ class PremediaApp(QApplication):
 #     key = parse_custom_url()
 #     app = PremediaApp(key)
 #     sys.exit(app.exec())
+get_system_info()
 
 if __name__ == "__main__":
     try:
         key = parse_custom_url()
         app = PremediaApp(key)
-        sys.exit(app.exec_())
+        
+        sys.exit(app.exec())
     except Exception as e:
         print(f"Application crashed: {e}")
         import traceback
