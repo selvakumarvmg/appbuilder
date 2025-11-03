@@ -776,6 +776,7 @@ def validate_user(access_key, status_bar=None):
             verify=False,  # Replace with verify="/path/to/server-ca.pem" in production
             timeout=30
         )
+        print(f"Request URL: {resp.url}")
         app_signals.api_call_status.emit(
             validation_url,
             f"Status: {resp.status_code}, Response: {resp.text}",
@@ -4295,7 +4296,7 @@ class FileWatcherWorker(QObject):
             headers = {"Authorization": f"Bearer {token}"}
             max_retries = 3
             tasks = []
-            print(f"USER_SYSTEM_INFO.get(identifiers,).get(encoded_mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
+            print(f"USER_SYSTEM_INFO.get(network,).get(mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
             # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
             machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
             api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
@@ -9184,14 +9185,15 @@ class PremediaApp(QApplication):
                 user_info = cache.get("user_info", {})
                 access_key = user_info.get("access_key", "")
                 validation_result = validate_user(access_key, self.log_window.status_bar)
-                
+                print(f"Validation result: {validation_result}")
+                print("==================================================================")
                 if validation_result.get("status") == 403:
                 #   
                     self.logout()
                     # self.set_logged_out_state()
                     # self.show_login()
                     # raise
-                if validation_result.get("uuid"):
+                elif validation_result.get("uuid"):
                     try:
                         info_resp = HTTP_SESSION.get(
                             f"{BASE_DOMAIN}/api/user/getinfo?emailid={cache.get('user')}",
@@ -10136,10 +10138,11 @@ class PremediaApp(QApplication):
                 sys.exit(1)
 
     def logout_apicall(self, user_id):
-   
+        machine_id = USER_SYSTEM_INFO.get('encoded_mac', '')
         try:
             payload = {
                 'user_id': user_id,
+                'machine_id': machine_id,
             }
             response = requests.post(API_URL_LOGOUT, data=payload, verify=False)
             logger.info(response)
