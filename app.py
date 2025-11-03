@@ -195,6 +195,12 @@ def get_icon_path(icon_name: str) -> str:
 
 # OS-specific main icon
 ICON_PATH = get_icon_path({
+    "Windows": "premedia.ico",
+    "Darwin": "premedia.icns",
+    "Linux": "premedia.png"
+}.get(platform.system(), "premedia.png"))
+
+LOGGEDIN_ICON_PATH = get_icon_path({
     "Windows": "login-logo.ico",
     "Darwin": "login-logo.icns",
     "Linux": "login-logo.png"
@@ -10131,7 +10137,7 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit(f"[State] Setting logged_in state to: {self.logged_in}")
             self.update_tray_menu()
             if self.tray_icon and QSystemTrayIcon.isSystemTrayAvailable():
-                self.tray_icon.setIcon(load_icon(ICON_PATH, "logged in"))
+                self.tray_icon.setIcon(load_icon(LOGGEDIN_ICON_PATH, "logged in"))
                 self.tray_icon.show()
                 logger.debug(f"Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
                 app_signals.append_log.emit(f"[Tray] Tray icon set to 'logged in', visible: {self.tray_icon.isVisible()}")
