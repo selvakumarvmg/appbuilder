@@ -130,28 +130,76 @@ jobs:
           test -f cache/cache.json || (echo "❌ cache.json missing" && exit 1)
         shell: bash
 
-      # Build app with PyInstaller
+      # # Build app with PyInstaller
+      # - name: Build App with PyInstaller
+      #   run: |
+      #     echo "Starting PyInstaller build at $(date)"
+      #     echo "Checking syntax of app.py..."
+      #     python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+      #     echo "Finding PySide6 plugins..."
+      #     python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+      #     export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+      #     echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+      #     ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
+      #     ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
+      #     echo "Running PyInstaller..."
+      #     python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
+      #       --name PremediaApp \
+      #       --icon=icons/premedia.icns \
+      #       --add-data "cache/cache.json:cache" \
+      #       --add-data "icons/premedia.icns:icons" \
+      #       --add-data "icons/photoshop.png:icons" \
+      #       --add-data "icons/folder.png:icons" \
+      #       --add-data "icons/premedia.png:icons" \
+      #       --add-data "icons/vmg-premedia-logo.png:icons" \
+      #       --add-data "terms.txt:." \
+      #       --add-data "license.txt:." \
+      #       --add-data "login.ui:." \
+      #       --add-data "premediaapp.ui:." \
+      #       --add-data "icons.qrc:." \
+      #       --add-data "icons_rc.py:." \
+      #       --add-data "login.py:." \
+      #       --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+      #       --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+      #       --hidden-import=paramiko \
+      #       --hidden-import=requests \
+      #       --hidden-import=cryptography \
+      #       --hidden-import=tzdata \
+      #       --hidden-import=PySide6.QtWidgets \
+      #       --hidden-import=PySide6.QtCore \
+      #       --hidden-import=PySide6.QtGui \
+      #       --hidden-import=PySide6.uic \
+      #       --hidden-import=PIL.Image \
+      #       --hidden-import=login \
+      #       --hidden-import=icons_rc \
+      #       --runtime-hook=runtime-hook.py \
+      #       app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
+      #     echo "📁 dist/ contents:"
+      #     ls -lh dist
+      #     echo "PyInstaller build completed at $(date)"
+      #   shell: bash
+
+            # Build app with PyInstaller
       - name: Build App with PyInstaller
         run: |
-          echo "Starting PyInstaller build at $(date)"
-          echo "Checking syntax of app.py..."
+          echo "🚀 Starting PyInstaller build at $(date)"
+          echo "🔍 Checking syntax of app.py..."
           python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
-          echo "Finding PySide6 plugins..."
-          python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+
+          echo "🔎 Finding PySide6 plugins..."
+          python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
           export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-          echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
-          ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
-          ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
-          echo "Running PyInstaller..."
+          echo "✅ PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+
+          ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found" && exit 1)
+          ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
+
+          echo "🧱 Running PyInstaller with full icons folder..."
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
             --name PremediaApp \
             --icon=icons/premedia.icns \
+            --add-data "icons:icons" \
             --add-data "cache/cache.json:cache" \
-            --add-data "icons/premedia.icns:icons" \
-            --add-data "icons/photoshop.png:icons" \
-            --add-data "icons/folder.png:icons" \
-            --add-data "icons/premedia.png:icons" \
-            --add-data "icons/vmg-premedia-logo.png:icons" \
             --add-data "terms.txt:." \
             --add-data "license.txt:." \
             --add-data "login.ui:." \
@@ -173,11 +221,13 @@ jobs:
             --hidden-import=login \
             --hidden-import=icons_rc \
             --runtime-hook=runtime-hook.py \
-            app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
+            app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
+
           echo "📁 dist/ contents:"
           ls -lh dist
-          echo "PyInstaller build completed at $(date)"
+          echo "✅ PyInstaller build completed successfully at $(date)"
         shell: bash
+
 
       # Upload PyInstaller log
       - name: Upload PyInstaller log
