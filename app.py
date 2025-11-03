@@ -252,12 +252,13 @@ API_URL_UPLOAD_DOWNLOAD_UPDATE = f"{BASE_DOMAIN}/api/save_download_upload/update
 API_URL_PROJECT_LIST = f"{BASE_DOMAIN}/api/get/nas/assets"
 API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
+API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irnasappprod"
 # NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
 # NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_USERNAME = "irnasappprod"
 # MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
@@ -10104,6 +10105,21 @@ class PremediaApp(QApplication):
             except Exception:
                 sys.exit(1)
 
+    def logout_apicall(self, user_id):
+   
+        try:
+            payload = {
+                'user_id': user_id,
+            }
+            response = requests.post(API_URL_LOGOUT, data=payload, verify=False)
+            logger.info(response)
+            if response.status_code == 200:
+                logger.info(f"Successfully posted metadata to API (Logout).")
+            else:
+                logger.error(f"Failed to post metadata to API (Logout): {response.status_code} {response.text}")
+        except Exception as e:
+            logger.error(f"Error posting metadata to API (Logout): {e}")
+
 
     def logout(self):
         if IS_APP_ACTIVE_UPLOAD_DOWNLOAD:
@@ -10114,6 +10130,10 @@ class PremediaApp(QApplication):
         try:
             self.logged_in = False
             cache = load_cache()
+            # print(cache.get("user_id", ""), 'cacacasc')
+            user_id = cache.get("user_id", "")
+            print(f"logout --------------------------------user_id: {user_id}")
+            self.logout_apicall(user_id)
             cache["token"] = ""
             if not self.login_dialog.ui.rememberme.isChecked():
                 cache["saved_username"] = ""
@@ -10128,7 +10148,7 @@ class PremediaApp(QApplication):
             logger.error(f"Logout error: {e}")
             app_signals.append_log.emit(f"[Login] Failed: Logout error - {str(e)}")
             app_signals.update_status.emit(f"Logout error: {str(e)}")
-            QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
+            # QMessageBox.critical(self, "Logout Error", f"Failed to log out: {str(e)}")
 
     def set_logged_in_state(self):
         try:
