@@ -2661,6 +2661,7 @@ class FileWatcherWorker(QObject):
     request_reauth = Signal()
     task_list_update = Signal(list)
     cleanup_signal = Signal()
+    user_in_other_system = Signal(str)
 
     _instance = None
     _instance_thread = None
@@ -2793,8 +2794,8 @@ class FileWatcherWorker(QObject):
                 update_download_upload_metadata(task_id, "failed")
                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
                 save_cache(cache, significant_change=True)
-                show_alert_notification("ERROR (D1)", "Please check VPN Connection!")
-                # QMessageBox.warning(None, "ERROR (D1)", f"Please check VPN Connection")
+                # show_alert_notification("ERROR (D1)", "Please check VPN Connection!")
+                
                 return
             # Pick path: either from item dict or src_path
             nas_path = item.get("file_path", src_path) if isinstance(item, dict) else src_path
@@ -2825,8 +2826,7 @@ class FileWatcherWorker(QObject):
             update_download_upload_metadata(task_id, "failed")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
             save_cache(cache, significant_change=True)
-            show_alert_notification("ERROR (D2)", "Download failed try again.")
-            # QMessageBox.warning(None, "ERROR (D2)", "Download failed try again.")
+            # show_alert_notification("ERROR (D2)", "Download failed try again.")
             raise
 
 
@@ -4306,6 +4306,8 @@ class FileWatcherWorker(QObject):
                     logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
                     app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
                     response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
+
+                    
                     logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
                     app_signals.api_call_status.emit(api_url, "Success" if response.status_code == 200 else f"Failed: {response.status_code}", response.status_code)
@@ -4321,6 +4323,13 @@ class FileWatcherWorker(QObject):
 
                     response.raise_for_status()
                     response_data = response.json()
+                    if response_data.get("status") == 403:    
+                        self.user_in_other_system.emit("user_already_logged_in")
+                        # QThread.currentThread().quit()
+                        return
+
+
+                    
                     tasks = response_data if isinstance(response_data, list) else response_data.get('data', [])
                     if not isinstance(tasks, list):
                         logger.error(f"[{datetime.now(timezone.utc).isoformat()}] API returned non-list tasks: {type(tasks)}, data: {tasks}, instance: {id(self)}")
@@ -9286,10 +9295,8 @@ class PremediaApp(QApplication):
             return super().event(event)
 
     def show_login_page(self):
+        self.logout()
         
-        self.set_logged_out_state()
-        self.show_login()
-
     # def handle_tray_icon_activated(self, reason):
     #     try:
     #         logger.debug(f"Tray icon activated with reason: {reason}")
@@ -9844,6 +9851,8 @@ class PremediaApp(QApplication):
             FileWatcherWorker._instance = None
             FILE_WATCHER_RUNNING = True
             self.file_watcher = FileWatcherWorker.get_instance(parent=None)
+            self.file_watcher.user_in_other_system.connect(self.show_login_page)
+            
             if not self.file_watcher:
                 self.handle_error("FileWatcher", "Failed to initialize FileWatcherWorker")
                 return
