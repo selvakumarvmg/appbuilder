@@ -4296,17 +4296,34 @@ class FileWatcherWorker(QObject):
             headers = {"Authorization": f"Bearer {token}"}
             max_retries = 3
             tasks = []
-            print(f"USER_SYSTEM_INFO.get(network,).get(mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
+            print(f"USER_SYSTEM_INFO.get(÷,).get(mac)-----{USER_SYSTEM_INFO.get('encoded_mac', '')}")
             # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get("identifiers", {}).get("encoded_mac", "")}"
-            machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
+            # machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
+            # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={USER_SYSTEM_INFO.get('encoded_mac', '')}"
+            if isinstance(USER_SYSTEM_INFO, dict):
+                machine_id = USER_SYSTEM_INFO.get("encoded_mac", "")
+            elif isinstance(USER_SYSTEM_INFO, list) and USER_SYSTEM_INFO:
+                # if it's a list, use the first element that contains encoded_mac
+                first_entry = USER_SYSTEM_INFO[0]
+                machine_id = first_entry.get("encoded_mac", "") if isinstance(first_entry, dict) else ""
+            else:
+                machine_id = ""
+
+            print(f"[DEBUG] USER_SYSTEM_INFO type={type(USER_SYSTEM_INFO)}, machine_id={machine_id}")
             api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
+            # machine_id = USER_SYSTEM_INFO.get("encoded_mac", "") if isinstance(USER_SYSTEM_INFO, dict) else ""
+            # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
 
             for attempt in range(max_retries):
                 try:
                     logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
                     app_signals.append_log.emit(f"[API Scan] Hitting API: {api_url}")
                     response = HTTP_SESSION.get(api_url, headers=headers, verify=False, timeout=60)
+                    
+                    
+                    response_data = response.json()
 
+                    
                     
                     logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] API response: Status={response.status_code}, Content={response.text[:500]}..., instance: {id(self)}")
                     app_signals.append_log.emit(f"[API Scan] API response: Status={response.status_code}, Content={response.text[:500]}...")
@@ -4323,10 +4340,18 @@ class FileWatcherWorker(QObject):
 
                     response.raise_for_status()
                     response_data = response.json()
-                    if response_data.get("status") == 403:    
-                        self.user_in_other_system.emit("user_already_logged_in")
-                        # QThread.currentThread().quit()
-                        return
+                    # ✅ Handle both list and dict response formats safely
+                    if isinstance(response_data, dict):
+                        if response_data.get("status") == 403:
+                            self.user_in_other_system.emit("user_already_logged_in")
+                            return
+                        tasks = response_data.get("data", [])
+                    elif isinstance(response_data, list):
+                        tasks = response_data  # API directly returns a list of tasks
+                    else:
+                        logger.error(f"Unexpected API response type: {type(response_data)} - {response_data}")
+                        self.log_update.emit(f"[API Scan] Unexpected API response type: {type(response_data)}")
+                        tasks = []
 
 
                     
