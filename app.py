@@ -110,7 +110,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -254,20 +254,20 @@ API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
-NAS_IP = "192.168.3.20"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irnasappprod"
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_USERNAME = "irnasappprod"
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 APPVERSION = "1.1.1"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -4192,7 +4192,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + dest_path,
                     }
 
                     response = requests.post(
