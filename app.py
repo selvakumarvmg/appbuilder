@@ -2649,7 +2649,179 @@ class FileConversionWorker(QObject):
 #         if self.timer.isActive():
 #             self.timer.stop()
 #         logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] FileWatcherWorker stopped")
+class NASClientError(Exception):
+    pass
 
+class NASClient:
+    def __init__(self, ip, username, password):
+        self.ip = ip
+        self.username = username
+        self.password = password
+        self.transport = None
+        self.sftp = None
+        self.connection_time = 0.0 
+
+    def connect(self):
+        """Establishes the SFTP connection and measures time. Reuses connection if active."""
+        if self.sftp and self.transport and self.transport.is_active():
+            print("Connection already active. Reusing existing session.")
+            return
+
+        try:
+            conn_start = time.time()
+
+            # ✅ Pass timeout in the constructor (works in all versions)
+            self.transport = paramiko.Transport((self.ip, 22))
+            self.transport.sock.settimeout(30.0)  # <— Correct place for timeout
+
+            self.transport.connect(username=self.username, password=self.password)
+            self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+
+            conn_end = time.time()
+            self.connection_time = (conn_end - conn_start) * 1000  # ms
+            print(f"✅ New connection established in {self.connection_time:.1f} ms")
+
+        except Exception as e:
+            self.close()
+            raise NASClientError(f"Failed to connect to NAS via SFTP: {e}") from e
+
+
+    def close(self):
+        """Closes the SFTP connection and transport safely."""
+        if self.sftp:
+            try:
+                self.sftp.close()
+            except:
+                pass 
+            self.sftp = None
+        if self.transport:
+            try:
+                self.transport.close()
+            except:
+                pass
+            self.transport = None
+        print("Connection closed.")
+
+    def _download_from_nas(self, src_path, dest_path, item):
+         
+        try:
+            self.nas_client._download_from_nas(src_path, dest_path, item)
+        except Exception as e:
+            print(f"Download failed for {src_path}: {e}")
+
+        # """Download a file from NAS via the persistent SFTP connection."""
+        # if not self.sftp:
+        #     raise NASClientError("Download failed: SFTP client is not connected. Call connect() first.")
+        
+        # # NOTE: Connection logic (transport/sftp setup) is REMOVED.
+        # sftp = self.sftp # Use alias for simpler reading
+        
+        # task_id = item.get("id", '')
+        # spec_id = str(item.get("spec_id"))
+        # metadata_key = "downloaded_files_with_metadata"
+        # cache = load_cache()
+        # cache.setdefault(metadata_key, {})
+
+        # try:
+        #     nas_path = item.get("file_path", src_path) if isinstance(item, dict) else src_path
+
+        #     # Get remote file size
+        #     file_size = sftp.stat(nas_path).st_size
+        #     file_size_mb = file_size / (1024 * 1024)
+
+        #     # Download with timing
+        #     start_time = time.time()
+        #     sftp.get(nas_path, dest_path)
+        #     end_time = time.time()
+
+        #     # Calculate metrics
+        #     duration = end_time - start_time
+        #     speed = file_size_mb / duration if duration > 0 else 0
+
+        #     print(f"Connection time: {self.connection_time:.1f} ms (Reused)")
+        #     print(f"✅ Downloaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
+
+        #     # NO connection closing here
+
+        # except Exception as e:
+        #     print(f"❌ Download failed: {e}")
+        #     update_download_upload_metadata(task_id, "failed")
+        #     cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+        #     save_cache(cache, significant_change=True)
+        #     raise
+
+
+    def _upload_to_nas(self, src_path, dest_path, item):
+
+        try:
+            self.nas_client._upload_to_nas(src_path, dest_path, item)
+        except Exception as e:
+            print(f"Upload failed for {src_path}: {e}")
+
+
+        # """Upload a file to NAS via the persistent SFTP connection."""
+        # if not self.sftp:
+        #     raise NASClientError("Upload failed: SFTP client is not connected. Call connect() first.")
+            
+        # sftp = self.sftp # Use alias for simpler reading
+        
+        # task_id = item.get("id", '')
+        # spec_id = str(item.get("spec_id"))
+        # metadata_key = "uploaded_files_with_metadata"
+        # cache = load_cache()
+        # cache.setdefault(metadata_key, {})
+
+        # try:
+        #     src_path = Path(src_path)
+        #     if not src_path.exists():
+        #         # Removed cache/metadata update logic here to consolidate error handling below
+        #         raise FileNotFoundError(f"Source file does not exist: {src_path}")
+            
+        #     # NOTE: Connection logic is REMOVED from this try block.
+
+        #     # Destination path (from item dict or param)
+        #     dest_path = item.get("file_path", dest_path) if isinstance(item, dict) else dest_path
+        #     dest_dir = os.path.dirname(dest_path)
+
+        #     # Ensure remote directory exists
+        #     try:
+        #         sftp.stat(dest_dir)
+        #     except FileNotFoundError:
+        #         parts = dest_dir.strip("/").split("/")
+        #         current = ""
+        #         for part in parts:
+        #             if not part: continue # Skip if path starts with '/'
+        #             current += f"/{part}"
+        #             try:
+        #                 sftp.stat(current)
+        #             except FileNotFoundError:
+        #                 sftp.mkdir(current, mode=0o777)
+
+        #     # Get file size
+        #     file_size = src_path.stat().st_size
+        #     file_size_mb = file_size / (1024 * 1024)
+
+        #     # Upload with timing
+        #     start_time = time.time()
+        #     sftp.put(str(src_path), dest_path)
+        #     sftp.chmod(dest_path, 0o777)
+        #     end_time = time.time()
+
+        #     # Metrics
+        #     duration = end_time - start_time
+        #     speed = file_size_mb / duration if duration > 0 else 0
+
+        #     print(f"Connection time: {self.connection_time:.1f} ms (Reused)")
+        #     print(f"✅ Uploaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
+
+          
+
+        # except Exception as e:
+        #     print(f"❌ Upload failed: {e}")
+        #     cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+        #     save_cache(cache, significant_change=True)
+        #     # show_alert_notification("Error (U3)", "Upload failed try again.")
+        #     raise
 
 
 
@@ -2717,6 +2889,13 @@ class FileWatcherWorker(QObject):
         else:
             logger.debug("FileWatcherWorker timer already active")
             self.log_update.emit("[FileWatcher] Timer already active")
+
+        self.nas_client = NASClient(NAS_IP, NAS_USERNAME, NAS_PASSWORD)
+        try:
+            self.nas_client.connect()
+        except NASClientError as e:
+            print(f"❌ Failed to connect: {e}")
+            raise
 
     def _prepare_download_path(self, item):
         """Prepare the local destination path for download using file_path."""
