@@ -256,7 +256,7 @@ MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 # NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
 # MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
-APPVERSION = "1.1.1"
+APPVERSION = "1.1.2"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
