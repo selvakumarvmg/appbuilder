@@ -74,7 +74,11 @@ if platform.system() == "Windows":
     import win32com.client
     import win32gui
     import win32con
+from scp import SCPClient
 
+def fast_scp_upload(ssh_transport, src_path, dest_path):
+    with SCPClient(ssh_transport, socket_timeout=30) as scp:
+        scp.put(src_path, dest_path)
 
 SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
@@ -110,7 +114,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -241,20 +245,22 @@ API_URL_UPDATE_NAS_ASSET = f"{BASE_DOMAIN}/api/update/nas/assets"
 DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
-NAS_IP = "192.168.3.20"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irnasappprod"
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
 
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_USERNAME = "irnasappprod"
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_PORT = 2022
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 APPVERSION = "1.1.2"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -733,19 +739,19 @@ def end_timer_api(file_path, timer_response, token):
         app_signals.append_log.emit(f"[API Scan] Failed to end timer: {str(e)}")
         return None
 
-def connect_to_nas():
-    if not NAS_AVAILABLE:
-        raise Exception("NAS functionality disabled")
-    start = time.perf_counter()
-    try:
-        transport = paramiko.Transport((NAS_IP, 22))
-        transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-        sftp = paramiko.SFTPClient.from_transport(transport)
-        print(f"Connection time: {(time.perf_counter() - start)*1000:.1f}ms")
-        return (transport, sftp)
-    except (paramiko.AuthenticationException, paramiko.SSHException, Exception) as e:
-        print(f"Connection failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
-        raise Exception(f"NAS connection failed: {str(e)}")
+# def connect_to_nas():
+#     if not NAS_AVAILABLE:
+#         raise Exception("NAS functionality disabled")
+#     start = time.perf_counter()
+#     try:
+#         transport = paramiko.Transport((NAS_IP, 22))
+#         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+#         sftp = paramiko.SFTPClient.from_transport(transport)
+#         print(f"Connection time: {(time.perf_counter() - start)*1000:.1f}ms")
+#         return (transport, sftp)
+#     except (paramiko.AuthenticationException, paramiko.SSHException, Exception) as e:
+#         print(f"Connection failed after {(time.perf_counter() - start)*1000:.1f}ms: {str(e)}")
+#         raise Exception(f"NAS connection failed: {str(e)}")
 
 def check_nas_write_permission(sftp, nas_path):
     """Verify and set write permission for NAS directory and file."""
@@ -1334,6 +1340,70 @@ class FileWatcherWorker(QObject):
         self.log_update.emit(f"[Transfer] Prepared local path: {resolved_dest_path}")
         return resolved_dest_path
 
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", '')
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "downloaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+
+    #     try:
+    #         # --- FAST TRANSPORT ---
+    #         conn_start = time.time()
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
+
+    #         # Use fastest cipher
+    #         transport.get_security_options().ciphers = (
+    #             'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+    #         )
+
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+
+    #         # Create high-performance SFTP client
+    #         sftp = paramiko.SFTPClient.from_transport(transport)
+
+    #         # BOOST 1: Increase Max Packet Size (default = 32 KB)
+    #         sftp.MAX_PACKET_SIZE = 327680  # 320 KB
+
+    #         # BOOST 2: Increase Max Request Size
+    #         sftp.MAX_REQUEST_SIZE = 327680  # 320 KB
+
+    #         conn_end = time.time()
+    #         connection_time = (conn_end - conn_start) * 1000
+
+    #         # Resolve NAS path
+    #         nas_path = item.get("file_path", src_path)
+
+    #         # File size
+    #         file_size = sftp.stat(nas_path).st_size
+    #         file_size_mb = file_size / (1024 * 1024)
+
+    #         # --- FAST DOWNLOAD ---
+    #         start_time = time.time()
+
+    #         # Use getfo (streaming) for faster large file downloads
+    #         with open(dest_path, 'wb') as out_f:
+    #             sftp.getfo(nas_path, out_f)
+
+    #         end_time = time.time()
+
+    #         duration = end_time - start_time
+    #         speed = file_size_mb / duration if duration > 0 else 0
+
+    #         print(f"Connection: {connection_time:.1f}ms")
+    #         print(f"Downloaded {file_size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+
+    #         sftp.close()
+    #         transport.close()
+
+    #     except Exception as e:
+    #         print(f"❌ Download failed: {e}")
+    #         update_download_upload_metadata(task_id, "failed")
+    #         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #         save_cache(cache, significant_change=True)
+    #         raise
+
+
     def _download_from_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
@@ -1342,66 +1412,137 @@ class FileWatcherWorker(QObject):
         cache.setdefault(metadata_key, {})
 
         try:
-            # --- FAST TRANSPORT ---
+            # --- FAST SSH CONNECTION ---
             conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, 22))
+            transport = paramiko.Transport((NAS_IP, NAS_PORT))
 
-            # Use fastest cipher
             transport.get_security_options().ciphers = (
                 'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
             )
 
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-
-            # Create high-performance SFTP client
-            sftp = paramiko.SFTPClient.from_transport(transport)
-
-            # BOOST 1: Increase Max Packet Size (default = 32 KB)
-            sftp.MAX_PACKET_SIZE = 327680  # 320 KB
-
-            # BOOST 2: Increase Max Request Size
-            sftp.MAX_REQUEST_SIZE = 327680  # 320 KB
-
             conn_end = time.time()
-            connection_time = (conn_end - conn_start) * 1000
+
+            print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
 
             # Resolve NAS path
             nas_path = item.get("file_path", src_path)
 
-            # File size
-            file_size = sftp.stat(nas_path).st_size
-            file_size_mb = file_size / (1024 * 1024)
-
-            # --- FAST DOWNLOAD ---
+            # --- SUPER FAST SCP DOWNLOAD ---
             start_time = time.time()
 
-            # Use getfo (streaming) for faster large file downloads
-            with open(dest_path, 'wb') as out_f:
-                sftp.getfo(nas_path, out_f)
+            with SCPClient(transport, socket_timeout=30) as scp:
+                scp.get(nas_path, local_path=dest_path)
 
             end_time = time.time()
 
+            # calculate file size + speed
+            size_mb = Path(dest_path).stat().st_size / (1024 * 1024)
             duration = end_time - start_time
-            speed = file_size_mb / duration if duration > 0 else 0
+            speed = size_mb / duration if duration > 0 else 0
 
-            print(f"Connection: {connection_time:.1f}ms")
-            print(f"Downloaded {file_size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+            print(f"📥 SCP Downloaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-            sftp.close()
             transport.close()
 
         except Exception as e:
             print(f"❌ Download failed: {e}")
-            update_download_upload_metadata(task_id, "failed")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
             save_cache(cache, significant_change=True)
+            update_download_upload_metadata(task_id, "failed")
             raise
 
 
 
-
-
     
+    # def _upload_to_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", '')
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "uploaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+
+    #     try:
+    #         src_path = Path(src_path)
+    #         if not src_path.exists():
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+    #             save_cache(cache, significant_change=True)
+    #             update_download_upload_metadata(task_id, "failed")
+    #             show_alert_notification("Error (U1)", "Upload failed try again.")
+    #             raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+    #         # --- FAST PARAMIKO CONNECTION ---
+    #         conn_start = time.time()
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))   # IMPORTANT: Use SFTPGo port
+
+    #         transport.get_security_options().ciphers = (
+    #             'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+    #         )
+
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+    #         sftp = paramiko.SFTPClient.from_transport(transport)
+
+    #         sftp.MAX_PACKET_SIZE = 327680
+    #         sftp.MAX_REQUEST_SIZE = 327680
+
+    #         conn_end = time.time()
+    #         print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+    #         # Destination path
+    #         dest_path = item.get("file_path", dest_path)
+
+    #         # Ensure directory exists
+    #         dest_dir = os.path.dirname(dest_path)
+    #         try:
+    #             sftp.stat(dest_dir)
+    #         except FileNotFoundError:
+    #             parts = dest_dir.strip("/").split("/")
+    #             current = ""
+    #             for part in parts:
+    #                 current += f"/{part}"
+    #                 try:
+    #                     sftp.stat(current)
+    #                 except FileNotFoundError:
+    #                     sftp.mkdir(current, mode=0o777)
+
+    #         file_size = src_path.stat().st_size
+    #         file_size_mb = file_size / (1024 * 1024)
+
+    #         # --- SUPER-FAST CHUNKED UPLOAD ---
+    #         print("Uploading...")
+
+    #         start_time = time.time()
+
+    #         with open(src_path, "rb") as local_file:
+    #             with sftp.open(dest_path, 'wb') as remote_file:
+    #                 while True:
+    #                     chunk = local_file.read(1024 * 1024)  # 1 MB chunks
+    #                     if not chunk:
+    #                         break
+    #                     remote_file.write(chunk)
+
+    #                 remote_file.flush()
+
+    #         sftp.chmod(dest_path, 0o777)
+
+    #         end_time = time.time()
+
+    #         duration = end_time - start_time
+    #         speed = file_size_mb / duration
+
+    #         print(f"⚡ Uploaded {file_size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+
+    #         sftp.close()
+    #         transport.close()
+
+    #     except Exception as e:
+    #         print(f"❌ Upload failed: {e}")
+    #         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+    #         save_cache(cache, significant_change=True)
+    #         show_alert_notification("Error (U3)", "Upload failed try again.")
+    #         raise
+
+
     def _upload_to_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
@@ -1418,68 +1559,33 @@ class FileWatcherWorker(QObject):
                 show_alert_notification("Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
-            # --- FAST PARAMIKO CONNECTION ---
+            # --- FAST SSH (same as before) ---
             conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, 22))
-
-            # Use fastest ciphers (CTR)
+            transport = paramiko.Transport((NAS_IP, 2022))
             transport.get_security_options().ciphers = (
                 'aes128-ctr',
                 'aes192-ctr',
                 'aes256-ctr'
             )
-
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-
-            sftp = paramiko.SFTPClient.from_transport(transport)
-
-            # BOOST 1: Increase Paramiko packet size (default = 32 KB)
-            sftp.MAX_PACKET_SIZE = 327680    # 320 KB
-
-            # BOOST 2: Increase request size (default = 32 KB)
-            sftp.MAX_REQUEST_SIZE = 327680   # 320 KB
-
             conn_end = time.time()
-            connection_time = (conn_end - conn_start) * 1000  # ms
 
-            # Destination path
+            print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+            # Destination: use item’s file_path if provided
             dest_path = item.get("file_path", dest_path)
 
-            # Ensure remote directory exists
-            dest_dir = os.path.dirname(dest_path)
-            try:
-                sftp.stat(dest_dir)
-            except FileNotFoundError:
-                parts = dest_dir.strip("/").split("/")
-                current = ""
-                for part in parts:
-                    current += f"/{part}"
-                    try:
-                        sftp.stat(current)
-                    except FileNotFoundError:
-                        sftp.mkdir(current, mode=0o777)
+            # --- SUPER FAST SCP UPLOAD ---
+            start = time.time()
+            fast_scp_upload(transport, str(src_path), dest_path)
+            end = time.time()
 
-            # File size
-            file_size = src_path.stat().st_size
-            file_size_mb = file_size / (1024 * 1024)
+            duration = end - start
+            size_mb = src_path.stat().st_size / (1024 * 1024)
+            speed = size_mb / duration
 
-            # --- FAST UPLOAD ---
-            start_time = time.time()
+            print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-            with open(src_path, "rb") as f:
-                # Use putfo—it is faster for large files
-                sftp.putfo(f, dest_path)
-
-            sftp.chmod(dest_path, 0o777)
-            end_time = time.time()
-
-            duration = end_time - start_time
-            speed = file_size_mb / duration
-
-            print(f"Connection time: {connection_time:.1f} ms")
-            print(f"⚡ Uploaded {file_size_mb:.2f} MB in {duration:.2f} s ({speed:.2f} MB/s)")
-
-            sftp.close()
             transport.close()
 
         except Exception as e:
@@ -1488,6 +1594,7 @@ class FileWatcherWorker(QObject):
             save_cache(cache, significant_change=True)
             show_alert_notification("Error (U3)", "Upload failed try again.")
             raise
+
 
         
     def _update_cache_and_signals(self, action_type, src_path, dest_path, item, task_id, is_nas, file_type="original"):
@@ -2012,7 +2119,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + dest_path,
                     }
 
                     response = requests.post(
