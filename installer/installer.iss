@@ -99,6 +99,7 @@ Source: "..\icons\logout-logo.icns"; DestDir: "{app}\icons"; Flags: ignoreversio
 Source: "..\icons\logout-logo.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\logout-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\icons\vmg-premedia-logo.png"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\icons\premedia_splash_screen.png"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\PremediaApp"; Filename: "{app}\PremediaApp.exe"; IconFilename: "{app}\icons\premedia.ico"

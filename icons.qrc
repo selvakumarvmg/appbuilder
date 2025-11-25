@@ -53,5 +53,6 @@
         <file>icons/logout-logo.png</file>
         <file>icons/logout-logo.ico</file>
         <file>icons/vmg-premedia-logo.png</file>
+        <file>icons/premedia_splash_screen.png</file>
     </qresource>
 </RCC>

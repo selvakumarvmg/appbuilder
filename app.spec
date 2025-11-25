@@ -71,6 +71,7 @@ icon_files = [
     ("icons/logout-logo.ico", "icons"),
     ("icons/logout-logo.png", "icons"),
     ("icons/vmg-premedia-logo.png", "icons"),
+    ("icons/premedia_splash_screen.png", "icons"),
 ]
 ui_files = [
     ("login.ui", "."),
