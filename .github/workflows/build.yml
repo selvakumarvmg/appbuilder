@@ -1,3 +1,803 @@
+# name: Build PremediaApp (macOS & Windows)
+
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#     branches: [main]
+#   workflow_dispatch:
+
+# jobs:
+#   build-macos:
+#     name: 🛠️ Build macOS x86_64 App
+#     runs-on: macos-13
+
+#     steps:
+#       # Checkout the repository
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       # Set up Python
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.9.13'
+#           architecture: 'x64'
+
+#       # Cache pip packages
+#       - name: Cache pip packages
+#         uses: actions/cache@v4
+#         with:
+#           path: ~/.cache/pip
+#           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+#           restore-keys: ${{ runner.os }}-pip-
+
+#       # Clear pip cache
+#       - name: Clear pip cache
+#         run: pip cache purge
+#         shell: bash
+
+#       # Install dependencies
+#       - name: Install dependencies
+#         run: |
+#           echo "Starting dependency installation at $(date)"
+#           python -m pip install --upgrade pip
+#           pip install --upgrade wheel setuptools
+#           echo "Inspecting requirements.txt..."
+#           cat requirements.txt
+#           echo "Installing requirements..."
+#           pip install -r requirements.txt --no-cache-dir --force-reinstall --verbose > requirements_install.log 2>&1 || (echo "❌ Failed to install requirements" && cat requirements_install.log && exit 1)
+#           echo "Installing PySide6 and dependencies..."
+#           pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 --no-cache-dir --force-reinstall --verbose > pyside6_install.log 2>&1 || (echo "❌ Failed to install PySide6" && cat pyside6_install.log && exit 1)
+#           echo "Installing PyInstaller..."
+#           pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall --verbose > pyinstaller_install.log 2>&1 || (echo "❌ PyInstaller installation failed" && cat pyinstaller_install.log && exit 1)
+#           echo "Installing dmgbuild..."
+#           pip install dmgbuild --no-cache-dir --force-reinstall --verbose > dmgbuild_install.log 2>&1 || (echo "❌ dmgbuild installation failed" && cat dmgbuild_install.log && exit 1)
+#           pip list > installed_packages.txt
+#           python -m pip show pyinstaller || (echo "❌ PyInstaller not installed" && exit 1)
+#           python -m pip show PySide6 || (echo "❌ PySide6 not installed" && exit 1)
+#           echo "Checking PySide6 plugins..."
+#           python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+#           cat plugins_path.txt
+#           ls -ld "$(cat plugins_path.txt)/platforms" || (echo "❌ PySide6 platforms directory not found" && exit 1)
+#           ls -ld "$(cat plugins_path.txt)/imageformats" || (echo "❌ PySide6 imageformats directory not found" && exit 1)
+#           find / -name qcocoa.dylib 2>/dev/null > plugin_check.txt || echo "No qcocoa.dylib found" >> plugin_check.txt
+#           find / -name qicns.dylib 2>/dev/null >> plugin_check.txt || echo "No qicns.dylib found" >> plugin_check.txt
+#           cat plugin_check.txt
+#           echo "Dependency installation completed at $(date)"
+#         shell: bash
+
+#       # Upload install logs
+#       - name: Upload requirements install log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: requirements-install-log-macos
+#           path: requirements_install.log
+#         if: always()
+
+#       - name: Upload PySide6 install log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: pyside6-install-log-macos
+#           path: pyside6_install.log
+#         if: always()
+
+#       - name: Upload PyInstaller install log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: pyinstaller-install-log-macos
+#           path: pyinstaller_install.log
+#         if: always()
+
+#       - name: Upload dmgbuild install log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: dmgbuild-install-log-macos
+#           path: dmgbuild_install.log
+#         if: always()
+
+#       - name: Upload plugin check log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: plugin-check-log-macos
+#           path: plugin_check.txt
+#         if: always()
+
+#       # Show installed packages
+#       - name: Show installed packages
+#         run: cat installed_packages.txt
+#         shell: bash
+
+#       # Verify required files
+#       - name: Verify required files
+#         run: |
+#           test -f app.py || (echo "❌ app.py missing" && exit 1)
+#           test -f login.py || (echo "❌ login.py missing" && exit 1)
+#           test -f icons/premedia.icns || (echo "❌ premedia.icns missing" && exit 1)
+#           test -f icons/photoshop.png || (echo "❌ photoshop.png missing" && exit 1)
+#           test -f icons/folder.png || (echo "❌ folder.png missing" && exit 1)
+#           test -f icons/premedia.png || (echo "❌ premedia.png missing" && exit 1)
+#           test -f icons/vmg-premedia-logo.png || (echo "❌ vmg-premedia-logo.png missing" && exit 1)
+#           test -f terms.txt || (echo "❌ terms.txt missing" && exit 1)
+#           test -f license.txt || (echo "❌ license.txt missing" && exit 1)
+#           test -f login.ui || (echo "❌ login.ui missing" && exit 1)
+#           test -f premediaapp.ui || (echo "❌ premediaapp.ui missing" && exit 1)
+#           test -f icons.qrc || (echo "❌ icons.qrc missing" && exit 1)
+#           test -f icons_rc.py || (echo "❌ icons_rc.py missing" && exit 1)
+#           test -f installer/dmg-settings.py || (echo "❌ dmg-settings.py missing" && exit 1)
+#           test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
+#           test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
+#           test -f cache/cache.json || (echo "❌ cache.json missing" && exit 1)
+#         shell: bash
+
+#       # # Build app with PyInstaller
+#       # - name: Build App with PyInstaller
+#       #   run: |
+#       #     echo "Starting PyInstaller build at $(date)"
+#       #     echo "Checking syntax of app.py..."
+#       #     python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+#       #     echo "Finding PySide6 plugins..."
+#       #     python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
+#       #     export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+#       #     echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+#       #     ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
+#       #     ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
+#       #     echo "Running PyInstaller..."
+#       #     python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
+#       #       --name PremediaApp \
+#       #       --icon=icons/premedia.icns \
+#       #       --add-data "cache/cache.json:cache" \
+#       #       --add-data "icons/premedia.icns:icons" \
+#       #       --add-data "icons/photoshop.png:icons" \
+#       #       --add-data "icons/folder.png:icons" \
+#       #       --add-data "icons/premedia.png:icons" \
+#       #       --add-data "icons/vmg-premedia-logo.png:icons" \
+#       #       --add-data "terms.txt:." \
+#       #       --add-data "license.txt:." \
+#       #       --add-data "login.ui:." \
+#       #       --add-data "premediaapp.ui:." \
+#       #       --add-data "icons.qrc:." \
+#       #       --add-data "icons_rc.py:." \
+#       #       --add-data "login.py:." \
+#       #       --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+#       #       --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+#       #       --hidden-import=paramiko \
+#       #       --hidden-import=requests \
+#       #       --hidden-import=cryptography \
+#       #       --hidden-import=tzdata \
+#       #       --hidden-import=PySide6.QtWidgets \
+#       #       --hidden-import=PySide6.QtCore \
+#       #       --hidden-import=PySide6.QtGui \
+#       #       --hidden-import=PySide6.uic \
+#       #       --hidden-import=PIL.Image \
+#       #       --hidden-import=login \
+#       #       --hidden-import=icons_rc \
+#       #       --runtime-hook=runtime-hook.py \
+#       #       app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
+#       #     echo "📁 dist/ contents:"
+#       #     ls -lh dist
+#       #     echo "PyInstaller build completed at $(date)"
+#       #   shell: bash
+
+#             # Build app with PyInstaller
+#       - name: Build App with PyInstaller
+#         run: |
+#           echo "🚀 Starting PyInstaller build at $(date)"
+#           echo "🔍 Checking syntax of app.py..."
+#           python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+
+#           echo "🔎 Finding PySide6 plugins..."
+#           python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
+#           export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+#           echo "✅ PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+
+#           ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found" && exit 1)
+#           ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
+
+#           echo "🧱 Running PyInstaller with full icons folder..."
+#           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
+#             --name PremediaApp \
+#             --icon=icons/premedia.icns \
+#             --add-data "icons:icons" \
+#             --add-data "cache/cache.json:cache" \
+#             --add-data "terms.txt:." \
+#             --add-data "license.txt:." \
+#             --add-data "login.ui:." \
+#             --add-data "premediaapp.ui:." \
+#             --add-data "icons.qrc:." \
+#             --add-data "icons_rc.py:." \
+#             --add-data "login.py:." \
+#             --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+#             --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+#             --hidden-import=paramiko \
+#             --hidden-import=requests \
+#             --hidden-import=cryptography \
+#             --hidden-import=tzdata \
+#             --hidden-import=PySide6.QtWidgets \
+#             --hidden-import=PySide6.QtCore \
+#             --hidden-import=PySide6.QtGui \
+#             --hidden-import=PySide6.uic \
+#             --hidden-import=PIL.Image \
+#             --hidden-import=login \
+#             --hidden-import=icons_rc \
+#             --runtime-hook=runtime-hook.py \
+#             app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
+
+#           echo "📁 dist/ contents:"
+#           ls -lh dist
+#           echo "✅ PyInstaller build completed successfully at $(date)"
+#         shell: bash
+
+
+#       # Upload PyInstaller log
+#       - name: Upload PyInstaller log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: pyinstaller-log-macos
+#           path: pyinstaller.log
+#         if: always()
+
+#       # Upload plugins path log
+#       - name: Upload platforms path log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: platforms-path-log-macos
+#           path: plugins_path.txt
+#         if: always()
+
+#       # Sign app
+#       - name: Sign App
+#         run: codesign --deep --force --verbose --sign - dist/PremediaApp.app
+#         if: ${{ env.APPLE_CERTIFICATE == '' }}
+#         shell: bash
+
+#       - name: Sign App with Developer ID
+#         run: |
+#           codesign --deep --force --verbose --sign "Developer ID Application: Your Name" --entitlements entitlements.plist dist/PremediaApp.app
+#         if: ${{ env.APPLE_CERTIFICATE != '' }}
+#         env:
+#           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+#         shell: bash
+
+#       # Inspect built .app
+#       - name: Inspect built .app
+#         run: |
+#           du -sh dist/PremediaApp.app
+#           find dist/PremediaApp.app
+#         shell: bash
+
+#       # Build DMG
+#       - name: Build DMG
+#         run: |
+#           mkdir -p dmg-build
+#           cp -R dist/PremediaApp.app dmg-build/
+#           dmgbuild -s installer/dmg-settings.py \
+#                    -D app_path="dmg-build/PremediaApp.app" \
+#                    "PremediaApp" dist/PremediaApp.dmg
+#         shell: bash
+
+#       # Upload DMG artifact
+#       - name: Upload DMG Artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: PremediaApp-macos-dmg
+#           path: dist/PremediaApp.dmg
+#           retention-days: 7
+
+  
+
+
+
+#   build-windows:
+#     name: 🪟 Build Windows EXE Installer
+#     runs-on: windows-latest
+
+#     steps:
+#       # Checkout the repository
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       # Set up Python
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.9.13'
+#           architecture: 'x64'
+
+#       # Install Visual Studio Build Tools for C++ (required for docopt, psd-tools)
+#       # - name: Install Visual Studio Build Tools
+#       #   run: |
+#       #     echo "Installing Visual Studio Build Tools at $(Get-Date)"
+#       #     choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+#       #     echo "Verifying MSVC installation..."
+#       #     dir "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
+#       #     echo "Visual Studio Build Tools installation completed at $(Get-Date)"
+#       #   shell: powershell
+
+#       - name: Install Visual Studio 2022 Build Tools
+#         run: |
+#           echo "Installing Visual Studio 2022 Build Tools at $(Get-Date)"
+#           choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --no-progress --yes --force
+#           echo "Verifying MSVC installation..."
+#           $msvcPaths = @(
+#             "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC",
+#             "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC"
+#           )
+#           $found = $false
+#           foreach ($path in $msvcPaths) {
+#             if (Test-Path $path) {
+#               Write-Host "✅ Found MSVC at: $path"
+#               dir $path
+#               $found = $true
+#               break
+#             }
+#           }
+#           if (-not $found) {
+#             Write-Error "❌ MSVC path not found in either Program Files or Program Files (x86)."
+#             exit 1
+#           }
+#           echo "Visual Studio Build Tools installation completed at $(Get-Date)"
+#         shell: powershell
+
+
+
+#       # Cache pip packages
+#       - name: Cache pip packages
+#         uses: actions/cache@v4
+#         with:
+#           path: ~/AppData/Local/pip/Cache
+#           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+#           restore-keys: ${{ runner.os }}-pip-
+
+#       # Clear pip cache
+#       - name: Clear pip cache
+#         run: pip cache purge
+#         shell: powershell
+
+#       # Install dependencies
+#       - name: Verify Python and pip
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Verifying Python and pip at $(Get-Date)"
+#           echo "Current directory: $(Get-Location)"
+#           try {
+#             python --version 2>&1 | Out-File -FilePath python_version.log -Encoding utf8
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "Python not found"
+#               Get-Content python_version.log
+#               exit 1
+#             }
+#             echo "Python version:"
+#             Get-Content python_version.log
+#           } catch {
+#             echo "Error running python --version: $_"
+#             Get-Content python_version.log
+#             exit 1
+#           }
+#           try {
+#             python -m pip --version 2>&1 | Out-File -FilePath pip_version.log -Encoding utf8
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "pip not found"
+#               Get-Content pip_version.log
+#               exit 1
+#             }
+#             echo "pip version:"
+#             Get-Content pip_version.log
+#           } catch {
+#             echo "Error running python -m pip --version: $_"
+#             Get-Content pip_version.log
+#             exit 1
+#           }
+#         shell: powershell
+#         env:
+#           pythonLocation: C:\hostedtoolcache\windows\Python\3.9.13\x64
+#           PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.9.13\x64/lib/pkgconfig
+#           Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+#           Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+#           Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.9.13\x64
+
+#       - name: Upgrade pip
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Upgrading pip at $(Get-Date)"
+#           $pipUpgradeLog = Join-Path (Get-Location) "pip_upgrade.log"
+#           try {
+#             python -m pip install --upgrade pip --verbose 2>&1 | Tee-Object -FilePath $pipUpgradeLog
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "Failed to upgrade pip"
+#               Get-Content $pipUpgradeLog
+#               exit 1
+#             }
+#           } catch {
+#             echo "Error during pip upgrade: $_"
+#             Get-Content $pipUpgradeLog
+#             exit 1
+#           }
+#         shell: powershell
+
+#       - name: Install Visual C++ Redistributable and wheel/setuptools
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Checking write permissions in $(Get-Location) at $(Get-Date)"
+#           $testFile = Join-Path (Get-Location) "test_write.txt"
+#           try {
+#             echo "Test content" | Out-File -FilePath $testFile -Encoding utf8 -ErrorAction Stop
+#             if (Test-Path $testFile) {
+#               echo "Write permission confirmed"
+#               Remove-Item $testFile -Force
+#             } else {
+#               echo "Failed to create test file"
+#               dir | Out-File -FilePath dir_contents.log -Encoding utf8
+#               Get-Content dir_contents.log
+#               exit 1
+#             }
+#           } catch {
+#             echo "Error writing test file: $_"
+#             dir | Out-File -FilePath dir_contents.log -Encoding utf8
+#             Get-Content dir_contents.log
+#             exit 1
+#           }
+#           echo "Installing Visual C++ Redistributable..."
+#           $vcredistLog = Join-Path (Get-Location) "vcredist_install.log"
+#           try {
+#             choco install vcredist2015 --no-progress --yes --force 2>&1 | Tee-Object -FilePath $vcredistLog
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "Failed to install Visual C++ Redistributable"
+#               Get-Content $vcredistLog
+#               exit 1
+#             }
+#           } catch {
+#             echo "Error installing Visual C++ Redistributable: $_"
+#             Get-Content $vcredistLog
+#             exit 1
+#           }
+#           echo "Installing wheel and setuptools..."
+#           $wheelSetuptoolsLog = Join-Path (Get-Location) "wheel_setuptools.log"
+#           try {
+#             python -m pip install --upgrade wheel setuptools --verbose 2>&1 | Tee-Object -FilePath $wheelSetuptoolsLog
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "Failed to install wheel/setuptools"
+#               Get-Content $wheelSetuptoolsLog
+#               exit 1
+#             }
+#           } catch {
+#             echo "Error installing wheel/setuptools: $_"
+#             Get-Content $wheelSetuptoolsLog
+#             exit 1
+#           }
+#         shell: powershell
+
+     
+#       - name: 🛠️ Upgrade pip and tools
+#         run: |
+#           python -m pip install --upgrade pip==24.3.1 setuptools wheel
+#           python -m pip config set global.index-url https://pypi.org/simple
+#       - name: 🧩 Pre-install docopt-ng to prevent build errors
+#         run: |
+#           python -m pip install --only-binary=:all: docopt-ng==0.9.0
+#       - name: 🩹 Patch psd-tools dependency to use docopt-ng (safe fork)
+#         run: |
+#           python -m pip install --no-deps psd-tools==1.9.30
+#       - name: 📦 Install remaining dependencies
+#         shell: bash
+#         run: |
+#           grep -v "psd-tools" requirements.txt > patched-reqs.txt
+#           python -m pip install --upgrade --prefer-binary -r patched-reqs.txt
+#       - name: Verify PySide6 plugin directory
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Trying to detect PySide6 plugins..."
+#           $defaultPluginsPath = python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt', 'plugins'))"
+#           echo "Default plugins path: $defaultPluginsPath"
+#           if (-not (Test-Path $defaultPluginsPath)) {
+#             echo "Default plugins path not found. Attempting fallback..."
+#             $fallbackPluginsPath = python -c "import PySide6.QtCore; print(PySide6.QtCore.QLibraryInfo.path(PySide6.QtCore.QLibraryInfo.PluginsPath))"
+#             echo "Fallback plugins path from QLibraryInfo: $fallbackPluginsPath"
+#             if (-not (Test-Path $fallbackPluginsPath)) {
+#               echo "Fallback plugins path also not found!"
+#               exit 1
+#             } else {
+#               echo "✅ Found fallback plugins path: $fallbackPluginsPath"
+#               dir $fallbackPluginsPath
+#             }
+#           } else {
+#             echo "✅ Found plugins directory: $defaultPluginsPath"
+#             dir $defaultPluginsPath
+#           }
+#         shell: powershell
+
+
+
+#       - name: Create installed packages list
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Creating installed_packages.txt at $(Get-Date)"
+#           $installPackagesFile = Join-Path (Get-Location) "installed_packages.txt"
+#           try {
+#             python -m pip list --verbose 2>&1 | Out-File -FilePath $installPackagesFile -Encoding utf8
+#             if ($LASTEXITCODE -ne 0) {
+#               echo "pip list command failed"
+#               if (Test-Path $installPackagesFile) {
+#                 echo "Partial output in installed_packages.txt:"
+#                 Get-Content $installPackagesFile
+#               }
+#               exit 1
+#             }
+#           } catch {
+#             echo "Error running pip list: $_"
+#             if (Test-Path $installPackagesFile) {
+#               echo "Partial output in installed_packages.txt:"
+#               Get-Content $installPackagesFile
+#             }
+#             exit 1
+#           }
+#           if (-not (Test-Path $installPackagesFile)) {
+#             echo "installed_packages.txt not created at $installPackagesFile"
+#             dir | Out-File -FilePath dir_contents.log -Encoding utf8
+#             echo "Directory contents:"
+#             Get-Content dir_contents.log
+#             exit 1
+#           }
+#           echo "Contents of installed_packages.txt:"
+#           Get-Content $installPackagesFile
+#         shell: powershell
+
+#       - name: Install PyInstaller
+#         shell: powershell
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           Write-Host "Installing PyInstaller at $(Get-Date)"
+          
+#           try {
+#             python -m pip install pyinstaller==6.14.0 --no-cache-dir --force-reinstall
+#             Write-Host "✅ PyInstaller installed successfully."
+#           }
+#           catch {
+#             Write-Error "❌ Failed to install PyInstaller: $_"
+#             exit 1
+#           }
+#       - name: Upload all install logs
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: install-logs-windows
+#           path: |
+#             *.log
+#             installed_packages.txt
+#         if: always()
+
+
+#       # Show installed packages
+#       - name: Show installed packages
+#         run: |
+#           echo "Current directory: $(Get-Location)"
+#           if (-not (Test-Path installed_packages.txt)) {
+#             echo "installed_packages.txt not found"
+#             dir
+#             exit 1
+#           }
+#           echo "Contents of installed_packages.txt:"
+#           Get-Content installed_packages.txt
+#         shell: powershell
+#         if: always()
+
+
+#       # Upload install logs
+#       - name: Upload requirements install logs
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: requirements-install-logs-windows
+#           path: |
+#             *.log
+#         if: always()
+
+#       - name: Upload PyInstaller install log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: pyinstaller-install-log-windows
+#           path: pyinstaller_install.log
+#         if: always()
+
+#       # Show installed packages
+#       - name: Show installed packages
+#         run: Get-Content installed_packages.txt
+#         shell: powershell
+#         if: always()
+
+#       # Verify required files
+#       - name: Verify required files exist
+#         run: |
+#           if (-not (Test-Path app.py)) { echo "app.py missing"; exit 1 }
+#           if (-not (Test-Path login.py)) { echo "login.py missing"; exit 1 }
+#           if (-not (Test-Path icons/premedia.ico)) { echo "premedia.ico missing"; exit 1 }
+#           if (-not (Test-Path icons/photoshop.png)) { echo "photoshop.png missing"; exit 1 }
+#           if (-not (Test-Path icons/folder.png)) { echo "folder.png missing"; exit 1 }
+#           if (-not (Test-Path icons/premedia.png)) { echo "premedia.png missing"; exit 1 }
+#           if (-not (Test-Path icons/vmg-premedia-logo.png)) { echo "vmg-premedia-logo.png missing"; exit 1 }
+#           if (-not (Test-Path terms.txt)) { echo "terms.txt missing"; exit 1 }
+#           if (-not (Test-Path license.txt)) { echo "license.txt missing"; exit 1 }
+#           if (-not (Test-Path login.ui)) { echo "login.ui missing"; exit 1 }
+#           if (-not (Test-Path premediaapp.ui)) { echo "premediaapp.ui missing"; exit 1 }
+#           if (-not (Test-Path icons.qrc)) { echo "icons.qrc missing"; exit 1 }
+#           if (-not (Test-Path icons_rc.py)) { echo "icons_rc.py missing"; exit 1 }
+#           if (-not (Test-Path installer/installer.iss)) { echo "installer.iss missing"; exit 1 }
+#           if (-not (Test-Path runtime-hook.py)) { echo "runtime-hook.py missing"; exit 1 }
+#           if (-not (Test-Path cache/cache.json)) { echo "cache.json missing"; exit 1 }
+#         shell: powershell
+
+#       - name: Install PySide6 and dependencies (Windows)
+#         run: |
+#           $ErrorActionPreference = 'Stop'
+#           echo "Installing PySide6 dependencies at $(Get-Date)"
+#           $pyside6Log = Join-Path (Get-Location) "pyside6_install.log"
+#           try {
+#             python -m pip install PySide6==6.9.1 PySide6-Essentials==6.9.1 PySide6-Addons==6.9.1 shiboken6==6.9.1 `
+#               --no-cache-dir --force-reinstall --verbose | Tee-Object -FilePath $pyside6Log
+#             echo "✅ PySide6 installed successfully."
+#           }
+#           catch {
+#             echo "❌ Failed to install PySide6. Showing log:"
+#             if (Test-Path $pyside6Log) {
+#               Get-Content $pyside6Log
+#             }
+#             exit 1
+#           }
+#         shell: powershell
+
+
+
+#       - name: 🏗️ Build with PyInstaller
+#         run: |
+#           echo "Running PyInstaller with .spec at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+#           & python -m PyInstaller app.spec --noconfirm --log-level=DEBUG | Tee-Object -FilePath "$env:GITHUB_WORKSPACE/pyinstaller_output.log"
+#         shell: pwsh
+
+
+#       # Upload PyInstaller log
+#       - name: Upload PyInstaller log
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: pyinstaller-log-windows
+#           path: pyinstaller.log
+#         if: always()
+
+#       # Check if EXE exists
+#       - name: Check if EXE exists
+#         run: |
+#           echo "Checking dist/PremediaApp/PremediaApp.exe"
+#           dir dist/PremediaApp
+#           if (-not (Test-Path dist/PremediaApp/PremediaApp.exe)) {
+#             echo "ERROR: Executable not found!"
+#             exit 1
+#           }
+#         shell: powershell
+
+#       # Install Inno Setup
+#       - name: 🔧 Install Inno Setup
+#         run: choco install innosetup --no-progress --yes --force
+
+#       - name: 🔧 Add Inno Setup to PATH
+#         run: echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding ascii -Append
+
+#       - name: ✅ Verify Inno Setup install
+#         run: where iscc
+
+
+
+
+#       # Build Installer with Inno Setup
+#       - name: Build Installer with Inno Setup
+#         run: |
+#           echo "Starting Inno Setup build at $(Get-Date)"
+#           echo "Running Inno Setup compiler..."
+#           iscc installer/installer.iss
+#           if (-not (Test-Path Output/PremediaApp-Setup.exe)) {
+#             echo "ERROR: Installer not created!"
+#             exit 1
+#           }
+#           echo "Inno Setup build completed at $(Get-Date)"
+#         shell: powershell
+
+#       # Upload Installer artifact
+#       - name: Upload Installer Artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: PremediaApp-Windows-Installer
+#           path: Output/PremediaApp-Setup.exe
+#           retention-days: 7
+      
+#       ##########################################
+#       # 🔒 SECURITY + INTEGRITY VERIFICATION ADDITION
+#       ##########################################
+
+#       # 🧮 Step 1: Generate SHA256 checksum
+#       - name: Generate SHA256 checksum
+#         run: |
+#           echo "Generating SHA256 checksum for PremediaApp-Setup.exe"
+#           Get-FileHash Output/PremediaApp-Setup.exe -Algorithm SHA256 | Tee-Object -FilePath Output/PremediaApp-Setup.sha256
+#           Get-Content Output/PremediaApp-Setup.sha256
+#         shell: powershell
+
+#       # 📜 Step 2: Verify source integrity
+#       - name: Verify source integrity
+#         run: |
+#           echo "Verifying that build matches latest commit"
+#           git rev-parse HEAD > latest_commit.txt
+#           echo "✅ Commit hash:"
+#           Get-Content latest_commit.txt
+#         shell: powershell
+
+#       # 🔏 Step 3: Sign Executable (optional)
+#       - name: Sign Executable (optional)
+#         if: env.CODE_SIGN_CERT && env.CODE_SIGN_PASSWORD
+#         run: |
+#           echo "Starting code signing..."
+#           & "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe" sign `
+#             /f "${{ env.CODE_SIGN_CERT }}" `
+#             /p "${{ env.CODE_SIGN_PASSWORD }}" `
+#             /tr "http://timestamp.digicert.com" `
+#             /td sha256 `
+#             /fd sha256 `
+#             "Output/PremediaApp-Setup.exe"
+#           echo "✅ Code signing completed."
+#         shell: powershell
+#         env:
+#           CODE_SIGN_CERT: ${{ secrets.WINDOWS_CODE_SIGN_CERT }}
+#           CODE_SIGN_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_PASSWORD }}
+
+#       # 🧩 Step 4: Upload checksum
+#       - name: Upload checksum
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: PremediaApp-Windows-Checksum
+#           path: Output/PremediaApp-Setup.sha256
+
+#       # 🧰 Step 5: Antivirus scan (with detection check)
+#       - name: Run Windows Defender quick scan
+#         run: |
+#           echo "Running Windows Defender quick scan..."
+#           Start-MpScan -ScanType QuickScan
+#           $threats = Get-MpThreat
+#           if ($threats) {
+#             echo "❌ Threats detected by Windows Defender!"
+#             $threats | Format-Table -AutoSize
+#             exit 1
+#           } else {
+#             echo "✅ No threats detected by Defender."
+#           }
+#         shell: powershell
+
+#       # 🧪 Step 6: Sandbox execution test
+#       - name: Sandbox execution test
+#         run: |
+#           echo "Launching PremediaApp in sandbox mode for quick test..."
+#           Start-Process -FilePath "dist/PremediaApp/PremediaApp.exe" -ArgumentList "/testmode" -PassThru | Out-Null
+#           Start-Sleep -Seconds 5
+#           echo "✅ Application started successfully."
+#         shell: powershell
+
+#       # 🧾 Step 7: Generate Release Notes
+#       - name: Generate Release Notes
+#         run: |
+#           echo "Creating release notes..."
+#           echo "PremediaApp Windows Installer Build" > Output/release_notes.txt
+#           echo "----------------------------------" >> Output/release_notes.txt
+#           echo "Build Time: $(Get-Date)" >> Output/release_notes.txt
+#           echo "Commit: $(git rev-parse HEAD)" >> Output/release_notes.txt
+#           echo "SHA256 Checksum:" >> Output/release_notes.txt
+#           Get-Content Output/PremediaApp-Setup.sha256 >> Output/release_notes.txt
+#           echo "" >> Output/release_notes.txt
+#           echo "Purpose: Official installer for PremediaApp" >> Output/release_notes.txt
+#           echo "Environment: Windows 10/11 x64" >> Output/release_notes.txt
+#           echo "Status: Digitally signed and verified" >> Output/release_notes.txt
+#         shell: powershell
+
+#       - name: Upload release notes
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: PremediaApp-Release-Notes
+#           path: Output/release_notes.txt
+
+
 name: Build PremediaApp (macOS & Windows)
 
 on:
@@ -108,6 +908,17 @@ jobs:
         run: cat installed_packages.txt
         shell: bash
 
+      # Auto-update runtime folder (generate or update files if needed)
+      - name: Auto-update runtime folder
+        run: |
+          echo "🔄 Auto-updating runtime folder..."
+          mkdir -p runtime
+          # Example: Generate or update a runtime config file with build timestamp
+          echo "{\"build_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"version\": \"1.0.0\"}" > runtime/runtime_config.json
+          # Add any other dynamic updates here, e.g., copy from cache or fetch external data
+          echo "✅ Runtime folder updated: $(ls -la runtime/)"
+        shell: bash
+
       # Verify required files
       - name: Verify required files
         run: |
@@ -128,58 +939,11 @@ jobs:
           test -f installer-assets/dmg-background.bmp || (echo "❌ DMG background missing" && exit 1)
           test -f runtime-hook.py || (echo "❌ runtime-hook.py missing" && exit 1)
           test -f cache/cache.json || (echo "❌ cache.json missing" && exit 1)
+          test -d runtime || (echo "❌ runtime folder missing" && exit 1)
+          test -f runtime/runtime_config.json || (echo "❌ runtime_config.json missing after auto-update" && exit 1)
         shell: bash
 
-      # # Build app with PyInstaller
-      # - name: Build App with PyInstaller
-      #   run: |
-      #     echo "Starting PyInstaller build at $(date)"
-      #     echo "Checking syntax of app.py..."
-      #     python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
-      #     echo "Finding PySide6 plugins..."
-      #     python -c "import PySide6; import os; plugins_path = os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'); print(plugins_path)" > plugins_path.txt
-      #     export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-      #     echo "PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
-      #     ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found at $PYSIDE6_PLUGINS/platforms" && exit 1)
-      #     ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found at $PYSIDE6_PLUGINS/imageformats" && exit 1)
-      #     echo "Running PyInstaller..."
-      #     python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
-      #       --name PremediaApp \
-      #       --icon=icons/premedia.icns \
-      #       --add-data "cache/cache.json:cache" \
-      #       --add-data "icons/premedia.icns:icons" \
-      #       --add-data "icons/photoshop.png:icons" \
-      #       --add-data "icons/folder.png:icons" \
-      #       --add-data "icons/premedia.png:icons" \
-      #       --add-data "icons/vmg-premedia-logo.png:icons" \
-      #       --add-data "terms.txt:." \
-      #       --add-data "license.txt:." \
-      #       --add-data "login.ui:." \
-      #       --add-data "premediaapp.ui:." \
-      #       --add-data "icons.qrc:." \
-      #       --add-data "icons_rc.py:." \
-      #       --add-data "login.py:." \
-      #       --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
-      #       --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
-      #       --hidden-import=paramiko \
-      #       --hidden-import=requests \
-      #       --hidden-import=cryptography \
-      #       --hidden-import=tzdata \
-      #       --hidden-import=PySide6.QtWidgets \
-      #       --hidden-import=PySide6.QtCore \
-      #       --hidden-import=PySide6.QtGui \
-      #       --hidden-import=PySide6.uic \
-      #       --hidden-import=PIL.Image \
-      #       --hidden-import=login \
-      #       --hidden-import=icons_rc \
-      #       --runtime-hook=runtime-hook.py \
-      #       app.py > pyinstaller.log 2>&1 || (echo "PyInstaller failed" && cat pyinstaller.log && exit 1)
-      #     echo "📁 dist/ contents:"
-      #     ls -lh dist
-      #     echo "PyInstaller build completed at $(date)"
-      #   shell: bash
-
-            # Build app with PyInstaller
+      # Build app with PyInstaller
       - name: Build App with PyInstaller
         run: |
           echo "🚀 Starting PyInstaller build at $(date)"
@@ -194,11 +958,12 @@ jobs:
           ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found" && exit 1)
           ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
 
-          echo "🧱 Running PyInstaller with full icons folder..."
+          echo "🧱 Running PyInstaller with full icons folder and runtime folder..."
           python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
             --name PremediaApp \
             --icon=icons/premedia.icns \
             --add-data "icons:icons" \
+            --add-data "runtime:runtime" \
             --add-data "cache/cache.json:cache" \
             --add-data "terms.txt:." \
             --add-data "license.txt:." \
@@ -227,7 +992,6 @@ jobs:
           ls -lh dist
           echo "✅ PyInstaller build completed successfully at $(date)"
         shell: bash
-
 
       # Upload PyInstaller log
       - name: Upload PyInstaller log
@@ -284,10 +1048,6 @@ jobs:
           path: dist/PremediaApp.dmg
           retention-days: 7
 
-  
-
-
-
   build-windows:
     name: 🪟 Build Windows EXE Installer
     runs-on: windows-latest
@@ -338,8 +1098,6 @@ jobs:
           }
           echo "Visual Studio Build Tools installation completed at $(Get-Date)"
         shell: powershell
-
-
 
       # Cache pip packages
       - name: Cache pip packages
@@ -467,7 +1225,6 @@ jobs:
           }
         shell: powershell
 
-     
       - name: 🛠️ Upgrade pip and tools
         run: |
           python -m pip install --upgrade pip==24.3.1 setuptools wheel
@@ -506,7 +1263,19 @@ jobs:
           }
         shell: powershell
 
-
+      # Auto-update runtime folder (generate or update files if needed)
+      - name: Auto-update runtime folder
+        run: |
+          echo "🔄 Auto-updating runtime folder..."
+          New-Item -ItemType Directory -Force -Path "runtime"
+          # Example: Generate or update a runtime config file with build timestamp
+          $buildDate = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+          $runtimeConfig = @{ build_date = $buildDate; version = "1.0.0" } | ConvertTo-Json
+          $runtimeConfig | Out-File -FilePath "runtime\runtime_config.json" -Encoding utf8
+          # Add any other dynamic updates here, e.g., copy from cache or fetch external data
+          echo "✅ Runtime folder updated:"
+          Get-ChildItem runtime
+        shell: powershell
 
       - name: Create installed packages list
         run: |
@@ -565,7 +1334,6 @@ jobs:
             installed_packages.txt
         if: always()
 
-
       # Show installed packages
       - name: Show installed packages
         run: |
@@ -579,7 +1347,6 @@ jobs:
           Get-Content installed_packages.txt
         shell: powershell
         if: always()
-
 
       # Upload install logs
       - name: Upload requirements install logs
@@ -622,6 +1389,8 @@ jobs:
           if (-not (Test-Path installer/installer.iss)) { echo "installer.iss missing"; exit 1 }
           if (-not (Test-Path runtime-hook.py)) { echo "runtime-hook.py missing"; exit 1 }
           if (-not (Test-Path cache/cache.json)) { echo "cache.json missing"; exit 1 }
+          if (-not (Test-Path runtime)) { echo "runtime folder missing"; exit 1 }
+          if (-not (Test-Path runtime\runtime_config.json)) { echo "runtime_config.json missing after auto-update"; exit 1 }
         shell: powershell
 
       - name: Install PySide6 and dependencies (Windows)
@@ -643,14 +1412,15 @@ jobs:
           }
         shell: powershell
 
-
+      # Note: To include the runtime folder in the Windows build, update app.spec to add:
+      # datas=[('runtime', 'runtime'), ...]
+      # Or regenerate the spec file dynamically here if needed.
 
       - name: 🏗️ Build with PyInstaller
         run: |
           echo "Running PyInstaller with .spec at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
           & python -m PyInstaller app.spec --noconfirm --log-level=DEBUG | Tee-Object -FilePath "$env:GITHUB_WORKSPACE/pyinstaller_output.log"
         shell: pwsh
-
 
       # Upload PyInstaller log
       - name: Upload PyInstaller log
@@ -680,9 +1450,6 @@ jobs:
 
       - name: ✅ Verify Inno Setup install
         run: where iscc
-
-
-
 
       # Build Installer with Inno Setup
       - name: Build Installer with Inno Setup
