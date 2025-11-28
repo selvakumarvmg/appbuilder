@@ -545,6 +545,263 @@ PremediaApp launcher (cross-platform, production-ready)
 - Dynamically resolves icons from runtime icons folder, falling back to bundled icons
 - Safe permission fallbacks if APP_DATA_DIR isn't writable
 """
+# from __future__ import annotations
+
+# import os
+# import sys
+# import json
+# import time
+# import traceback
+# from pathlib import Path
+
+# import requests
+
+# try:
+#     from tkinter import Tk, Canvas, Frame, Label, BOTH, LEFT, RIGHT, NW, Y, scrolledtext
+#     from PIL import Image, ImageTk
+# except Exception:
+#     Tk = None
+
+# # ====================== FULLY HIDDEN & SECURE CONFIG ======================
+# APP_NAME = "PremediaApp"
+# BASE_URL = "https://vmg-premedia-22112023.s3.ap-southeast-2.amazonaws.com/application/runtime"
+
+# def get_secure_app_dir() -> Path:
+#     """Returns a hidden, OS-correct, secure folder that users never see"""
+#     system = sys.platform
+#     home = Path.home()
+
+#     if system == "win32":
+#         # Hidden by Windows Explorer by default
+#         return Path(os.getenv("LOCALAPPDATA", home / "AppData" / "Local")) / APP_NAME
+#     elif system == "darwin":
+#         # Hidden in ~/Library (invisible in Finder unless Show Hidden)
+#         return home / "Library" / "Application Support" / APP_NAME
+#     else:
+#         # Linux: hidden dot folder in ~/.config (standard & invisible)
+#         return Path(os.getenv("XDG_CONFIG_HOME", home / ".config")) / APP_NAME.lower()
+
+# # Secure hidden runtime folder — never visible to users
+# SECURE_DIR = get_secure_app_dir()
+# LOCAL_RUNTIME = SECURE_DIR / "runtime"
+# VERSION_FILE = LOCAL_RUNTIME / "version.json"
+
+# # Optional: dev icons (only used on your dev machine)
+# DEV_ICONS_SOURCE = Path(r"C:\Users\vmg\Documents\python\appbuilder\icons")  # Only you see this
+
+# # ====================== SECURE SETUP ======================
+# def secure_setup():
+#     for p in (SECURE_DIR, LOCAL_RUNTIME):
+#         try:
+#             p.mkdir(parents=True, exist_ok=True)
+#         except Exception as e:
+#             print(f"[Secure Setup] Cannot create {p}: {e}")
+
+#     # Copy your dev icons only if source exists (safe fallback)
+#     if DEV_ICONS_SOURCE.exists():
+#         icons_target = LOCAL_RUNTIME / "icons"
+#         icons_target.mkdir(exist_ok=True)
+#         for src in DEV_ICONS_SOURCE.iterdir():
+#             if src.suffix.lower() in {".png", ".ico", ".icns", ".jpg", ".jpeg", ".gif"}:
+#                 dest = icons_target / src.name
+#                 try:
+#                     if not dest.exists() or dest.stat().st_mtime < src.stat().st_mtime:
+#                         dest.write_bytes(src.read_bytes())
+#                 except:
+#                     pass
+
+# secure_setup()
+
+# # ====================== SPLASH IMAGE (FROM HIDDEN FOLDER) ======================
+# def get_splash_image() -> Path | None:
+#     candidates = [
+#         LOCAL_RUNTIME / "icons" / "premedia_splash_screen.png",
+#         LOCAL_RUNTIME / "premedia_splash_screen.png",
+#         DEV_ICONS_SOURCE / "premedia_splash_screen.png" if DEV_ICONS_SOURCE.exists() else None,
+#     ]
+#     for p in candidates:
+#         if p and p.exists():
+#             return p
+#     return None
+
+# SPLASH_IMAGE = get_splash_image()
+
+# # ====================== FINAL SECURE + HIDDEN SPLASH ======================
+# def show_secure_splash():
+#     if not (Tk and SPLASH_IMAGE and SPLASH_IMAGE.exists()):
+#         print("Running silently (no splash)...")
+#         return
+
+#     root = Tk()
+#     root.overrideredirect(True)
+#     root.attributes("-topmost", True)
+#     root.configure(bg="#1e1e1e")
+#     root.resizable(False, False)
+
+#     # Load & scale image
+#     try:
+#         img = Image.open(SPLASH_IMAGE).convert("RGBA")
+#         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+#         scale = min(0.70, sh * 0.55 / img.height)
+#         new_w = int(img.width * scale)
+#         new_h = int(img.height * scale)
+#         img = img.resize((new_w, new_h), Image.LANCZOS)
+#         photo = ImageTk.PhotoImage(img)
+#     except:
+#         root.destroy()
+#         return
+
+#     container = Frame(root, bg="#1e1e1e")
+#     container.pack(fill=BOTH, expand=True)
+
+#     canvas = Canvas(container, width=new_w, height=new_h, bg="#1e1e1e", highlightthickness=0)
+#     canvas.pack(side=LEFT, fill=Y)
+#     canvas.create_image(0, 0, image=photo, anchor=NW)
+
+#     panel = Frame(container, bg="#2d2d2d", padx=28, pady=28)
+#     panel.pack(side=RIGHT, fill=BOTH, expand=True)
+
+#     # Best cross-platform fonts
+#     def font(size, weight=""):
+#         return ("Segoe UI" if sys.platform == "win32" else "Helvetica", size, weight)
+
+#     Label(panel, text="PremediaApp", font=font(19, "bold"), fg="#00bfff", bg="#2d2d2d")\
+#         .pack(anchor="w", pady=(0, 6))
+#     ver_label = Label(panel, text="Checking...", font=font(11), fg="#b0b0b0", bg="#2d2d2d")
+#     ver_label.pack(anchor="w", pady=(0, 12))
+#     status_label = Label(panel, text="Initializing...", font=font(13, "bold"), fg="#ffffff", bg="#2d2d2d")
+#     status_label.pack(anchor="w", pady=(0, 18))
+
+#     log_frame = Frame(panel, bg="#252525")
+#     log_frame.pack(fill=BOTH, expand=True)
+
+#     log = scrolledtext.ScrolledText(
+#         log_frame, width=42, height=18,
+#         bg="#252525", fg="#e0e0e0",
+#         font=("Consolas", 10) if sys.platform == "win32" else ("Menlo", 10),
+#         state="disabled", wrap="word", relief="flat", bd=0,
+#         padx=16, pady=16, insertbackground="#00bfff"
+#     )
+#     log.pack(fill=BOTH, expand=True)
+
+#     root.update_idletasks()
+#     root.geometry(f"+{(sw - root.winfo_width())//2}+{(sh - root.winfo_height())//2}")
+
+#     # Fade in
+#     root.attributes("-alpha", 0.0)
+#     for a in range(0, 101, 10):
+#         root.attributes("-alpha", a/100)
+#         root.update()
+#         time.sleep(0.012)
+
+#     line = 0
+#     def log_msg(text: str, kind: str = "info"):
+#         nonlocal line
+#         line += 1
+#         icons = {"success": "Success", "failed": "Failed", "downloading": "Downloading", "info": "Info"}
+#         colors = {"success": "#00ff9d", "failed": "#ff6b6b", "downloading": "#ffd93d", "info": "#00bfff"}
+#         icon = icons.get(kind, "Info")
+#         color = colors.get(kind, "#e0e0e0")
+#         log.config(state="normal")
+#         log.insert("end", f"{icon} {text}\n")
+#         tag = f"l{line}"
+#         log.tag_add(tag, f"{line}.0", f"{line}.end")
+#         log.tag_config(tag, foreground=color)
+#         log.see("end")
+#         log.config(state="disabled")
+#         root.update()
+
+#     def set_status(t): status_label.config(text=t); root.update()
+#     def set_version(t): ver_label.config(text=t); root.update()
+
+#     # Update logic
+#     set_status("Checking for updates...")
+#     log_msg("Launcher started", "info")
+
+#     local_ver = "0.0.0"
+#     if VERSION_FILE.exists():
+#         try:
+#             local_ver = json.loads(VERSION_FILE.read_text("utf-8", errors="ignore")).get("version", "0.0.0")
+#         except:
+#             pass
+
+#     try:
+#         r = requests.get(f"{BASE_URL}/version.json", timeout=15)
+#         r.raise_for_status()
+#         data = r.json()
+#         remote_ver = data.get("version")
+#         files = data.get("files", [])
+#     except:
+#         remote_ver = None
+#         files = []
+
+#     if not remote_ver:
+#         set_version(f"v{local_ver} • Offline")
+#         set_status("No internet")
+#         log_msg("Server unreachable", "failed")
+#         time.sleep(2)
+#     else:
+#         set_version(f"v{local_ver} → v{remote_ver}")
+#         if local_ver >= remote_ver:
+#             set_status("Up to date")
+#             log_msg("No update needed", "success")
+#             time.sleep(1.2)
+#         else:
+#             set_status("Updating...")
+#             log_msg(f"Downloading {len(files)} files", "info")
+#             ok = 0
+#             for f in files:
+#                 name = f.split("/")[-1]
+#                 log_msg(name, "downloading")
+#                 dest = LOCAL_RUNTIME / f
+#                 try:
+#                     dest.parent.mkdir(parents=True, exist_ok=True)
+#                     r = requests.get(f"{BASE_URL}/{f}", timeout=60)
+#                     r.raise_for_status()
+#                     dest.write_bytes(r.content)
+#                     log_msg(name, "success")
+#                     ok += 1
+#                 except:
+#                     log_msg(f"{name} failed", "failed")
+#                 time.sleep(0.04)
+
+#             if ok == len(files):
+#                 try:
+#                     VERSION_FILE.write_text(json.dumps({"version": remote_ver, "files": files}, indent=4))
+#                 except:
+#                     pass
+#                 set_status("Update complete")
+#                 log_msg("Restarting...", "success")
+#                 time.sleep(1.2)
+#                 root.destroy()
+#                 os.execl(sys.executable, sys.executable, *sys.argv)
+
+#     set_status("Launching PremediaApp...")
+#     time.sleep(1.0)
+
+#     for a in range(100, -10, -10):
+#         root.attributes("-alpha", a/100)
+#         root.update()
+#         time.sleep(0.02)
+
+#     root.destroy()
+
+# # ====================== MAIN ======================
+# def main():
+#     show_secure_splash()
+#     sys.path.insert(0, str(LOCAL_RUNTIME.resolve()))
+#     try:
+#         import app_runtime
+#         app_runtime.start_premedia_app()
+#     except Exception as e:
+#         print(f"Failed to start: {e}")
+#         traceback.print_exc()
+#         input("Press Enter...")
+
+# if __name__ == "__main__":
+#     main()
+
+
 from __future__ import annotations
 
 import os
@@ -555,6 +812,14 @@ import traceback
 from pathlib import Path
 
 import requests
+
+# PySide6 for GUI errors (fallback if missing)
+try:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    PYSIDE_AVAILABLE = True
+except ImportError:
+    PYSIDE_AVAILABLE = False
+    QMessageBox = None
 
 try:
     from tkinter import Tk, Canvas, Frame, Label, BOTH, LEFT, RIGHT, NW, Y, scrolledtext
@@ -758,7 +1023,8 @@ def show_secure_splash():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     r = requests.get(f"{BASE_URL}/{f}", timeout=60)
                     r.raise_for_status()
-                    dest.write_bytes(r.content)
+                    # ✅ Updated: Write as UTF-8 text to prevent corruption for .py files
+                    dest.write_text(r.text, encoding='utf-8')
                     log_msg(name, "success")
                     ok += 1
                 except:
@@ -767,7 +1033,7 @@ def show_secure_splash():
 
             if ok == len(files):
                 try:
-                    VERSION_FILE.write_text(json.dumps({"version": remote_ver, "files": files}, indent=4))
+                    VERSION_FILE.write_text(json.dumps({"version": remote_ver, "files": files}, indent=4), encoding='utf-8')
                 except:
                     pass
                 set_status("Update complete")
@@ -789,14 +1055,48 @@ def show_secure_splash():
 # ====================== MAIN ======================
 def main():
     show_secure_splash()
-    sys.path.insert(0, str(LOCAL_RUNTIME.resolve()))
+    
+    # ✅ Updated: Prefer bundled runtime if frozen (fallback to avoid download corruption)
+    if getattr(sys, 'frozen', False):
+        bundled_runtime = Path(sys._MEIPASS) / 'runtime'
+        if bundled_runtime.exists():
+            runtime_to_use = bundled_runtime
+            print(f"Using bundled runtime: {bundled_runtime}")  # Debug log (remove for production)
+        else:
+            runtime_to_use = LOCAL_RUNTIME
+    else:
+        runtime_to_use = LOCAL_RUNTIME
+    
+    # ✅ Updated: Ensure package structure for import
+    init_py = runtime_to_use / "__init__.py"
+    if not init_py.exists():
+        init_py.touch()
+    
+    # ✅ Updated: Import as package (resolves sub-imports without shadowing stdlib)
     try:
-        import app_runtime
+        sys.path.insert(0, str(runtime_to_use))
+        from runtime import app_runtime
         app_runtime.start_premedia_app()
     except Exception as e:
-        print(f"Failed to start: {e}")
-        traceback.print_exc()
-        input("Press Enter...")
+        error_msg = f"Failed to start: {e}\n{traceback.format_exc()}"
+        print(error_msg)
+        
+        # ✅ Updated: GUI-safe error dialog (no input() crash in frozen EXE)
+        if PYSIDE_AVAILABLE:
+            app = QApplication.instance() or QApplication(sys.argv)
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("PremediaApp Launch Error")
+            msg.setText("Failed to launch the application.")
+            msg.setDetailedText(error_msg)
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec()
+        else:
+            # Fallback for non-GUI environments
+            print(error_msg)
+            print("Press Enter to exit...")  # Only works in console
+        
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
