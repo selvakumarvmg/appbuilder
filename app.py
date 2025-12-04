@@ -1562,7 +1562,7 @@ class FileWatcherWorker(QObject):
 
             # --- FAST SSH (same as before) ---
             conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, 2022))
+            transport = paramiko.Transport((NAS_IP, NAS_PORT))
             transport.get_security_options().ciphers = (
                 'aes128-ctr',
                 'aes192-ctr',
