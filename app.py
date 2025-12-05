@@ -1471,7 +1471,7 @@ class FileWatcherWorker(QObject):
                 # ---------------------------------------------
                 if attempt > 0:
                     print(f"🔁 Retry attempt {attempt}/{max_retries}")
-                    update_download_upload_metadata(task_id, "Retrying in progress")
+                    update_download_upload_metadata(task_id, "Re-attempting the download")
 
                 # --- FAST SSH CONNECTION ---
                 conn_start = time.time()
@@ -1684,7 +1684,7 @@ class FileWatcherWorker(QObject):
                 else:
                     # Retry case → update status
                     print(f"🔁 Retry attempt {attempt}/{max_retries}")
-                    update_download_upload_metadata(task_id, "Retrying in progress")
+                    update_download_upload_metadata(task_id, "Re-attempting the upload")
 
                 # --- FAST SSH ---
                 conn_start = time.time()
