@@ -282,7 +282,7 @@ jobs:
         with:
           name: PremediaApp-macos-dmg
           path: dist/PremediaApp.dmg
-          retention-days: 7
+          retention-days: 60
 
   
 
@@ -703,7 +703,7 @@ jobs:
         with:
           name: PremediaApp-Windows-Installer
           path: Output/PremediaApp-Setup.exe
-          retention-days: 7
+          retention-days: 60
       
       ##########################################
       # 🔒 SECURITY + INTEGRITY VERIFICATION ADDITION
