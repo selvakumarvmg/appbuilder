@@ -1730,8 +1730,9 @@ class FileWatcherWorker(QObject):
 
 
 
+        
     def _upload_to_nas(self, src_path, dest_path, item, max_retries=1):
-        task_id = item.get("id", '')
+        task_id = item.get("id", "")
         spec_id = str(item.get("spec_id"))
         metadata_key = "uploaded_files_with_metadata"
 
@@ -1746,24 +1747,26 @@ class FileWatcherWorker(QObject):
 
         while attempt <= max_retries:
             try:
+                # ---- First attempt validation ----
                 if attempt == 0:
                     if not src_path.exists():
                         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                         save_cache(cache, significant_change=True)
                         update_download_upload_metadata(task_id, "failed")
-                        show_alert_notification("Error (U1)", "Upload failed try again.")
+                        show_alert_notification("Error (U1)", "Upload failed. Try again.")
                         raise FileNotFoundError(f"Source file not found: {src_path}")
                 else:
                     print(f"🔁 Retry attempt {attempt}/{max_retries}")
                     update_download_upload_metadata(task_id, "Re-attempting the upload")
 
-                # ---- FileZilla-level upload ----
+                # ---- Native SFTP (FileZilla-level speed) ----
                 cmd = [
                     "sshpass", "-p", NAS_PASSWORD,
                     "sftp",
                     "-B", "32768",
                     "-o", "Compression=no",
                     "-o", "PubkeyAuthentication=no",
+                    "-o", "PreferredAuthentications=password",
                     f"{NAS_USERNAME}@{NAS_IP}"
                 ]
 
@@ -1776,13 +1779,12 @@ class FileWatcherWorker(QObject):
                     text=True,
                     capture_output=True
                 )
-                end = time.time()
+                duration = time.time() - start
 
                 if result.returncode != 0:
-                    raise RuntimeError(result.stderr)
+                    raise RuntimeError(result.stderr.strip())
 
                 size_mb = src_path.stat().st_size / (1024 * 1024)
-                duration = end - start
                 speed = size_mb / duration if duration else 0
 
                 print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
@@ -1796,11 +1798,12 @@ class FileWatcherWorker(QObject):
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                     save_cache(cache, significant_change=True)
                     update_download_upload_metadata(task_id, "failed")
-                    show_alert_notification("Error (U3)", "Upload failed try again.")
+                    show_alert_notification("Error (U3)", "Upload failed. Try again.")
                     raise
 
                 attempt += 1
                 time.sleep(2)
+
 
 
 
