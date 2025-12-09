@@ -10,7 +10,7 @@ on:
 jobs:
   build-macos:
     name: 🛠️ Build macOS App (Intel x64)
-    runs-on: macos-14-intel
+    runs-on: macos-14
 
     steps:
       # Checkout the repository
@@ -22,7 +22,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          architecture: 'x86_64'
+          architecture: 'arm64'
 
       # Cache pip packages
       - name: Cache pip packages
@@ -196,7 +196,6 @@ jobs:
 
           echo "🧱 Running PyInstaller with full icons folder..."
           python -m PyInstaller \
-            --target-arch x86_64 \
             --log-level=DEBUG \
             --noconfirm \
             --windowed \
