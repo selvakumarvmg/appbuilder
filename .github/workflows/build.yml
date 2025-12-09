@@ -195,7 +195,12 @@ jobs:
           ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
 
           echo "🧱 Running PyInstaller with full icons folder..."
-          python -m PyInstaller --log-level=DEBUG --noconfirm --windowed --onedir \
+          python -m PyInstaller \
+            --target-arch x86_64 \
+            --log-level=DEBUG \
+            --noconfirm \
+            --windowed \
+            --onedir \
             --name PremediaApp \
             --icon=icons/premedia.icns \
             --add-data "icons:icons" \
