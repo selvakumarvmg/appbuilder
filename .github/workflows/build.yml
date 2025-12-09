@@ -10,7 +10,7 @@ on:
 jobs:
   build-macos:
     name: 🛠️ Build macOS App (Intel x64)
-    runs-on: macos-14-intel
+    runs-on: macos-15-intel
 
 
     steps:
