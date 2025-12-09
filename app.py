@@ -1729,7 +1729,6 @@ class FileWatcherWorker(QObject):
     #             time.sleep(2)   # small delay before retry
 
 
-
         
     def _upload_to_nas(self, src_path, dest_path, item, max_retries=1):
         task_id = item.get("id", "")
@@ -1759,10 +1758,11 @@ class FileWatcherWorker(QObject):
                     print(f"🔁 Retry attempt {attempt}/{max_retries}")
                     update_download_upload_metadata(task_id, "Re-attempting the upload")
 
-                # ---- Native SFTP (FileZilla-level speed) ----
+                # ---- Native SFTP (SFTPGo / FileZilla-level speed) ----
                 cmd = [
                     "sshpass", "-p", NAS_PASSWORD,
                     "sftp",
+                    "-P", str(NAS_PORT),              # ✅ USE NAS_PORT
                     "-B", "32768",
                     "-o", "Compression=no",
                     "-o", "PubkeyAuthentication=no",
