@@ -76,9 +76,33 @@ if platform.system() == "Windows":
     import win32con
 from scp import SCPClient
 
-def fast_scp_upload(ssh_transport, src_path, dest_path):
-    with SCPClient(ssh_transport, socket_timeout=30) as scp:
-        scp.put(src_path, dest_path)
+# def fast_scp_upload(ssh_transport, src_path, dest_path):
+#     with SCPClient(ssh_transport, socket_timeout=30) as scp:
+#         scp.put(src_path, dest_path)
+
+
+def fast_scp_upload(src_path, dest_path):
+    cmd = [
+        "sshpass", "-p", NAS_PASSWORD,
+        "scp",
+        "-P", str(NAS_PORT),
+        "-o", "Compression=no",
+        "-o", "StrictHostKeyChecking=no",
+        str(src_path),
+        f"{NAS_USERNAME}@{NAS_IP}:{dest_path}"
+    ]
+
+    start = time.time()
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    duration = time.time() - start
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip())
+
+    size_mb = Path(src_path).stat().st_size / (1024 * 1024)
+    speed = size_mb / duration if duration else 0
+
+    print(f"⚡ SCP Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
 SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
@@ -1659,151 +1683,74 @@ class FileWatcherWorker(QObject):
     #         raise
 
 
-    # def _upload_to_nas(self, src_path, dest_path, item, max_retries=1):
-    #     task_id = item.get("id", '')
-    #     spec_id = str(item.get("spec_id"))
-    #     metadata_key = "uploaded_files_with_metadata"
-
-    #     cache = load_cache()
-    #     cache.setdefault(metadata_key, {})
-
-    #     src_path = Path(src_path)
-
-    #     attempt = 0
-
-    #     while attempt <= max_retries:
-    #         try:
-    #             # First check only on first attempt
-    #             if attempt == 0:
-    #                 if not src_path.exists():
-    #                     cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
-    #                     save_cache(cache, significant_change=True)
-    #                     update_download_upload_metadata(task_id, "failed")
-    #                     show_alert_notification("Error (U1)", "Upload failed try again.")
-    #                     raise FileNotFoundError(f"Source file does not exist: {src_path}")
-    #             else:
-    #                 # Retry case → update status
-    #                 print(f"🔁 Retry attempt {attempt}/{max_retries}")
-    #                 update_download_upload_metadata(task_id, "Re-attempting the upload")
-
-    #             # --- FAST SSH ---
-    #             conn_start = time.time()
-    #             transport = paramiko.Transport((NAS_IP, NAS_PORT))
-    #             transport.get_security_options().ciphers = (
-    #                 'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
-    #             )
-    #             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-    #             conn_end = time.time()
-
-    #             print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
-
-    #             # Destination path
-    #             dest_path = item.get("file_path", dest_path)
-
-    #             # --- SUPER FAST SCP UPLOAD ---
-    #             start = time.time()
-    #             fast_scp_upload(transport, str(src_path), dest_path)
-    #             end = time.time()
-
-    #             duration = end - start
-    #             size_mb = src_path.stat().st_size / (1024 * 1024)
-    #             speed = size_mb / duration if duration > 0 else 0
-
-    #             print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
-
-    #             transport.close()
-    #             return  # SUCCESS → exit
-
-    #         except Exception as e:
-    #             print(f"❌ Upload failed (Attempt {attempt}): {e}")
-
-    #             if attempt == max_retries:
-    #                 # Final failure
-    #                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
-    #                 save_cache(cache, significant_change=True)
-    #                 update_download_upload_metadata(task_id, "failed")
-    #                 show_alert_notification("Error (U3)", "Upload failed try again.")
-    #                 raise
-
-    #             attempt += 1
-    #             time.sleep(2)   # small delay before retry
-
-
-        
     def _upload_to_nas(self, src_path, dest_path, item, max_retries=1):
-        task_id = item.get("id", "")
+        task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
         metadata_key = "uploaded_files_with_metadata"
 
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-        cache[metadata_key].setdefault(spec_id, {}).setdefault("api_response", {})
 
         src_path = Path(src_path)
-        dest_path = item.get("file_path", dest_path)
 
         attempt = 0
 
         while attempt <= max_retries:
             try:
-                # ---- First attempt validation ----
+                # First check only on first attempt
                 if attempt == 0:
                     if not src_path.exists():
                         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                         save_cache(cache, significant_change=True)
                         update_download_upload_metadata(task_id, "failed")
-                        show_alert_notification("Error (U1)", "Upload failed. Try again.")
-                        raise FileNotFoundError(f"Source file not found: {src_path}")
+                        show_alert_notification("Error (U1)", "Upload failed try again.")
+                        raise FileNotFoundError(f"Source file does not exist: {src_path}")
                 else:
+                    # Retry case → update status
                     print(f"🔁 Retry attempt {attempt}/{max_retries}")
                     update_download_upload_metadata(task_id, "Re-attempting the upload")
 
-                # ---- Native SFTP (SFTPGo / FileZilla-level speed) ----
-                cmd = [
-                    "sshpass", "-p", NAS_PASSWORD,
-                    "sftp",
-                    "-P", str(NAS_PORT),              # ✅ USE NAS_PORT
-                    "-B", "32768",
-                    "-o", "Compression=no",
-                    "-o", "PubkeyAuthentication=no",
-                    "-o", "PreferredAuthentications=password",
-                    f"{NAS_USERNAME}@{NAS_IP}"
-                ]
-
-                batch = f"put {shlex.quote(str(src_path))} {shlex.quote(dest_path)}\nbye\n"
-
-                start = time.time()
-                result = subprocess.run(
-                    cmd,
-                    input=batch,
-                    text=True,
-                    capture_output=True
+                # --- FAST SSH ---
+                conn_start = time.time()
+                transport = paramiko.Transport((NAS_IP, NAS_PORT))
+                transport.get_security_options().ciphers = (
+                    'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
                 )
-                duration = time.time() - start
+                transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+                conn_end = time.time()
 
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr.strip())
+                print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
 
+                # Destination path
+                dest_path = item.get("file_path", dest_path)
+
+                # --- SUPER FAST SCP UPLOAD ---
+                start = time.time()
+                fast_scp_upload(transport, str(src_path), dest_path)
+                end = time.time()
+
+                duration = end - start
                 size_mb = src_path.stat().st_size / (1024 * 1024)
-                speed = size_mb / duration if duration else 0
+                speed = size_mb / duration if duration > 0 else 0
 
                 print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-                return  # ✅ SUCCESS
+                transport.close()
+                return  # SUCCESS → exit
 
             except Exception as e:
                 print(f"❌ Upload failed (Attempt {attempt}): {e}")
 
                 if attempt == max_retries:
+                    # Final failure
                     cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
                     save_cache(cache, significant_change=True)
                     update_download_upload_metadata(task_id, "failed")
-                    show_alert_notification("Error (U3)", "Upload failed. Try again.")
+                    show_alert_notification("Error (U3)", "Upload failed try again.")
                     raise
 
                 attempt += 1
-                time.sleep(2)
-
+                time.sleep(2)   # small delay before retry
 
 
 
