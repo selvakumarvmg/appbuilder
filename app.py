@@ -114,7 +114,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
