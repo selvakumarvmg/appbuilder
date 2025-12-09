@@ -196,7 +196,6 @@ jobs:
 
           echo "🧱 Running PyInstaller with full icons folder..."
           python -m PyInstaller \
-            --target-arch x86_64
             --log-level=DEBUG \
             --noconfirm \
             --windowed \
