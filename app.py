@@ -251,7 +251,7 @@ NAS_PASSWORD = "D&*qmn012@12"
 NAS_PORT = 2022
 NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irnasappprod"
+NAS_USERNAME = "irprod"
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
