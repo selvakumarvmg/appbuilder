@@ -247,11 +247,11 @@ API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
 NAS_IP = "192.168.3.20"
-NAS_PASSWORD = "D&*qmn012@12"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_PORT = 2022
 NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irprod"
+NAS_USERNAME = "irdev"
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
