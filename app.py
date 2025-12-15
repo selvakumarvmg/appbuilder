@@ -83,8 +83,8 @@ from scp import SCPClient
 def fast_scp_upload(transport, src_path, dest_path):
 
     # ---- MAXIMIZE UPLOAD WINDOW ----
-    transport.default_window_size = 1024 * 1024 * 128     # 128MB window
-    transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet
+    transport.default_window_size = 2147483647     # 128MB window
+    transport.default_max_packet_size = 65536  # 64MB packet
     transport.packetizer.REKEY_BYTES = pow(2, 40)
     transport.packetizer.REKEY_PACKETS = pow(2, 40)
 
@@ -92,7 +92,7 @@ def fast_scp_upload(transport, src_path, dest_path):
     scp = SCPClient(
         transport,
         socket_timeout=30,
-        buff_size=4194304   # 4 MB chunks increased by Mohan
+        buff_size=8388608   # 4 MB chunks increased by Mohan
     )
 
     # ---- PUT IS FASTER THAN PUTFO ON WINDOWS ----
@@ -1446,13 +1446,13 @@ class FileWatcherWorker(QObject):
             transport = paramiko.Transport((NAS_IP, NAS_PORT))
             
             # Apply packet/window size tuning directly to the transport changes by Mohan
-            transport.default_window_size = 1024 * 1024 * 128     # 128MB window
-            transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet
+            transport.default_window_size = 2147483647     # 128MB window
+            transport.default_max_packet_size = 65536  # 64MB packet
             transport.packetizer.REKEY_BYTES = pow(2, 40)
             transport.packetizer.REKEY_PACKETS = pow(2, 40)
 
             transport.get_security_options().ciphers = (
-                'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+                'aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'chacha20-poly1305@openssh.com', 'aes128-gcm@openssh.com'
             )
 
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
@@ -1466,7 +1466,7 @@ class FileWatcherWorker(QObject):
             # --- SUPER FAST SCP DOWNLOAD --- buffer size increased by Mohan
             start_time = time.time()
 
-            with SCPClient(transport, socket_timeout=30, buff_size=4194304) as scp:
+            with SCPClient(transport, socket_timeout=30, buff_size=8388608) as scp:
                 scp.get(nas_path, local_path=dest_path)
 
             end_time = time.time()
@@ -1607,9 +1607,7 @@ class FileWatcherWorker(QObject):
             transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
             transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
             transport.get_security_options().ciphers = (
-                'aes128-ctr',
-                'aes192-ctr',
-                'aes256-ctr'
+'aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'chacha20-poly1305@openssh.com', 'aes128-gcm@openssh.com'
             )
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
             conn_end = time.time()
@@ -5660,82 +5658,6 @@ class PremediaApp(QApplication):
             self.poll_timer = None
 
 
-    # def start_file_watcher(self):
-    #     """Start FileWatcherWorker safely."""
-    #     global FILE_WATCHER_RUNNING
-    #     try:
-    #         logger.info("Attempting to start FileWatcherWorker")
-    #         app_signals.append_log.emit("[App] Attempting to start FileWatcherWorker")
-
-    #         # Validate log window
-    #         if self.log_window is None or self.log_window.status_bar is None:
-    #             self.handle_error("FileWatcher", "Log window or status bar not initialized")
-    #             return
-
-    #         # Load cache safely
-    #         try:
-    #             cache = load_cache()
-    #             logger.debug(f"Cache keys: {list(cache.keys())}")
-    #             app_signals.append_log.emit(f"[App] Cache keys: {list(cache.keys())}")
-    #         except (json.JSONDecodeError, IOError) as e:
-    #             self.handle_error("FileWatcher", f"Failed to load cache: {str(e)}", show_dialog=False)
-    #             cache = {}
-
-    #         # Stop existing thread safely
-    #         self.stop_file_watcher_thread()
-
-    #         # Initialize worker
-    #         FileWatcherWorker._instance = None
-    #         FILE_WATCHER_RUNNING = True
-    #         self.file_watcher = FileWatcherWorker.get_instance(parent=None)
-    #         self.file_watcher.user_in_other_system.connect(self.show_login_page)
-            
-    #         if not self.file_watcher:
-    #             self.handle_error("FileWatcher", "Failed to initialize FileWatcherWorker")
-    #             return
-
-    #         # Create thread
-    #         self.file_watcher_thread = QThread()
-    #         self.file_watcher.moveToThread(self.file_watcher_thread)
-
-    #         # Connect signals
-    #         self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage)
-    #         self.file_watcher.log_update.connect(app_signals.append_log)
-    #         self.file_watcher.progress_update.connect(self.update_progress)
-
-    #         logger.debug("Connected FileWatcherWorker signals")
-    #         app_signals.append_log.emit("[App] Connected FileWatcherWorker signals")
-
-    #         # Start poll timer
-    #         self.poll_timer = QTimer(self)
-    #         self.poll_timer.timeout.connect(
-    #             lambda: QMetaObject.invokeMethod(self.file_watcher, "run", Qt.QueuedConnection)
-    #         )
-    #         API_POLL_INTERVAL = 3000  # 3 seconds
-    #         self.poll_timer.start(API_POLL_INTERVAL)
-    #         logger.debug(f"Poll timer started with interval: {API_POLL_INTERVAL}ms")
-    #         app_signals.append_log.emit(f"[App] Poll timer started with interval: {API_POLL_INTERVAL}ms")
-
-    #         # Start thread
-    #         self.file_watcher_thread.started.connect(self.file_watcher.run)
-    #         self.file_watcher_thread.start()
-    #         logger.info("FileWatcherWorker thread started successfully")
-    #         app_signals.append_log.emit("[App] FileWatcherWorker thread started successfully")
-    #         app_signals.update_status.emit("File watcher started")
-
-    #         # Start watchdog timer (1 min)
-    #         self.watchdog_timer = QTimer(self)
-    #         self.watchdog_timer.timeout.connect(self.check_memory_usage)
-    #         self.watchdog_timer.start(60000)
-    #         logger.debug("Watchdog timer started (1m)")
-    #         app_signals.append_log.emit("[App] Watchdog timer started (1m)")
-
-    #         # Schedule daily restart
-    #         self.schedule_daily_restart(3, 0)
-
-    #     except Exception as e:
-    #         self.handle_error("FileWatcher", f"Failed to start FileWatcherWorker: {str(e)}")
-
     def start_file_watcher(self):
         global FILE_WATCHER_RUNNING
         try:
@@ -6204,18 +6126,6 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit("[Cache] Cache clear cancelled by user")
             logger.info("Cache clear cancelled by user")
             app_signals.update_status.emit("Cache clear cancelled")
-
-
-
-
-
-
-
-
-
-
-
-
 
     def quit(self):
         global HTTP_SESSION, FILE_WATCHER_RUNNING
