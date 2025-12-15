@@ -76,9 +76,35 @@ if platform.system() == "Windows":
     import win32con
 from scp import SCPClient
 
-def fast_scp_upload(ssh_transport, src_path, dest_path):
-    with SCPClient(ssh_transport, socket_timeout=30) as scp:
-        scp.put(src_path, dest_path)
+# def fast_scp_upload(ssh_transport, src_path, dest_path):
+#     with SCPClient(ssh_transport, socket_timeout=30) as scp:
+#         scp.put(src_path, dest_path)
+
+def fast_scp_upload(transport, src_path, dest_path):
+
+    # ---- MAXIMIZE UPLOAD WINDOW ----
+    transport.default_window_size = 1024 * 1024 * 128     # 128MB window
+    transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet
+    transport.packetizer.REKEY_BYTES = pow(2, 40)
+    transport.packetizer.REKEY_PACKETS = pow(2, 40)
+
+    # ---- OPTIMIZED SCP ----
+    scp = SCPClient(
+        transport,
+        socket_timeout=30,
+        buff_size=4194304   # 4 MB chunks increased by Mohan
+    )
+
+    # ---- PUT IS FASTER THAN PUTFO ON WINDOWS ----
+    scp.put(src_path, dest_path)
+
+    scp.close()
+    
+    transport.close()  # transport close to prevent leakage by Mohan
+
+
+
+
 
 SUPPORTED_EXTENSIONS = [
     "jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp",
@@ -114,7 +140,7 @@ except ImportError as e:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -246,22 +272,22 @@ DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
-NAS_IP = "192.168.3.20"
-NAS_PASSWORD = "i#0f!L&+@s%^qc"
-NAS_PORT = 2022
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irdev"
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
 # NAS_IP = "192.168.3.20"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
+# NAS_PASSWORD = "D&*qmn012@12"
 # NAS_PORT = 2022
 # NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_USERNAME = "irprod"
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+
+
+NAS_IP = "192.168.3.20"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_PORT = 22
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 APPVERSION = "1.1.3"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -1411,11 +1437,19 @@ class FileWatcherWorker(QObject):
         metadata_key = "downloaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
+        
+        transport = None  # Initialize transport by Mohan
 
         try:
             # --- FAST SSH CONNECTION ---
             conn_start = time.time()
             transport = paramiko.Transport((NAS_IP, NAS_PORT))
+            
+            # Apply packet/window size tuning directly to the transport changes by Mohan
+            transport.default_window_size = 1024 * 1024 * 128     # 128MB window
+            transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet
+            transport.packetizer.REKEY_BYTES = pow(2, 40)
+            transport.packetizer.REKEY_PACKETS = pow(2, 40)
 
             transport.get_security_options().ciphers = (
                 'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
@@ -1429,10 +1463,10 @@ class FileWatcherWorker(QObject):
             # Resolve NAS path
             nas_path = item.get("file_path", src_path)
 
-            # --- SUPER FAST SCP DOWNLOAD ---
+            # --- SUPER FAST SCP DOWNLOAD --- buffer size increased by Mohan
             start_time = time.time()
 
-            with SCPClient(transport, socket_timeout=30) as scp:
+            with SCPClient(transport, socket_timeout=30, buff_size=4194304) as scp:
                 scp.get(nas_path, local_path=dest_path)
 
             end_time = time.time()
@@ -1444,7 +1478,7 @@ class FileWatcherWorker(QObject):
 
             print(f"📥 SCP Downloaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-            transport.close()
+            #transport.close() commented by Mohan
 
         except Exception as e:
             print(f"❌ Download failed: {e}")
@@ -1452,6 +1486,12 @@ class FileWatcherWorker(QObject):
             save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "failed")
             raise
+            
+        # Transport close by Mohan
+        finally:
+            if transport:
+                # Ensure the transport is closed after transfer is complete
+                transport.close()
 
 
 
@@ -1550,7 +1590,7 @@ class FileWatcherWorker(QObject):
         metadata_key = "uploaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-
+        transport = None  # initialize transport by Mohan
         try:
             src_path = Path(src_path)
             if not src_path.exists():
@@ -1563,6 +1603,9 @@ class FileWatcherWorker(QObject):
             # --- FAST SSH (same as before) ---
             conn_start = time.time()
             transport = paramiko.Transport((NAS_IP, NAS_PORT))
+            # Apply packet/window size tuning directly to the transport by Mohan
+            transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
+            transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
             transport.get_security_options().ciphers = (
                 'aes128-ctr',
                 'aes192-ctr',
@@ -1587,9 +1630,12 @@ class FileWatcherWorker(QObject):
 
             print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-            transport.close()
+            # transport.close() commented by Mohan
 
         except Exception as e:
+            if 'transport' in locals() and transport and transport.is_active():       # transport close by Mohan
+                transport.close()
+                
             print(f"❌ Upload failed: {e}")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
@@ -2120,7 +2166,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + dest_path,
+                        'nas_path': "softwaremedia/IR_uat/" + dest_path,
                     }
 
                     response = requests.post(
