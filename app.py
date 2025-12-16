@@ -76,6 +76,11 @@ if platform.system() == "Windows":
     import win32con
 from scp import SCPClient
 
+
+from ssh2.session import Session
+from ssh2.sftp import LIBSSH2_FXF_CREAT, LIBSSH2_FXF_WRITE, LIBSSH2_FXF_TRUNC
+from ssh2.exceptions import SFTPError
+
 # def fast_scp_upload(ssh_transport, src_path, dest_path):
 #     with SCPClient(ssh_transport, socket_timeout=30) as scp:
 #         scp.put(src_path, dest_path)
@@ -303,6 +308,12 @@ LAST_API_HIT_TIME = None
 NEXT_API_HIT_TIME = None
 
 USER_SYSTEM_INFO = {}
+
+# ========== CONFIGURATION ==========
+THROTTLE_MBPS = None       # Set to e.g. 50, 100, or None for no limit (full speed)
+MIN_REQUIRED_MBPS = 50     # Optional: for warning if speed too low (in Mbps)
+PRINT_INTERVAL = 0.5       # Progress update frequency in seconds
+# ===================================
 # === Logging Setup ===
 logger = logging.getLogger("PremediaApp")
 logger.setLevel(logging.INFO)  # Only INFO and higher allowed
@@ -1671,74 +1682,147 @@ class FileWatcherWorker(QObject):
         metadata_key = "uploaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-        transport = None
-
-        try:
-            src_path = Path(src_path)
-            if not src_path.exists():
-                cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
-                save_cache(cache, significant_change=True)
-                update_download_upload_metadata(task_id, "failed")
-                show_alert_notification("Error (U1)", "Upload failed try again.")
-                raise FileNotFoundError(f"Source file does not exist: {src_path}")
-
-            # ---------- FAST SSH TRANSPORT ----------
-            conn_start = time.time()
-            transport = paramiko.Transport((NAS_IP, NAS_PORT))
-
-            transport.default_window_size = 32 * 1024 * 1024
-            transport.default_max_packet_size = 1024 * 1024
-            transport.packetizer.REKEY_BYTES = pow(2, 40)
-            transport.packetizer.REKEY_PACKETS = pow(2, 40)
-
-            transport.get_security_options().ciphers = (
-                'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
-            )
-
-            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-            conn_end = time.time()
-            print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
-
-            dest_path = item.get("file_path", dest_path)
-            dest_dir = os.path.dirname(dest_path)
-
-            # ---------- SAFE DIRECTORY CREATION (NO exec_command) ----------
-            sftp = paramiko.SFTPClient.from_transport(transport)
-
-            def _mkdir_p(path):
-                current = ""
-                for part in path.split("/"):
-                    if not part:
-                        continue
-                    current += "/" + part
-                    try:
-                        sftp.mkdir(current)
-                    except IOError:
-                        pass  # already exists
-
-            _mkdir_p(dest_dir)
-            sftp.close()
-
-            # ---------- SCP UPLOAD ----------
-            start = time.time()
-            fast_scp_upload(transport, str(src_path), dest_path)
-            end = time.time()
-
-            duration = end - start
-            size_mb = src_path.stat().st_size / (1024 * 1024)
-            speed = size_mb / duration
-
-            print(f"Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
-
-        except Exception as e:
-            if transport and transport.is_active():
-                transport.close()
-
-            print(f"Upload failed: {e}")
+        
+        src_path = Path(src_path)
+        if not src_path.exists():
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
-            show_alert_notification("Error (U3)", "Upload failed try again.")
+            update_download_upload_metadata(task_id, "failed")
+            show_alert_notification("Error (U1)", "Upload failed try again.")
+            raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+        dest_path = item.get("file_path", dest_path)
+        dest_dir = os.path.dirname(dest_path)
+        
+        sock = None
+        session = None
+        sftp = None
+        try:
+            # ---------- CONNECTION ----------
+            start_conn = time.time()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((NAS_IP, NAS_PORT))
+            
+            session = Session()
+            session.handshake(sock)
+            
+            session.userauth_password(NAS_USERNAME, NAS_PASSWORD)
+            
+            if not session.userauth_authenticated():
+                raise Exception("SSH authentication failed")
+            
+            end_conn = time.time()
+            print(f"Connection established in {(end_conn - start_conn) * 1000:.1f} ms")
+
+            # ---------- SFTP INIT ----------
+            sftp = session.sftp_init()
+
+            # ---------- NO DIRECTORY CREATION ----------
+            print(f"Directory creation skipped (as requested).")
+            print(f"Assuming destination directory already exists: {dest_dir}")
+            print(f"If upload fails with 'No such file or directory', create the folder manually on the NAS.\n")
+
+            # ---------- UPLOAD WITH LIVELY PROGRESS ----------
+            upload_start = time.time()
+            
+            flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
+            chunk_size = 4 * 1024 * 1024  # 4 MB chunks
+            
+            file_size = src_path.stat().st_size
+            total_mb = file_size / (1024 * 1024)
+            
+            # Throttling setup
+            bytes_per_second = None
+            if THROTTLE_MBPS is not None:
+                bytes_per_second = THROTTLE_MBPS * 1024 * 1024 / 8
+            
+            transferred = 0
+            last_print_time = time.time()
+            chunk_start_time = time.time()
+            
+            print(f"Uploading: {src_path.name} ({total_mb:.2f} MB)")
+            print(f"Destination: {dest_path}")
+            print("Progress: 0.0% | Speed: 0.00 MB/s | Transferred: 0.00 / {:.2f} MB".format(total_mb))
+            
+            with open(src_path, "rb") as local_file, \
+                sftp.open(dest_path, flags, 0o644) as remote_file:
+                
+                while True:
+                    data = local_file.read(chunk_size)
+                    if not data:
+                        break
+                    
+                    remote_file.write(data)
+                    transferred += len(data)
+                    
+                    # Throttling
+                    if bytes_per_second:
+                        chunk_end_time = time.time()
+                        elapsed = chunk_end_time - chunk_start_time
+                        expected = len(data) / bytes_per_second
+                        if elapsed < expected:
+                            time.sleep(expected - elapsed)
+                        chunk_start_time = time.time()
+                    
+                    # Real-time progress
+                    current_time = time.time()
+                    if current_time - last_print_time >= PRINT_INTERVAL:
+                        elapsed_total = current_time - upload_start
+                        transferred_mb = transferred / (1024 * 1024)
+                        percentage = (transferred / file_size) * 100 if file_size > 0 else 100
+                        speed = transferred_mb / elapsed_total if elapsed_total > 0 else 0
+                        
+                        print(f"Progress: {percentage:6.1f}% | Speed: {speed:6.2f} MB/s | "
+                            f"Transferred: {transferred_mb:8.2f} / {total_mb:.2f} MB", end="\r")
+                        
+                        last_print_time = current_time
+            
+            # Final results
+            upload_end = time.time()
+            duration = upload_end - upload_start
+            final_mb = file_size / (1024 * 1024)
+            final_speed = final_mb / duration if duration > 0 else 0
+            
+            print(f"\n\nUpload completed: {final_mb:.2f} MB in {duration:.2f}s ({final_speed:.2f} MB/s)")
+            
+            if MIN_REQUIRED_MBPS:
+                actual_mbps = final_speed * 8
+                if actual_mbps < MIN_REQUIRED_MBPS:
+                    print(f"WARNING: Upload speed {actual_mbps:.1f} Mbps is below required {MIN_REQUIRED_MBPS} Mbps!")
+                else:
+                    print(f"Speed {actual_mbps:.1f} Mbps meets minimum requirement ✓")
+
+        except Exception as e:
+            print("\nUpload failed!")
+            error_details = str(e)
+            
+            if sftp:
+                sftp_err = sftp.last_error()
+                if sftp_err != 0:
+                    error_details += f" | SFTP error code: {sftp_err}"
+                    if sftp_err == 2:
+                        error_details += " (No such file or directory – destination folder missing)"
+                    elif sftp_err == 3:
+                        error_details += " (Permission denied)"
+            
+            if session:
+                sess_err = session.last_errno()
+                if sess_err != 0:
+                    error_details += f" | Session error code: {sess_err}"
+            
+            print(f"Error: {error_details or 'Unknown error'}")
+            print("Tip: If 'No such file or directory', create the full destination folder manually on the NAS once.")
+            traceback.print_exc()
+            
+            cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+            save_cache(cache, significant_change=True)
+            show_alert_notification("Error (U3)", "Upload failed – check if destination folder exists.")
             raise
+        finally:
+            if session:
+                session.disconnect()
+            if sock:
+                sock.close()
 
 
         
