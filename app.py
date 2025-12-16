@@ -1452,7 +1452,7 @@ class FileWatcherWorker(QObject):
             transport.packetizer.REKEY_PACKETS = pow(2, 40)
 
             transport.get_security_options().ciphers = (
-                'aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'chacha20-poly1305@openssh.com', 'aes128-gcm@openssh.com'
+                'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
             )
 
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
@@ -1607,7 +1607,7 @@ class FileWatcherWorker(QObject):
             transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
             transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
             transport.get_security_options().ciphers = (
-'aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'chacha20-poly1305@openssh.com', 'aes128-gcm@openssh.com'
+'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
             )
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
             conn_end = time.time()
