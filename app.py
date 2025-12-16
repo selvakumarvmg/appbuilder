@@ -83,8 +83,8 @@ from scp import SCPClient
 def fast_scp_upload(transport, src_path, dest_path):
 
     # ---- MAXIMIZE UPLOAD WINDOW ----
-    transport.default_window_size = 2147483647     # 128MB window
-    transport.default_max_packet_size = 65536  # 64MB packet
+    transport.default_window_size = 33554432     # 32MB window by Mohan
+    transport.default_max_packet_size = 1048576  # 1MB packet by Mohan
     transport.packetizer.REKEY_BYTES = pow(2, 40)
     transport.packetizer.REKEY_PACKETS = pow(2, 40)
 
@@ -92,7 +92,7 @@ def fast_scp_upload(transport, src_path, dest_path):
     scp = SCPClient(
         transport,
         socket_timeout=30,
-        buff_size=8388608   # 4 MB chunks increased by Mohan
+        buff_size=1048576   # 1 MB chunks increased by Mohan
     )
 
     # ---- PUT IS FASTER THAN PUTFO ON WINDOWS ----
@@ -281,7 +281,7 @@ IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 # MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
-NAS_IP = "192.168.1.145"
+NAS_IP = "192.168.3.20"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_PORT = 22
@@ -1584,13 +1584,95 @@ class FileWatcherWorker(QObject):
     #         raise
 
 
+#     def _upload_to_nas(self, src_path, dest_path, item):
+#         task_id = item.get("id", '')
+#         spec_id = str(item.get("spec_id"))
+#         metadata_key = "uploaded_files_with_metadata"
+#         cache = load_cache()
+#         cache.setdefault(metadata_key, {})
+#         transport = None  # initialize transport by Mohan
+#         try:
+#             src_path = Path(src_path)
+#             if not src_path.exists():
+#                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+#                 save_cache(cache, significant_change=True)
+#                 update_download_upload_metadata(task_id, "failed")
+#                 show_alert_notification("Error (U1)", "Upload failed try again.")
+#                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+#             # --- FAST SSH (same as before) ---
+#             conn_start = time.time()
+#             transport = paramiko.Transport((NAS_IP, NAS_PORT))
+#             transport.set_keepalive(15) # Send KeepAlive every 15 seconds by Mohan
+#             # Apply packet/window size tuning directly to the transport by Mohan
+#             transport.default_window_size = 3554432     # 32MB window by Mohan
+#             transport.default_max_packet_size = 1048576   # 1MB packet by Mohan
+#             transport.get_security_options().ciphers = (
+# 'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+#             )
+#             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+#             conn_end = time.time()
+
+#             print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+#             # Destination: use item’s file_path if provided
+#             dest_path = item.get("file_path", dest_path)
+            
+#             # --- OPTIMIZATION BY MOHAN: ONE-SHOT DIRECTORY CREATION (FIXES THE 70S BOTTLENECK) ---
+#             # Replaced the slow recursive check with a single fast SSH command:
+#             dest_dir = os.path.dirname(dest_path)
+#             chan = transport.open_session()
+#             chan.exec_command(f'mkdir -p "{dest_dir}"') 
+#             chan.close()
+#             # --------------------------------------------------------------------------
+
+#             # --- SUPER FAST SCP UPLOAD ---
+#             start = time.time()
+#             fast_scp_upload(transport, str(src_path), dest_path)
+#             end = time.time()
+
+#             duration = end - start
+#             size_mb = src_path.stat().st_size / (1024 * 1024)
+#             speed = size_mb / duration
+
+#             print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+            
+#             # --- FIX: SET PERMISSIONS AFTER UPLOAD ---
+#             try:
+#                 sftp = paramiko.SFTPClient.from_transport(transport)
+#                 sftp.chmod(dest_path, 0o777)
+#                 sftp.close()
+#                 logger.info(f"Set permissions to 777 for uploaded file {dest_path}")
+#             except Exception as perm_e:
+#                 logger.warning(f"Failed to set file permissions (chmod) after SCP: {perm_e}")
+#                 # Continue if chmod fails, as the file is already uploaded by SCP
+
+#             # transport.close() commented by Mohan
+
+#         except Exception as e:
+#         # Check if the error is due to Channel Closed or connection loss
+#             if "Channel closed" in str(e) or "Timeout" in str(e) or "EOF" in str(e):
+#                 logger.error(f"Upload failed due to connection issue (Channel closed/Timeout/EOF): {e}")
+#                 show_alert_notification("Upload Error", "Connection lost during upload. This may be fixed by the KeepAlive setting. Please retry.")
+                
+#             if 'transport' in locals() and transport and transport.is_active():       # transport close by Mohan
+#                 transport.close()
+                
+#             print(f"❌ Upload failed: {e}")
+#             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+#             save_cache(cache, significant_change=True)
+#             show_alert_notification("Error (U3)", "Upload failed try again.")
+#             raise
+
+
     def _upload_to_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
         metadata_key = "uploaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-        transport = None  # initialize transport by Mohan
+        transport = None
+
         try:
             src_path = Path(src_path)
             if not src_path.exists():
@@ -1600,24 +1682,44 @@ class FileWatcherWorker(QObject):
                 show_alert_notification("Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
-            # --- FAST SSH (same as before) ---
+            # ---------- FAST SSH TRANSPORT ----------
             conn_start = time.time()
             transport = paramiko.Transport((NAS_IP, NAS_PORT))
-            # Apply packet/window size tuning directly to the transport by Mohan
-            transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
-            transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
+
+            transport.default_window_size = 32 * 1024 * 1024
+            transport.default_max_packet_size = 1024 * 1024
+            transport.packetizer.REKEY_BYTES = pow(2, 40)
+            transport.packetizer.REKEY_PACKETS = pow(2, 40)
+
             transport.get_security_options().ciphers = (
-'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+                'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
             )
+
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
             conn_end = time.time()
-
             print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
 
-            # Destination: use item’s file_path if provided
             dest_path = item.get("file_path", dest_path)
+            dest_dir = os.path.dirname(dest_path)
 
-            # --- SUPER FAST SCP UPLOAD ---
+            # ---------- SAFE DIRECTORY CREATION (NO exec_command) ----------
+            sftp = paramiko.SFTPClient.from_transport(transport)
+
+            def _mkdir_p(path):
+                current = ""
+                for part in path.split("/"):
+                    if not part:
+                        continue
+                    current += "/" + part
+                    try:
+                        sftp.mkdir(current)
+                    except IOError:
+                        pass  # already exists
+
+            _mkdir_p(dest_dir)
+            sftp.close()
+
+            # ---------- SCP UPLOAD ----------
             start = time.time()
             fast_scp_upload(transport, str(src_path), dest_path)
             end = time.time()
@@ -1626,15 +1728,13 @@ class FileWatcherWorker(QObject):
             size_mb = src_path.stat().st_size / (1024 * 1024)
             speed = size_mb / duration
 
-            print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
-
-            # transport.close() commented by Mohan
+            print(f"Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
         except Exception as e:
-            if 'transport' in locals() and transport and transport.is_active():       # transport close by Mohan
+            if transport and transport.is_active():
                 transport.close()
-                
-            print(f"❌ Upload failed: {e}")
+
+            print(f"Upload failed: {e}")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
             show_alert_notification("Error (U3)", "Upload failed try again.")
