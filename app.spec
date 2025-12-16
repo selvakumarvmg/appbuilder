@@ -1,5 +1,4 @@
 # -*- mode: python ; coding: utf-8 -*-
-
 import sys
 import os
 import sysconfig
@@ -90,11 +89,14 @@ data_files += collect_data_files("paramiko")
 data_files += collect_data_files("numpy")
 data_files += collect_data_files("psd_tools")
 
+# ✅ Add ssh2-python support (fixes "No module named 'ssh2.agent'" and other submodules)
+data_files += collect_data_files('ssh2')
+# (collect_submodules added below in hidden_imports)
+
 # ✅ Add PySide6 platform/imageformats plugin .dll files explicitly
 from PySide6 import __file__ as pyside6_init
 pyside6_dir = Path(pyside6_init).parent
 plugins_dir = pyside6_dir / "Qt" / "plugins"
-
 for plugin_subdir in ["platforms", "imageformats"]:
     full_dir = plugins_dir / plugin_subdir
     if full_dir.exists():
@@ -105,6 +107,7 @@ for plugin_subdir in ["platforms", "imageformats"]:
 
 hidden_imports = (
     collect_submodules("PySide6") +
+    collect_submodules('ssh2') +  # ← Automatically collects all ssh2.* submodules (agent, sftp, etc.)
     ["paramiko", "tzdata", "PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui", "PySide6.uic", "PIL.Image", "login", "icons_rc", "docopt_ng"]
 )
 
@@ -143,11 +146,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="PremediaApp",
-    debug=True,
+    debug=True,  # Keep True while testing; set False for final release
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,  # Enable for debugging; switch to False for GUI-only
+    console=False,  # False for GUI app
     icon=icon_file,
 )
 
