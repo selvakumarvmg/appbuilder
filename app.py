@@ -75,6 +75,7 @@ if platform.system() == "Windows":
     import win32gui
     import win32con
 from scp import SCPClient
+import posixpath
 
 # def fast_scp_upload(ssh_transport, src_path, dest_path):
 #     with SCPClient(ssh_transport, socket_timeout=30) as scp:
@@ -281,7 +282,7 @@ IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 # MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
-NAS_IP = "192.168.3.20"
+NAS_IP = "192.168.1.145"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_PORT = 22
@@ -1584,13 +1585,72 @@ class FileWatcherWorker(QObject):
     #         raise
 
 
+#     def _upload_to_nas(self, src_path, dest_path, item):
+#         task_id = item.get("id", '')
+#         spec_id = str(item.get("spec_id"))
+#         metadata_key = "uploaded_files_with_metadata"
+#         cache = load_cache()
+#         cache.setdefault(metadata_key, {})
+#         transport = None  # initialize transport by Mohan
+#         try:
+#             src_path = Path(src_path)
+#             if not src_path.exists():
+#                 cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+#                 save_cache(cache, significant_change=True)
+#                 update_download_upload_metadata(task_id, "failed")
+#                 show_alert_notification("Error (U1)", "Upload failed try again.")
+#                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+#             # --- FAST SSH (same as before) ---
+#             conn_start = time.time()
+#             transport = paramiko.Transport((NAS_IP, NAS_PORT))
+#             # Apply packet/window size tuning directly to the transport by Mohan
+#             transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
+#             transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
+#             transport.get_security_options().ciphers = (
+# 'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+#             )
+#             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+#             conn_end = time.time()
+
+#             print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+#             # Destination: use item’s file_path if provided
+#             dest_path = item.get("file_path", dest_path)
+
+#             # --- SUPER FAST SCP UPLOAD ---
+#             start = time.time()
+#             fast_scp_upload(transport, str(src_path), dest_path)
+#             end = time.time()
+
+#             duration = end - start
+#             size_mb = src_path.stat().st_size / (1024 * 1024)
+#             speed = size_mb / duration
+
+#             print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+
+#             # transport.close() commented by Mohan
+
+#         except Exception as e:
+#             if 'transport' in locals() and transport and transport.is_active():       # transport close by Mohan
+#                 transport.close()
+                
+#             print(f"❌ Upload failed: {e}")
+#             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+#             save_cache(cache, significant_change=True)
+#             show_alert_notification("Error (U3)", "Upload failed try again.")
+#             raise
+
+
+
     def _upload_to_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
         metadata_key = "uploaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-        transport = None  # initialize transport by Mohan
+        transport = None
+        sftp = None
         try:
             src_path = Path(src_path)
             if not src_path.exists():
@@ -1600,45 +1660,80 @@ class FileWatcherWorker(QObject):
                 show_alert_notification("Error (U1)", "Upload failed try again.")
                 raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
-            # --- FAST SSH (same as before) ---
+            # --- FAST SSH CONNECTION ---
             conn_start = time.time()
             transport = paramiko.Transport((NAS_IP, NAS_PORT))
-            # Apply packet/window size tuning directly to the transport by Mohan
-            transport.default_window_size = 1024 * 1024 * 128     # 128MB window by Mohan
-            transport.default_max_packet_size = 1024 * 1024 * 64  # 64MB packet by Mohan
+            # Large window and packet sizes for better throughput (similar to fast SCP tuning)
+            transport.default_window_size = 1024 * 1024 * 128  # 128MB window
+            transport.max_packet_size = 1024 * 1024 * 64      # 64MB packet (most servers accept up to ~32-64KB, but this is outgoing)
             transport.get_security_options().ciphers = (
-'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
+                'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
             )
             transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
             conn_end = time.time()
-
             print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+            # Open SFTP session with tuned parameters
+            sftp = paramiko.SFTPClient.from_transport(
+                transport,
+                window_size=1024 * 1024 * 128,   # Large channel window
+                max_packet_size=1024 * 1024      # 1MB packet size (safe and improves pipelining)
+            )
 
             # Destination: use item’s file_path if provided
             dest_path = item.get("file_path", dest_path)
 
-            # --- SUPER FAST SCP UPLOAD ---
+            # Ensure remote directory exists
+            remote_dir = posixpath.dirname(dest_path)
+            try:
+                sftp.stat(remote_dir)
+            except IOError:
+                # Create directory recursively if it doesn't exist
+                current = ""
+                for part in remote_dir.split("/"):
+                    if part:
+                        current += "/" + part
+                        try:
+                            sftp.mkdir(current)
+                        except IOError:
+                            pass  # Already exists or permission issue
+
+            # --- FAST SFTP UPLOAD (like FileZilla) ---
             start = time.time()
-            fast_scp_upload(transport, str(src_path), dest_path)
+
+            # Use put() for simplicity and built-in optimization (prefetch/pipelining in newer Paramiko)
+            sftp.put(str(src_path), dest_path)
+
+            # Alternative manual upload with large chunks and pipelining (uncomment if put() is slow)
+            # with open(str(src_path), 'rb') as local_file:
+            #     with sftp.open(dest_path, 'wb') as remote_file:
+            #         remote_file.set_pipelined(True)  # Enable pipelining for overlapping requests
+            #         chunk_size = 1024 * 1024 * 4  # 4MB chunks (adjust based on network)
+            #         while True:
+            #             data = local_file.read(chunk_size)
+            #             if not data:
+            #                 break
+            #             remote_file.write(data)
+
             end = time.time()
 
             duration = end - start
             size_mb = src_path.stat().st_size / (1024 * 1024)
-            speed = size_mb / duration
+            speed = size_mb / duration if duration > 0 else 0
 
             print(f"⚡ Uploaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
 
-            # transport.close() commented by Mohan
-
         except Exception as e:
-            if 'transport' in locals() and transport and transport.is_active():       # transport close by Mohan
-                transport.close()
-                
             print(f"❌ Upload failed: {e}")
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
             show_alert_notification("Error (U3)", "Upload failed try again.")
             raise
+        finally:
+            if sftp:
+                sftp.close()
+            if transport and transport.is_active():
+                transport.close()
 
 
         
