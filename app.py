@@ -281,7 +281,7 @@ IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 # MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
-NAS_IP = "192.168.3.20"
+NAS_IP = "192.168.1.145"
 NAS_USERNAME = "irdev"
 NAS_PASSWORD = "i#0f!L&+@s%^qc"
 NAS_PORT = 22
