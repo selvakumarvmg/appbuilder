@@ -1368,69 +1368,7 @@ class FileWatcherWorker(QObject):
         self.log_update.emit(f"[Transfer] Prepared local path: {resolved_dest_path}")
         return resolved_dest_path
 
-    # def _download_from_nas(self, src_path, dest_path, item):
-    #     task_id = item.get("id", '')
-    #     spec_id = str(item.get("spec_id"))
-    #     metadata_key = "downloaded_files_with_metadata"
-    #     cache = load_cache()
-    #     cache.setdefault(metadata_key, {})
-
-    #     try:
-    #         # --- FAST TRANSPORT ---
-    #         conn_start = time.time()
-    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
-
-    #         # Use fastest cipher
-    #         transport.get_security_options().ciphers = (
-    #             'aes128-ctr', 'aes192-ctr', 'aes256-ctr'
-    #         )
-
-    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
-
-    #         # Create high-performance SFTP client
-    #         sftp = paramiko.SFTPClient.from_transport(transport)
-
-    #         # BOOST 1: Increase Max Packet Size (default = 32 KB)
-    #         sftp.MAX_PACKET_SIZE = 327680  # 320 KB
-
-    #         # BOOST 2: Increase Max Request Size
-    #         sftp.MAX_REQUEST_SIZE = 327680  # 320 KB
-
-    #         conn_end = time.time()
-    #         connection_time = (conn_end - conn_start) * 1000
-
-    #         # Resolve NAS path
-    #         nas_path = item.get("file_path", src_path)
-
-    #         # File size
-    #         file_size = sftp.stat(nas_path).st_size
-    #         file_size_mb = file_size / (1024 * 1024)
-
-    #         # --- FAST DOWNLOAD ---
-    #         start_time = time.time()
-
-    #         # Use getfo (streaming) for faster large file downloads
-    #         with open(dest_path, 'wb') as out_f:
-    #             sftp.getfo(nas_path, out_f)
-
-    #         end_time = time.time()
-
-    #         duration = end_time - start_time
-    #         speed = file_size_mb / duration if duration > 0 else 0
-
-    #         print(f"Connection: {connection_time:.1f}ms")
-    #         print(f"Downloaded {file_size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
-
-    #         sftp.close()
-    #         transport.close()
-
-    #     except Exception as e:
-    #         print(f"❌ Download failed: {e}")
-    #         update_download_upload_metadata(task_id, "failed")
-    #         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
-    #         save_cache(cache, significant_change=True)
-    #         raise
-
+    
 
     def _download_from_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
@@ -1495,6 +1433,98 @@ class FileWatcherWorker(QObject):
                 transport.close()
 
 
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", '')
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "downloaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+        
+    #     transport = None
+    #     sftp = None
+
+    #     try:
+    #         # --- FAST SSH CONNECTION ---
+    #         conn_start = time.time()
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
+            
+    #         # Maximum performance tuning
+    #         transport.default_window_size = 1024 * 1024 * 128  # 128MB window
+    #         transport.packetizer.REKEY_BYTES = pow(2, 40)     # ~1TB before rekey
+    #         transport.packetizer.REKEY_PACKETS = pow(2, 40)
+            
+    #         # Fastest ciphers (CTR modes are usually faster)
+    #         transport.get_security_options().ciphers = (
+    #             'aes128-ctr', 'aes192-ctr', 'aes256-ctr',
+    #             'aes256-ctr', 'aes192-ctr', 'aes128-ctr'
+    #         )
+            
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+    #         conn_end = time.time()
+    #         print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+    #         # Open highly tuned SFTP client
+    #         sftp = paramiko.SFTPClient.from_transport(
+    #             transport,
+    #             window_size=1024 * 1024 * 128,   # Large channel window
+    #             max_packet_size=1024 * 1024 * 4   # Larger outgoing packets (up to 4MB)
+    #         )
+
+    #         # Resolve remote NAS path
+    #         nas_path = item.get("file_path", src_path)
+
+    #         # Ensure local destination directory exists
+    #         local_dir = Path(dest_path).parent
+    #         local_dir.mkdir(parents=True, exist_ok=True)
+
+    #         # --- FAST SFTP DOWNLOAD (manual pipelined mode) ---
+    #         start_time = time.time()
+
+    #         # Open remote file with pipelining enabled for maximum throughput
+    #         with sftp.open(nas_path, 'rb') as remote_file:
+    #             remote_file.set_pipelined(True)      # Critical for speed on large files
+    #             remote_file.prefetch()               # Start prefetching all data aggressively
+
+    #             with open(dest_path, 'wb') as local_file:
+    #                 chunk_size = 1024 * 1024 * 4      # 4MB chunks (adjust up/down if needed)
+    #                 while True:
+    #                     data = remote_file.read(chunk_size)
+    #                     if not data:
+    #                         break
+    #                     local_file.write(data)
+
+    #         end_time = time.time()
+
+    #         # Calculate size and speed
+    #         size_mb = Path(dest_path).stat().st_size / (1024 * 1024)
+    #         duration = end_time - start_time
+    #         speed = size_mb / duration if duration > 0 else 0
+
+    #         print(f"📥 SFTP Downloaded {size_mb:.2f} MB in {duration:.2f}s ({speed:.2f} MB/s)")
+
+    #     except FileNotFoundError as e:
+    #         print(f"❌ Remote file not found: {e}")
+    #         if spec_id in cache.get(metadata_key, {}):
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #         save_cache(cache, significant_change=True)
+    #         update_download_upload_metadata(task_id, "failed")
+    #         show_alert_notification("Error (D1)", "File not found on NAS.")
+    #         raise
+
+    #     except Exception as e:
+    #         print(f"❌ Download failed: {e}")
+    #         if spec_id in cache.get(metadata_key, {}):
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #         save_cache(cache, significant_change=True)
+    #         update_download_upload_metadata(task_id, "failed")
+    #         show_alert_notification("Error (D3)", "Download failed. Try again.")
+    #         raise
+
+    #     finally:
+    #         if sftp:
+    #             sftp.close()
+    #         if transport and transport.is_active():
+    #             transport.close()
 
     
     # def _upload_to_nas(self, src_path, dest_path, item):
