@@ -1,58 +1,50 @@
 # installer/dmg-settings.py
-try:
-    from dmgbuild import defines
-except ImportError:
-    defines = {}
-# Name of your app bundle (must match the .app folder name)
+
+import os
+
+# App name (must match .app name exactly)
 application = "PremediaApp.app"
 
-# Background image (relative to this script or absolute path)
-background = "installer-assets/dmg-background.bmp"
-
-# DMG volume name (shown in Finder sidebar and title bar)
+# Volume name shown when DMG is mounted
 volume_name = "PremediaApp"
 
-# Icon size and window layout
+# Background image (relative to repo root)
+background = "installer-assets/dmg-background.bmp"
+
+# DMG window size and icon size
 icon_size = 128
-window_rect = ((200, 200), (600, 400))  # Wider window for better layout
+window_rect = ((200, 200), (480, 360))
 
-# Files to include in the DMG root (source_path, dest_name_in_dmg)
-# dmgbuild will copy PremediaApp.app from dmg-build/ (created in workflow)
+# Files included in DMG
+files = [
+    "dmg-build/PremediaApp.app",
+]
 
-files = [defines.get("app_path")]
+# Icon placement inside DMG window
+icon_locations = {
+    "PremediaApp.app": (140, 160),
+    "Applications": (340, 160),
+}
 
-# Main settings dictionary
-settings = {
+# Main dmgbuild configuration
+dmg_settings = {
     "volume_name": volume_name,
-    "volume_icon": None,  # Optional: custom volume icon (.icns)
     "background": background,
     "icon_size": icon_size,
     "window_rect": window_rect,
 
-    # Automatically creates a symlink named "Applications" pointing to /Applications
-    "applications_symlink": True,
+    # ✅ Creates /Applications shortcut automatically
+    "applications_link": True,
 
-    # Position the app and the Applications alias
-    "icon_locations": {
-        application: (150, 200),   # App icon on the left
-        "Applications": (450, 200) # Applications shortcut on the right
-    },
-
-    # Show a subtle badge on the app icon (optional, looks nice)
-    "badge_icon": True,
-
-    # Files/folders to place in the DMG root
     "files": files,
+    "icon_locations": icon_locations,
 
-    # Optional: hide file extensions
-    "show_file_extensions": False,
-
-    # Default view mode
+    # UI polish
     "default_view": "icon-view",
-
-    # Arrange icons by name
-    "arrange_by": "name",
+    "show_status_bar": False,
+    "show_tab_view": False,
+    "show_toolbar": False,
+    "show_pathbar": False,
+    "show_sidebar": False,
+    "text_size": 12,
 }
-
-# This is what dmgbuild expects
-dmg_settings = settings
