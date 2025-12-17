@@ -2,9 +2,9 @@ name: Build PremediaApp (macOS & Windows)
 
 on:
   push:
-    branches: [main]
+    branches: [uat113]
   pull_request:
-    branches: [main]
+    branches: [uat113]
   workflow_dispatch:
 
 jobs:
