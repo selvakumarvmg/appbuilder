@@ -279,10 +279,10 @@ IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
 NAS_IP = "192.168.1.145"
 NAS_PASSWORD = "D&*qmn012@12"
-NAS_PORT = 2022
+NAS_PORT = 22
 NAS_SHARE = ""
 NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irprod"
+NAS_USERNAME = "irnasappprod"
 MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
 
 
