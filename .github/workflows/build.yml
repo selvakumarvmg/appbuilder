@@ -23,6 +23,7 @@ jobs:
           brew update
           brew install gettext
           brew link --force gettext
+          brew link --force libssh2
 
       # Set up Python
       - name: Set up Python
@@ -43,6 +44,13 @@ jobs:
       - name: Clear pip cache
         run: pip cache purge
         shell: bash
+
+      - name: Export libssh2 build flags
+        run: |
+          echo "LDFLAGS=-L$(brew --prefix libssh2)/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$(brew --prefix libssh2)/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libssh2)/lib/pkgconfig" >> $GITHUB_ENV
+
 
       # Install dependencies
       - name: Install dependencies
@@ -73,6 +81,16 @@ jobs:
           cat plugin_check.txt
           echo "Dependency installation completed at $(date)"
         shell: bash
+
+
+      - name: Verify ssh2 runtime
+        run: |
+          python - << 'EOF'
+          import ssh2
+          from ssh2.session import Session
+          print("ssh2 OK:", ssh2.__file__)
+          EOF
+
 
       # Upload install logs
       - name: Upload requirements install log
@@ -187,21 +205,70 @@ jobs:
       #   shell: bash
 
             # Build app with PyInstaller
+      # - name: Build App with PyInstaller
+      #   run: |
+      #     echo "🚀 Starting PyInstaller build at $(date)"
+      #     echo "🔍 Checking syntax of app.py..."
+      #     python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+
+      #     echo "🔎 Finding PySide6 plugins..."
+      #     python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
+      #     export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+      #     echo "✅ PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
+
+      #     ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found" && exit 1)
+      #     ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
+
+      #     echo "🧱 Running PyInstaller with full icons folder..."
+      #     python -m PyInstaller \
+      #       --log-level=DEBUG \
+      #       --noconfirm \
+      #       --windowed \
+      #       --onedir \
+      #       --name PremediaApp \
+      #       --icon=icons/premedia.icns \
+      #       --add-data "icons:icons" \
+      #       --add-data "cache/cache.json:cache" \
+      #       --add-data "terms.txt:." \
+      #       --add-data "license.txt:." \
+      #       --add-data "login.ui:." \
+      #       --add-data "premediaapp.ui:." \
+      #       --add-data "icons.qrc:." \
+      #       --add-data "icons_rc.py:." \
+      #       --add-data "login.py:." \
+      #       --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+      #       --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+      #       --hidden-import=paramiko \
+      #       --hidden-import=requests \
+      #       --hidden-import=cryptography \
+      #       --hidden-import=tzdata \
+      #       --hidden-import=PySide6.QtWidgets \
+      #       --hidden-import=PySide6.QtCore \
+      #       --hidden-import=PySide6.QtGui \
+      #       --hidden-import=PySide6.uic \
+      #       --hidden-import=PIL.Image \
+      #       --hidden-import=login \
+      #       --hidden-import=icons_rc \
+      #       --runtime-hook=runtime-hook.py \
+      #       app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
+
+      #     echo "📁 dist/ contents:"
+      #     ls -lh dist
+      #     echo "✅ PyInstaller build completed successfully at $(date)"
+      #   shell: bash
+
+
       - name: Build App with PyInstaller
         run: |
           echo "🚀 Starting PyInstaller build at $(date)"
-          echo "🔍 Checking syntax of app.py..."
           python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
 
-          echo "🔎 Finding PySide6 plugins..."
           python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
           export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
-          echo "✅ PYSIDE6_PLUGINS=$PYSIDE6_PLUGINS"
 
-          ls -ld "$PYSIDE6_PLUGINS/platforms" || (echo "❌ Platforms directory not found" && exit 1)
-          ls -ld "$PYSIDE6_PLUGINS/imageformats" || (echo "❌ Imageformats directory not found" && exit 1)
+          LIBSSH2_PATH="$(brew --prefix libssh2)/lib/libssh2.dylib"
+          test -f "$LIBSSH2_PATH" || (echo "❌ libssh2.dylib not found" && exit 1)
 
-          echo "🧱 Running PyInstaller with full icons folder..."
           python -m PyInstaller \
             --log-level=DEBUG \
             --noconfirm \
@@ -220,6 +287,10 @@ jobs:
             --add-data "login.py:." \
             --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
             --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+            --add-binary "$LIBSSH2_PATH:." \
+            --hidden-import=ssh2 \
+            --hidden-import=ssh2.session \
+            --hidden-import=ssh2.sftp \
             --hidden-import=paramiko \
             --hidden-import=requests \
             --hidden-import=cryptography \
@@ -234,10 +305,12 @@ jobs:
             --runtime-hook=runtime-hook.py \
             app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
 
-          echo "📁 dist/ contents:"
-          ls -lh dist
-          echo "✅ PyInstaller build completed successfully at $(date)"
-        shell: bash
+
+      - name: Fix libssh2 rpath
+        run: |
+          APP="dist/PremediaApp.app/Contents/MacOS/PremediaApp"
+          install_name_tool -add_rpath "@executable_path" "$APP"
+          otool -L "$APP"
 
 
       # Upload PyInstaller log
