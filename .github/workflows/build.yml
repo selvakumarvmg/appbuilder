@@ -259,6 +259,56 @@ jobs:
       #   shell: bash
 
 
+      # - name: Build App with PyInstaller
+      #   run: |
+      #     echo "🚀 Starting PyInstaller build at $(date)"
+      #     python -m py_compile app.py || (echo "❌ Syntax error in app.py" && exit 1)
+
+      #     python -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins'))" > plugins_path.txt
+      #     export PYSIDE6_PLUGINS=$(cat plugins_path.txt)
+
+      #     LIBSSH2_PATH="$(brew --prefix libssh2)/lib/libssh2.dylib"
+      #     test -f "$LIBSSH2_PATH" || (echo "❌ libssh2.dylib not found" && exit 1)
+
+      #     python -m PyInstaller \
+      #       --log-level=DEBUG \
+      #       --noconfirm \
+      #       --windowed \
+      #       --onedir \
+      #       --name PremediaApp \
+      #       --osx-bundle-identifier com.vmg.premedia \
+      #       --icon=icons/premedia.icns \
+      #       --add-data "icons:icons" \
+      #       --add-data "cache/cache.json:cache" \
+      #       --add-data "terms.txt:." \
+      #       --add-data "license.txt:." \
+      #       --add-data "login.ui:." \
+      #       --add-data "premediaapp.ui:." \
+      #       --add-data "icons.qrc:." \
+      #       --add-data "icons_rc.py:." \
+      #       --add-data "login.py:." \
+      #       --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
+      #       --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
+      #       --add-binary "$LIBSSH2_PATH:." \
+      #       --hidden-import=ssh2 \
+      #       --hidden-import=ssh2.session \
+      #       --hidden-import=ssh2.sftp \
+      #       --hidden-import=ssh2.agent \
+      #       --hidden-import=paramiko \
+      #       --hidden-import=requests \
+      #       --hidden-import=cryptography \
+      #       --hidden-import=tzdata \
+      #       --hidden-import=PySide6.QtWidgets \
+      #       --hidden-import=PySide6.QtCore \
+      #       --hidden-import=PySide6.QtGui \
+      #       --hidden-import=PySide6.uic \
+      #       --hidden-import=PIL.Image \
+      #       --hidden-import=login \
+      #       --hidden-import=icons_rc \
+      #       --runtime-hook=runtime-hook.py \
+      #       app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
+
+
       - name: Build App with PyInstaller
         run: |
           echo "🚀 Starting PyInstaller build at $(date)"
@@ -290,9 +340,19 @@ jobs:
             --add-data "$PYSIDE6_PLUGINS/platforms:PySide6/Qt/plugins/platforms" \
             --add-data "$PYSIDE6_PLUGINS/imageformats:PySide6/Qt/plugins/imageformats" \
             --add-binary "$LIBSSH2_PATH:." \
-            --hidden-import=ssh2 \
-            --hidden-import=ssh2.session \
+            --hidden-import=ssh2.agent \
+            --hidden-import=ssh2.channel \
+            --hidden-import=ssh2.exceptions \
             --hidden-import=ssh2.sftp \
+            --hidden-import=ssh2.sftp_handle \
+            --hidden-import=ssh2.pkey \
+            --hidden-import=ssh2.listener \
+            --hidden-import=ssh2.statinfo \
+            --hidden-import=ssh2.knownhost \
+            --hidden-import=ssh2.error_codes \
+            --hidden-import=ssh2.fileinfo \
+            --hidden-import=ssh2.utils \
+            --hidden-import=ssh2.publickey \
             --hidden-import=paramiko \
             --hidden-import=requests \
             --hidden-import=cryptography \
