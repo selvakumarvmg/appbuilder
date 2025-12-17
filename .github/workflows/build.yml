@@ -21,9 +21,10 @@ jobs:
       - name: Install system dependencies (macOS Intel)
         run: |
           brew update
-          brew install gettext
+          brew install gettext libssh2
           brew link --force gettext
           brew link --force libssh2
+
 
       # Set up Python
       - name: Set up Python
@@ -275,6 +276,7 @@ jobs:
             --windowed \
             --onedir \
             --name PremediaApp \
+            --osx-bundle-identifier com.vmg.premedia \
             --icon=icons/premedia.icns \
             --add-data "icons:icons" \
             --add-data "cache/cache.json:cache" \
@@ -304,6 +306,12 @@ jobs:
             --hidden-import=icons_rc \
             --runtime-hook=runtime-hook.py \
             app.py > pyinstaller.log 2>&1 || (echo "❌ PyInstaller failed" && cat pyinstaller.log && exit 1)
+
+
+      - name: Verify .app bundle exists
+        run: |
+          test -d dist/PremediaApp.app || (echo "❌ PremediaApp.app not generated" && exit 1)
+
 
 
       - name: Fix libssh2 rpath
