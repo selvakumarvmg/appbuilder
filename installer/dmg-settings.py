@@ -1,5 +1,8 @@
 # installer/dmg-settings.py
-
+try:
+    from dmgbuild import defines
+except ImportError:
+    defines = {}
 # Name of your app bundle (must match the .app folder name)
 application = "PremediaApp.app"
 
@@ -15,7 +18,8 @@ window_rect = ((200, 200), (600, 400))  # Wider window for better layout
 
 # Files to include in the DMG root (source_path, dest_name_in_dmg)
 # dmgbuild will copy PremediaApp.app from dmg-build/ (created in workflow)
-files = [application]  # Simple: just the app bundle
+
+files = [defines.get("app_path")]
 
 # Main settings dictionary
 settings = {
