@@ -1,7 +1,7 @@
 # installer/dmg-settings.py
 
 # Name of your app bundle (must match the .app folder name)
-application = "PremediaApp"
+application = "PremediaApp.app"
 
 # Background image (relative to this script or absolute path)
 background = "installer-assets/dmg-background.bmp"
