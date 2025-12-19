@@ -75,11 +75,68 @@ if platform.system() == "Windows":
     import win32gui
     import win32con
 from scp import SCPClient
-
+if platform.system() == "Windows":
+    import msvcrt
+else:
+    import fcntl
 
 from ssh2.session import Session
 from ssh2.sftp import LIBSSH2_FXF_CREAT, LIBSSH2_FXF_WRITE, LIBSSH2_FXF_TRUNC
 from ssh2.exceptions import SFTPError
+
+
+def ensure_single_instance(app_name: str):
+    """
+    Enforces single-instance execution using an OS-level file lock.
+    Must be called BEFORE QApplication initialization.
+    """
+
+    lock_dir = tempfile.gettempdir()
+    lock_file_path = os.path.join(lock_dir, f"{app_name}.lock")
+
+    lock_file = open(lock_file_path, "w")
+
+    try:
+        if platform.system() == "Windows":
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    except Exception:
+        _show_already_running_popup(app_name)
+        sys.exit(0)
+
+    return lock_file  # MUST stay referenced
+
+def _show_already_running_popup(app_name: str):
+    """
+    Shows a blocking popup even if QApplication is not yet created.
+    """
+
+    try:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+
+        app = QApplication.instance()
+        owns_app = False
+
+        if app is None:
+            app = QApplication(sys.argv)
+            owns_app = True
+
+        QMessageBox.warning(
+            None,
+            f"{app_name} Already Running",
+            f"{app_name} is already running on your machine. Only one instance is allowed.",
+        )
+
+        if owns_app:
+            app.quit()
+
+    except Exception:
+        # Absolute fallback (no Qt available)
+        sys.stderr.write(f"{app_name} is already running.\n")
+
+
 
 # def fast_scp_upload(ssh_transport, src_path, dest_path):
 #     with SCPClient(ssh_transport, socket_timeout=30) as scp:
@@ -144,8 +201,28 @@ except ImportError as e:
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# === Constants ===
-BASE_DOMAIN = "https://app.vmgpremedia.com"
+# === Server and environment Pointing global variables ===
+
+# BASE_DOMAIN = "https://app.vmgpremedia.com"
+# NAS_IP = "192.168.1.145"
+# NAS_PASSWORD = "D&*qmn012@12"
+# NAS_PORT = 22
+# NAS_SHARE = ""
+# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_USERNAME = "irnasappprod"
+# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
+# NAS_PATH = "softwaremedia/IR_prod/"
+
+BASE_DOMAIN = "https://app-uat.vmgpremedia.com"
+NAS_IP = "192.168.1.145"
+NAS_USERNAME = "irdev"
+NAS_PASSWORD = "i#0f!L&+@s%^qc"
+NAS_PORT = 22
+NAS_SHARE = ""
+NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
+MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
+NAS_PATH = "softwaremedia/IR_uat/"
+
 
 BASE_DIR = Path(__file__).parent.resolve()
 
@@ -277,22 +354,6 @@ DRUPAL_DB_ENTRY_API = f"{BASE_DOMAIN}/api/add/files/ir/assets"
 API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
-NAS_IP = "192.168.1.145"
-NAS_PASSWORD = "D&*qmn012@12"
-NAS_PORT = 22
-NAS_SHARE = ""
-NAS_PREFIX ='/mnt/nas/softwaremedia/IR_prod'
-NAS_USERNAME = "irnasappprod"
-MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_prod'
-
-
-# NAS_IP = "192.168.1.145"
-# NAS_USERNAME = "irdev"
-# NAS_PASSWORD = "i#0f!L&+@s%^qc"
-# NAS_PORT = 22
-# NAS_SHARE = ""
-# NAS_PREFIX ='/mnt/nas/softwaremedia/IR_uat'
-# MOUNTED_NAS_PATH ='/mnt/nas/softwaremedia/IR_uat'
 
 APPVERSION = "1.1.3"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
@@ -2348,7 +2409,7 @@ class FileWatcherWorker(QObject):
                         'spec_id': item.get("spec_id"),
                         'creative_id': item.get("creative_id"),
                         'inventory_id': item.get("inventory_id"),
-                        'nas_path': "softwaremedia/IR_prod/" + dest_path,
+                        'nas_path': NAS_PATH + dest_path,
                     }
 
                     response = requests.post(
@@ -2470,7 +2531,7 @@ class FileWatcherWorker(QObject):
             api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
             # machine_id = USER_SYSTEM_INFO.get("encoded_mac", "") if isinstance(USER_SYSTEM_INFO, dict) else ""
             # api_url = f"{DOWNLOAD_UPLOAD_API}?user_id={quote(user_id)}&machine_id={machine_id}"
-
+            print(api_url)
             for attempt in range(max_retries):
                 try:
                     logger.debug(f"[{datetime.now(timezone.utc).isoformat()}] Hitting API: {api_url}, instance: {id(self)}")
@@ -2497,10 +2558,13 @@ class FileWatcherWorker(QObject):
 
                     response.raise_for_status()
                     response_data = response.json()
+                    print(response_data)
                     # ✅ Handle both list and dict response formats safely
                     if isinstance(response_data, dict):
                         if response_data.get("status") == 403:
+                            print("---------------------auto logut")
                             self.user_in_other_system.emit("user_already_logged_in")
+                            premedia.show_login_page()
                             return
                         tasks = response_data.get("data", [])
                     elif isinstance(response_data, list):
@@ -5019,6 +5083,7 @@ class LoginDialog(QDialog):
                 if validation_result.get("status") == 403:
                     
                     self.user_in_other_system.emit("user_already_logged_in")
+                    print("ssssssssssssssssssssssssssssssssssssssssssssssssssss")
                     # QThread.currentThread().quit()
                     return
 
@@ -5407,7 +5472,7 @@ class PremediaApp(QApplication):
             try:
                 self.login_dialog = LoginDialog(parent=None, app=self)   
                 self.login_dialog.user_in_other_system.connect(self.show_login_page)
-                             
+                # self.user_in_other_system.emit("user_already_logged_in")  
             except Exception as e:
                 logger.error(f"Failed to initialize LoginDialog: {e}")
                 app_signals.append_log.emit(f"[Init] Failed to initialize LoginDialog: {str(e)}")
@@ -5580,8 +5645,11 @@ class PremediaApp(QApplication):
             app_signals.append_log.emit(f"[App] Failed: Error in event handler - {str(e)}")
             return super().event(event)
 
-    def show_login_page(self):
+    def show_login_page(self, reason: str):
+        print("----------------------------------------------------------------------------------------------------------")
+        print(f"user_in_other_system signal received: {reason}")
         self.logout()
+
         
 
 
@@ -5874,6 +5942,10 @@ class PremediaApp(QApplication):
                 FileWatcherWorker._instance = None
                 self.file_watcher = FileWatcherWorker.get_instance(parent=None)
                 print("Worker created in thread:", QThread.currentThread())
+
+                self.file_watcher.user_in_other_system.connect(self.show_login_page)
+                print("Connected FileWatcherWorker.user_in_other_system → show_login_page")
+                app_signals.append_log.emit("[Security] Auto-logout on session conflict enabled")
 
                 # connect worker signals
                 self.file_watcher.status_update.connect(self.log_window.status_bar.showMessage)
@@ -6674,13 +6746,30 @@ class PremediaApp(QApplication):
 
 get_system_info()
 
+# if __name__ == "__main__":
+#     try:
+#         key = parse_custom_url()
+#         app = PremediaApp(key)
+        
+#         sys.exit(app.exec())
+#     except Exception as e:
+#         print(f"Application crashed: {e}")
+#         import traceback
+#         traceback.print_exc()
+
 if __name__ == "__main__":
+    lock_handle = ensure_single_instance("PremediaApp")
+
     try:
         key = parse_custom_url()
+
         app = PremediaApp(key)
-        
-        sys.exit(app.exec())
+        exit_code = app.exec()
+
+        sys.exit(exit_code)
+
     except Exception as e:
-        print(f"Application crashed: {e}")
+        print(f"Application crashed: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
+        sys.exit(1)
