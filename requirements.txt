@@ -33,3 +33,6 @@ pytz==2024.1
 pyautogui==0.9.54 ; sys_platform != "darwin"
 scp==0.14.5
 ssh2-python==1.1.1
+keyring==25.2.1
+keyrings.alt==5.0.1
+appdirs==1.4.4
