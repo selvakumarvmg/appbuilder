@@ -10,8 +10,7 @@ APPVERSION = "1.1.46"  # your current version
 
 from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap, QDesktopServices
 from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QEventLoop, QUrl, Q_ARG, QMimeData
-from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from PySide6.QtNetwork import QLocalServer, QLocalSocket, QNetworkAccessManager, QNetworkRequest
 from login import Ui_Dialog
 from PySide6.QtWidgets import QLineEdit
 
