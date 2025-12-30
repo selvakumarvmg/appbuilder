@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>764</width>
-    <height>669</height>
+    <height>616</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,176 +17,149 @@
    <iconset>
     <normaloff>:/newPrefix/premedia.png</normaloff>:/newPrefix/premedia.png</iconset>
   </property>
+  <property name="autoFillBackground">
+   <bool>false</bool>
+  </property>
   <property name="styleSheet">
-   <string notr="true">/* ===============================
-🌐 Base Form Style (Clean/Neutral)
-================================== */
-QDialog, QWidget {
-    background-color: #f4f6f8;  /* light neutral background */
-    font-family: &quot;Segoe UI&quot;, &quot;Helvetica Neue&quot;, sans-serif;
+   <string notr="true">/* =====================================================
+GLOBAL BASE
+===================================================== */
+QWidget {
+    background-color: #f2f2f2;
+    font-family: &quot;Segoe UI&quot;, sans-serif;
     font-size: 14px;
-    color: #333333;
+    color: #1f1f1f;
 }
 
-/* ===============================
-🖼️ QLabel Styling
-================================== */
-QLabel {
-    background-color: transparent;
-    font-size: 13px;
-    color: #2e2e2e;
-}
-
-QLabel#label_2,
-QLabel#label_3 {
-    background-color: #e0e0e0;
-    padding: 6px 10px;
-    border-radius: 0px 5px 0px 5px;
-    font-weight: 500;
-    color: #1a1a1a;
-}
-
-QLabel#label {
-    qproperty-alignment: AlignCenter;
-    padding: 10px;
-}
-
-/* ===============================
-📦 QGroupBox Styling
-================================== */
+/* =====================================================
+MAIN CONTAINER (NO CARD, NO FLOAT)
+===================================================== */
 QGroupBox {
     background-color: #ffffff;
-    border: 1px solid #d1d1d1;
-    border-radius: 10px;
-    padding: 20px;
-    margin-top: 10px;
-    font-weight: bold;
+    border: 1px solid #dcdcdc; 
+    border-radius: 22px;
+    padding: 10px;
+box-shadow: 5px 5px 10px #888888;
 }
 
 QGroupBox::title {
-    subcontrol-origin: content;
+    subcontrol-origin: margin;
     subcontrol-position: top left;
-    margin-top: -12px;
-    padding: 4px 10px;
-    font-size: 15px;
-    color: #0078d7;
+    padding: 6px;
+    margin: 10px 20px 15px 20px;
+	
+    font-size: 13px;
+    font-weight: 600;
+    color: #005fb8;
 }
 
-/* ===============================
-🔤 QLineEdit (Inputs)
-================================== */
+/* =====================================================
+LABELS
+===================================================== */
+QLabel {
+    background: transparent;
+    font-size: 13px;
+    color: #2b2b2b;
+}
+
+QLabel#label {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1f1f1f;
+    qproperty-alignment: AlignCenter;
+    margin-bottom: 12px;
+}
+
+/* =====================================================
+INPUT FIELDS (REAL DESKTOP STYLE)
+===================================================== */
 QLineEdit {
     background-color: #ffffff;
-    border: 1px solid #bfc5ca;
-    border-radius: 6px;
-    padding: 8px 12px;
+    border: 1px solid #bdbdbd;
+    border-radius: 4px;
+    padding: 6px 8px;
     font-size: 13px;
-    color: #333;
+    color: #1f1f1f;
 }
 
 QLineEdit:focus {
-    border: 1px solid #0078d7;
-    background-color: #f0faff;
-}
-
-/* ===============================
-✅ QCheckBox with Clean Label Background
-================================== */
-QCheckBox {
-    spacing: 6px;
-    font-size: 13px;
-    color: #1a1a1a;
-    padding: 6px 8px;
-    border-radius: 6px;
-    background-color: #eeeeee;
-}
-
-QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    border: 1px solid #999;
+    border: 1px solid #005fb8;
     background-color: #ffffff;
 }
 
-QCheckBox::indicator:checked {
-    background-color: #0078d7;
-    image: none;
+QLineEdit::placeholder {
+    color: #7a7a7a;
 }
 
-QCheckBox::indicator:hover {
-    border: 1px solid #3399ff;
+/* Password field */
+QLineEdit#passwordtxt {
+    letter-spacing: 0.5px;
 }
 
-/* ===============================
-🔘 QRadioButton Styling
-================================== */
+/* =====================================================
+CHECKBOX / RADIO (NATIVE-LIKE)
+===================================================== */
+QCheckBox,
 QRadioButton {
     spacing: 6px;
     font-size: 13px;
-    color: #2e2e2e;
-    padding: 6px 8px;
+    color: #1f1f1f;
 }
 
+QCheckBox::indicator,
 QRadioButton::indicator {
-    width: 16px;
-    height: 16px;
-    border-radius: 8px;
-    border: 2px solid #0078d7;
-    background-color: white;
+    width: 14px;
+    height: 14px;
 }
 
-QRadioButton::indicator:checked {
-    background-color: #0078d7;
+QCheckBox::indicator {
+    border: 1px solid #7a7a7a;
+    background: #ffffff;
 }
 
-QRadioButton::indicator:unchecked {
-    background-color: white;
-    border: 2px solid #bbb;
+QCheckBox::indicator:checked {
+    background-color: #005fb8;
+    border-color: #005fb8;
 }
 
-/* ===============================
-🧩 QPushButton Styling (Flat &amp; Modern)
-================================== */
+/* =====================================================
+BUTTONS (REAL TOOL BUTTONS)
+===================================================== */
 QPushButton {
-    background-color: #0078d7;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 5px;
-    font-weight: bold;
+    background-color: #005fb8;
+    color: #ffffff;
+    border: 1px solid #005fb8;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 4px;
     min-width: 90px;
-    min-height: 30px;
-    border: none;
 }
 
 QPushButton:hover {
-    background-color: #005a9e;
+    background-color: #0a6fd6;
 }
 
 QPushButton:pressed {
-    background-color: #004578;
+    background-color: #004a92;
 }
 
-/* ===============================
-💬 QDialogButtonBox Buttons
-================================== */
+/* Secondary / Cancel */
+QPushButton#btnCancel {
+    background-color: #ffffff;
+    color: #005fb8;
+    border: 1px solid #bdbdbd;
+}
+
+QPushButton#btnCancel:hover {
+    background-color: #f2f2f2;
+}
+
+/* =====================================================
+DIALOG BUTTON BOX
+===================================================== */
 QDialogButtonBox QPushButton {
-    background-color: #0078d7;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 5px;
-    font-weight: bold;
-    border: none;
     min-width: 90px;
-    min-height: 30px;
-}
-
-QDialogButtonBox QPushButton:hover {
-    background-color: #005a9e;
-}
-
-QDialogButtonBox QPushButton:pressed {
-    background-color: #004578;
 }
 </string>
   </property>
@@ -196,7 +169,7 @@ QDialogButtonBox QPushButton:pressed {
      <x>60</x>
      <y>130</y>
      <width>631</width>
-     <height>461</height>
+     <height>431</height>
     </rect>
    </property>
    <property name="font">
@@ -213,8 +186,8 @@ QDialogButtonBox QPushButton:pressed {
    <widget class="QLabel" name="label_3">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>200</y>
+      <x>100</x>
+      <y>170</y>
       <width>161</width>
       <height>31</height>
      </rect>
@@ -223,7 +196,7 @@ QDialogButtonBox QPushButton:pressed {
      <font>
       <family>Segoe UI</family>
       <pointsize>-1</pointsize>
-      <weight>63</weight>
+      <weight>75</weight>
       <bold>true</bold>
      </font>
     </property>
@@ -234,8 +207,8 @@ QDialogButtonBox QPushButton:pressed {
    <widget class="QLineEdit" name="usernametxt">
     <property name="geometry">
      <rect>
-      <x>80</x>
-      <y>120</y>
+      <x>100</x>
+      <y>90</y>
       <width>441</width>
       <height>61</height>
      </rect>
@@ -253,8 +226,8 @@ QDialogButtonBox QPushButton:pressed {
    <widget class="QLineEdit" name="passwordtxt">
     <property name="geometry">
      <rect>
-      <x>80</x>
-      <y>230</y>
+      <x>100</x>
+      <y>200</y>
       <width>441</width>
       <height>61</height>
      </rect>
@@ -278,8 +251,8 @@ QDialogButtonBox QPushButton:pressed {
     </property>
     <property name="geometry">
      <rect>
-      <x>80</x>
-      <y>310</y>
+      <x>100</x>
+      <y>270</y>
       <width>181</width>
       <height>31</height>
      </rect>
@@ -289,6 +262,9 @@ QDialogButtonBox QPushButton:pressed {
       <family>Segoe UI</family>
       <pointsize>-1</pointsize>
      </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background : #fff</string>
     </property>
     <property name="text">
      <string>Remember Password</string>
@@ -303,8 +279,8 @@ QDialogButtonBox QPushButton:pressed {
    <widget class="QLabel" name="label_2">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>90</y>
+      <x>100</x>
+      <y>60</y>
       <width>171</width>
       <height>30</height>
      </rect>
@@ -313,7 +289,7 @@ QDialogButtonBox QPushButton:pressed {
      <font>
       <family>Segoe UI</family>
       <pointsize>-1</pointsize>
-      <weight>63</weight>
+      <weight>75</weight>
       <bold>true</bold>
      </font>
     </property>
@@ -324,10 +300,10 @@ QDialogButtonBox QPushButton:pressed {
    <widget class="QDialogButtonBox" name="buttonBox">
     <property name="geometry">
      <rect>
-      <x>350</x>
-      <y>370</y>
-      <width>251</width>
-      <height>61</height>
+      <x>280</x>
+      <y>320</y>
+      <width>261</width>
+      <height>81</height>
      </rect>
     </property>
     <property name="orientation">
@@ -337,13 +313,29 @@ QDialogButtonBox QPushButton:pressed {
      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
     </property>
    </widget>
+   <widget class="QCheckBox" name="showPasswordRadioButton">
+    <property name="geometry">
+     <rect>
+      <x>420</x>
+      <y>270</y>
+      <width>121</width>
+      <height>27</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background : #fff</string>
+    </property>
+    <property name="text">
+     <string>Show Password</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QLabel" name="label">
    <property name="geometry">
     <rect>
      <x>240</x>
      <y>10</y>
-     <width>271</width>
+     <width>261</width>
      <height>121</height>
     </rect>
    </property>

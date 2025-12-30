@@ -3,13 +3,15 @@ import uuid
 from PySide6.QtWidgets import (
     QApplication, QDialog, QMessageBox, QProgressDialog, QTextEdit, QSystemTrayIcon,
     QMenu, QVBoxLayout, QStatusBar, QWidget, QTableWidget, QTableWidgetItem,
-    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel
+    QPushButton, QHBoxLayout, QHeaderView, QProgressBar, QSizePolicy,QLabel, QFrame, QScrollArea, QGridLayout
 )
+from updater_client import check_for_update
+APPVERSION = "1.1.46"  # your current version
 
-from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap
-from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QEventLoop
+from PySide6.QtGui import QIcon, QTextCursor, QAction, QCursor, QFont,QPixmap, QDesktopServices
+from PySide6.QtCore import QRunnable, QThreadPool, QEvent, QSize, QThread, QTimer, Qt, QObject, Signal, QMetaObject, Slot, QLockFile, QDir, QEventLoop, QUrl, Q_ARG, QMimeData
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from login import Ui_Dialog
 from PySide6.QtWidgets import QLineEdit
 
@@ -63,7 +65,7 @@ except ImportError:
     tifffile = None
 import pytz
 import shutil
-
+import keyring
 try:
     import imagecodecs
 except ImportError:
@@ -112,7 +114,7 @@ def _show_already_running_popup(app_name: str):
     """
     Shows a blocking popup even if QApplication is not yet created.
     """
-
+    print ("------------------------------ one instancee ---------------------")
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -355,7 +357,6 @@ API_URL_LOGOUT = f"{BASE_DOMAIN}/premedia/logout"
 IS_APP_ACTIVE_UPLOAD_DOWNLOAD = False
 
 
-APPVERSION = "1.1.3"
 API_POLL_INTERVAL = 5000  # 5 seconds in milliseconds
 log_window_handler = None
 # === Global State ===
@@ -1356,6 +1357,16 @@ class FileWatcherWorker(QObject):
     task_list_update = Signal(list)
     cleanup_signal = Signal()
     user_in_other_system = Signal(str)
+  
+    download_progress = Signal(str, str, str, int)
+    # (spec_id, file_path, filename, percent)
+
+    download_status_detail = Signal(str, str, str, int, bool)
+    # (file_path, status_text, action_type, percent, is_nas_src)
+
+    upload_progress = Signal(str, str, str, int)          # spec_id, file_path, filename, percent
+    upload_status_detail = Signal(str, str, str, int, bool)  # file_path, text, action_type="upload", percent, is_nas_src
+
 
     _instance = None
     _instance_thread = None
@@ -1416,7 +1427,11 @@ class FileWatcherWorker(QObject):
 
     def _prepare_download_path(self, item):
         """Prepare the local destination path for download using file_path."""
-        file_path = item.get("file_path", "").lstrip("/")
+        file_path = item.get("file_path", "")
+        print(item)
+        print(".....................................................................")
+        print(file_path)
+        print(".....................................................................")
         if not file_path:
             show_alert_notification("ERROR (MD2)", "Please check Nas Connection.")
             # QMessageBox.warning(None, "ERROR (MD2)", "Please check Nas Connection.")
@@ -1502,8 +1517,8 @@ class FileWatcherWorker(QObject):
     #         save_cache(cache, significant_change=True)
     #         raise
 
-
-    def _download_from_nas(self, src_path, dest_path, item):
+# ///////////////////////////////////////////////////////////////////////////////////////////
+    # def _download_from_nas(self, src_path, dest_path, item):
         task_id = item.get("id", '')
         spec_id = str(item.get("spec_id"))
         metadata_key = "downloaded_files_with_metadata"
@@ -1564,8 +1579,492 @@ class FileWatcherWorker(QObject):
             if transport:
                 # Ensure the transport is closed after transfer is complete
                 transport.close()
+# ////////////////////////////////////////////////////////////////////////////////////////////////
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", '')
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "downloaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+        
+    #     transport = None
+
+    #     try:
+    #         # --- FAST SSH CONNECTION ---
+    #         conn_start = time.time()
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
+            
+    #         transport.default_window_size = 2147483647
+    #         transport.packetizer.REKEY_BYTES = pow(2, 40)
+    #         transport.packetizer.REKEY_PACKETS = pow(2, 40)
+    #         transport.get_security_options().ciphers = ('aes128-ctr', 'aes192-ctr', 'aes256-ctr')
+
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+    #         conn_end = time.time()
+    #         print(f"Connection time: {(conn_end - conn_start) * 1000:.1f} ms")
+
+    #         # Resolve paths
+    #         nas_path = item.get("file_path", src_path)
+    #         dest_path_obj = Path(dest_path)
+    #         dest_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    #         # Get remote file size
+    #         sftp_client = transport.open_sftp_client()
+    #         remote_stat = sftp_client.stat(nas_path)
+    #         total_size_bytes = remote_stat.st_size
+    #         sftp_client.close()
+
+    #         file_size_mb = total_size_bytes / (1024 * 1024)
+    #         print(f"Downloading: {Path(nas_path).name} ({file_size_mb:.2f} MB)")
+
+    #         # Progress state
+    #         start_time = time.time()
+    #         last_ui_update = 0
+    #         file_watcher = FileWatcherWorker.get_instance()
+
+    #         def format_time(seconds):
+    #             if seconds < 0:
+    #                 return "Calculating..."
+    #             if seconds < 60:
+    #                 return f"{int(seconds)}s"
+    #             mins, secs = divmod(int(seconds), 60)
+    #             if mins < 60:
+    #                 return f"{mins}m {secs}s"
+    #             hours, mins = divmod(mins, 60)
+    #             return f"{hours}h {mins}m {secs}s"
+
+    #         def scp_progress_callback(filename, size, sent):
+    #             nonlocal start_time, last_ui_update
+
+    #             current_time = time.time()
+    #             elapsed = current_time - start_time
+    #             if elapsed <= 0:
+    #                 return
+
+    #             percentage = (sent / total_size_bytes) * 100 if total_size_bytes > 0 else 0
+    #             speed_mb_s = (sent / (1024 * 1024)) / elapsed
+
+    #             # Live elapsed time
+    #             elapsed_str = format_time(elapsed)
+
+    #             # Live ETA
+    #             remaining_bytes = total_size_bytes - sent
+    #             eta_seconds = remaining_bytes / (1024 * 1024) / speed_mb_s if speed_mb_s > 0 else -1
+    #             eta_str = format_time(eta_seconds)
+
+    #             # Throttle updates to ~every 0.5 seconds
+    #             if (current_time - last_ui_update >= 0.5) or (percentage >= 100):
+    #                 last_ui_update = current_time
+
+    #                 # === Use your existing progress_update signal ===
+    #                 # Arguments: (file_path, some_string (we use filename), percentage)
+    #                 file_watcher.progress_update.emit(
+    #                     dest_path,
+    #                     Path(dest_path).name,  # second arg – can be filename or anything meaningful
+    #                     int(percentage)
+    #                 )
+
+    #                 # === Use your existing status_update signal for rich text ===
+    #                 status_text = (
+    #                     f"Downloading {percentage:.1f}% "
+    #                     f"@ {speed_mb_s:.1f} MB/s "
+    #                     f"• {elapsed_str} elapsed "
+    #                     f"• ETA: {eta_str}"
+    #                 )
+    #                 file_watcher.status_update.emit(status_text)
+
+    #                 print(f"{percentage:6.1f}% | {speed_mb_s:7.1f} MB/s | "
+    #                     f"Elapsed: {elapsed_str} | ETA: {eta_str} | {Path(dest_path).name}")
+
+    #         # --- PERFORM SCP DOWNLOAD WITH LIVE FEEDBACK ---
+    #         with SCPClient(
+    #             transport,
+    #             buff_size=8388608,
+    #             socket_timeout=60,
+    #             progress=scp_progress_callback
+    #         ) as scp:
+    #             scp.get(nas_path, local_path=dest_path)
+
+    #         # --- FINAL SUCCESS ---
+    #         actual_duration = time.time() - start_time
+    #         actual_time_str = format_time(actual_duration)
+    #         avg_speed = file_size_mb / actual_duration if actual_duration > 0 else 0
+
+    #         print(f"Completed: {file_size_mb:.2f} MB in {actual_time_str} ({avg_speed:.2f} MB/s)")
+
+    #         # Final updates using your existing signals
+    #         file_watcher.progress_update.emit(dest_path, Path(dest_path).name, 100)
+    #         file_watcher.status_update.emit(f"Completed in {actual_time_str}")
+
+    #     except Exception as e:
+    #         print(f"Download failed: {e}")
+            
+    #         if spec_id in cache.get(metadata_key, {}):
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #             save_cache(cache, significant_change=True)
+            
+    #         update_download_upload_metadata(task_id, "failed")
+
+    #         file_watcher = FileWatcherWorker.get_instance()
+    #         file_watcher.progress_update.emit(dest_path, Path(dest_path).name, 0)
+    #         file_watcher.status_update.emit("Download Failed")
+
+    #         raise
+
+    #     finally:
+    #         if transport and transport.is_active():
+    #             transport.close()
 
 
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", "")
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "downloaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+
+    #     transport = None
+    #     file_watcher = FileWatcherWorker.get_instance()
+
+    #     dest_path = str(Path(dest_path))
+    #     filename = Path(dest_path).name
+
+    #     try:
+    #         # ---------- SSH CONNECTION ----------
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
+    #         transport.default_window_size = 2147483647
+    #         transport.packetizer.REKEY_BYTES = 2 ** 40
+    #         transport.packetizer.REKEY_PACKETS = 2 ** 40
+    #         transport.get_security_options().ciphers = (
+    #             "aes128-ctr", "aes192-ctr", "aes256-ctr"
+    #         )
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+
+    #         nas_path = item.get("file_path", src_path)
+    #         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+
+    #         # ---------- FILE SIZE ----------
+    #         sftp = transport.open_sftp_client()
+    #         total_size = sftp.stat(nas_path).st_size
+    #         sftp.close()
+
+    #         start_time = time.time()
+    #         last_emit = 0.0
+
+    #         def format_time(seconds: float) -> str:
+    #             if seconds <= 0:
+    #                 return "Calculating…"
+    #             m, s = divmod(int(seconds), 60)
+    #             h, m = divmod(m, 60)
+    #             return f"{h}h {m}m {s}s" if h else f"{m}m {s}s" if m else f"{s}s"
+
+    #         def scp_progress(_remote, size, sent):
+    #             nonlocal last_emit
+    #             now = time.time()
+    #             elapsed = now - start_time
+    #             if elapsed <= 0:
+    #                 return
+
+    #             percent = int((sent / total_size) * 100) if total_size else 0
+    #             speed = (sent / 1024 / 1024) / elapsed if elapsed else 0
+    #             remaining = total_size - sent
+    #             eta = (remaining / 1024 / 1024) / speed if speed > 0 else -1
+
+    #             if now - last_emit < 0.5 and percent < 100:
+    #                 return
+    #             last_emit = now
+
+    #             # ---- PROGRESS ----
+    #             file_watcher.progress_update.emit(dest_path, filename, percent)
+
+    #             # ---- STATUS (FILE-SCOPED) ----
+    #             file_watcher.status_update.emit(
+    #                 f"Downloading {percent:.1f}% @ {speed:.1f} MB/s "
+    #                 f"• {format_time(elapsed)} elapsed "
+    #                 f"• ETA: {format_time(eta)} | {filename}"
+    #             )
+
+    #         # ---------- SCP DOWNLOAD ----------
+    #         with SCPClient(
+    #             transport,
+    #             buff_size=8 * 1024 * 1024,
+    #             socket_timeout=60,
+    #             progress=scp_progress,
+    #         ) as scp:
+    #             scp.get(nas_path, local_path=dest_path)
+
+    #         # ---------- SUCCESS ----------
+    #         duration = time.time() - start_time
+    #         file_watcher.progress_update.emit(dest_path, filename, 100)
+    #         file_watcher.status_update.emit(
+    #             f"Completed in {format_time(duration)} | {filename}"
+    #         )
+
+    #     except Exception as e:
+    #         if spec_id in cache.get(metadata_key, {}):
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #             save_cache(cache, significant_change=True)
+
+    #         update_download_upload_metadata(task_id, "failed")
+
+    #         file_watcher.progress_update.emit(dest_path, filename, 0)
+    #         file_watcher.status_update.emit(f"Download Failed | {filename}")
+    #         raise
+
+    #     finally:
+    #         if transport and transport.is_active():
+    #             transport.close()
+
+
+
+    # def _download_from_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", "")
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "downloaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+
+    #     transport = None
+    #     file_watcher = FileWatcherWorker.get_instance()
+
+    #     # CRITICAL FIX: Normalize dest_path EARLY and use it consistently
+    #     dest_path = str(Path(dest_path).resolve())  # Absolute, resolved, consistent
+    #     filename = Path(dest_path).name
+
+    #     try:
+    #         # ---------- SSH CONNECTION ----------
+    #         transport = paramiko.Transport((NAS_IP, NAS_PORT))
+    #         transport.default_window_size = 2147483647
+    #         transport.packetizer.REKEY_BYTES = 2 ** 40
+    #         transport.packetizer.REKEY_PACKETS = 2 ** 40
+    #         transport.get_security_options().ciphers = (
+    #             "aes128-ctr", "aes192-ctr", "aes256-ctr"
+    #         )
+    #         transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+
+    #         nas_path = item.get("file_path", src_path)
+    #         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+
+    #         # ---------- FILE SIZE ----------
+    #         sftp = transport.open_sftp_client()
+    #         total_size = sftp.stat(nas_path).st_size
+    #         sftp.close()
+
+    #         start_time = time.time()
+    #         last_emit = 0.0
+
+    #         def format_time(seconds: float) -> str:
+    #             if seconds <= 0:
+    #                 return "Calculating…"
+    #             m, s = divmod(int(seconds), 60)
+    #             h, m = divmod(m, 60)
+    #             parts = []
+    #             if h:
+    #                 parts.append(f"{h}h")
+    #             if m:
+    #                 parts.append(f"{m}m")
+    #             parts.append(f"{s}s")
+    #             return " ".join(parts)
+
+    #         def scp_progress(_remote, size, sent):
+    #             nonlocal last_emit
+    #             now = time.time()
+    #             elapsed = now - start_time
+    #             if elapsed <= 0:
+    #                 return
+
+    #             percent = int((sent / total_size) * 100) if total_size else 0
+    #             speed = (sent / 1024 / 1024) / elapsed if elapsed else 0
+    #             remaining = total_size - sent
+    #             eta = (remaining / 1024 / 1024) / speed if speed > 0 else -1
+
+    #             if now - last_emit < 0.5 and percent < 100:
+    #                 return
+    #             last_emit = now
+
+    #             # ---- PROGRESS: Always emit the SAME normalized dest_path ----
+    #             file_watcher.progress_update.emit(dest_path, filename, percent)
+
+    #             # ---- STATUS (FILE-SCOPED) ----
+    #             speed_str = f"{speed:.1f} MB/s" if speed > 0 else "—"
+    #             eta_str = format_time(eta) if eta > 0 else "—"
+    #             elapsed_str = format_time(elapsed)
+
+    #             file_watcher.status_update.emit(
+    #                 f"Downloading {percent}% @ {speed_str} "
+    #                 f"• {elapsed_str} elapsed "
+    #                 f"• ETA: {eta_str} | {filename}"
+    #             )
+
+    #         # ---------- SCP DOWNLOAD ----------
+    #         with SCPClient(
+    #             transport,
+    #             buff_size=8 * 1024 * 1024,
+    #             socket_timeout=60,
+    #             progress=scp_progress,
+    #         ) as scp:
+    #             scp.get(nas_path, local_path=dest_path)
+
+    #         # ---------- SUCCESS ----------
+    #         duration = time.time() - start_time
+    #         file_watcher.progress_update.emit(dest_path, filename, 100)
+    #         file_watcher.status_update.emit(
+    #             f"Download Completed in {format_time(duration)} | {filename}"
+    #         )
+
+    #     except Exception as e:
+    #         # Mark as failed in cache
+    #         if spec_id in cache.get(metadata_key, {}):
+    #             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Download Failed"
+    #             save_cache(cache, significant_change=True)
+
+    #         update_download_upload_metadata(task_id, "failed")
+
+    #         # Emit failure with consistent path
+    #         file_watcher.progress_update.emit(dest_path, filename, 0)
+    #         file_watcher.status_update.emit(f"Download Failed | {filename}")
+
+    #         raise
+
+    #     finally:
+    #         if transport and transport.is_active():
+    #             transport.close()
+
+
+
+
+
+
+
+
+    def _download_from_nas(self, src_path, dest_path, item):
+        task_id = item.get("id", "")
+        spec_id = str(item.get("spec_id"))
+
+        file_watcher = FileWatcherWorker.get_instance()
+
+        dest_path = str(Path(dest_path).resolve())
+        filename = Path(dest_path).name
+
+        transport = None
+
+        try:
+            transport = paramiko.Transport((NAS_IP, NAS_PORT))
+            transport.default_window_size = 2147483647
+            transport.default_max_packet_size = 65536
+            transport.packetizer.REKEY_BYTES = 2**40
+            transport.packetizer.REKEY_PACKETS = 2**40
+            transport.get_security_options().ciphers = (
+                "aes128-ctr", "aes192-ctr", "aes256-ctr"
+            )
+            transport.connect(username=NAS_USERNAME, password=NAS_PASSWORD)
+
+            nas_path = item.get("file_path", src_path)
+            Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+
+            sftp = transport.open_sftp_client()
+            total_size = sftp.stat(nas_path).st_size
+            sftp.close()
+
+            start_time = time.time()
+            last_emit = 0.0
+
+            def format_time(seconds: float) -> str:
+                if seconds <= 0 or seconds == float("inf"):
+                    return "—"
+                m, s = divmod(int(seconds), 60)
+                h, m = divmod(m, 60)
+                if h:
+                    return f"{h:02d}:{m:02d}:{s:02d}"
+                return f"{m:02d}:{s:02d}"
+
+            def scp_progress(_remote, size, sent):
+                nonlocal last_emit
+
+                now = time.time()
+                elapsed = now - start_time
+                if elapsed <= 0:
+                    return
+
+                # Throttle UI updates
+                if now - last_emit < 0.5 and sent < total_size:
+                    return
+                last_emit = now
+
+                percent = int((sent / total_size) * 100) if total_size else 0
+
+                # ---- Speed (MB/s) ----
+                speed_mbps = (sent / 1024 / 1024) / elapsed if elapsed > 0 else 0.0
+
+                # ---- ETA ----
+                remaining = total_size - sent
+                eta = (remaining / 1024 / 1024) / speed_mbps if speed_mbps > 0 else float("inf")
+
+                # ---- Progress bar (numeric only) ----
+                file_watcher.download_progress.emit(
+                    spec_id,
+                    dest_path,
+                    filename,
+                    percent
+                )
+
+                # ---- Status text (human readable) ----
+                status_text = (
+                    f"Downloading {percent}% • "
+                    f"{speed_mbps:.1f} MB/s • "
+                    f"ETA {format_time(eta)}"
+                )
+
+                file_watcher.download_status_detail.emit(
+                    dest_path,
+                    status_text,
+                    "download",
+                    percent,
+                    True
+                )
+
+            with SCPClient(
+                transport,
+                socket_timeout=30,
+                buff_size=8 * 1024 * 1024,
+                progress=scp_progress
+            ) as scp:
+                scp.get(nas_path, local_path=dest_path)
+
+            # ---- Final completion ----
+            self.download_progress.emit(
+                spec_id,
+                dest_path,
+                filename,
+                100
+            )
+            self.download_status_detail.emit(
+                dest_path,
+                "Download Completed",
+                "download",
+                100,
+                True
+            )
+
+        except Exception:
+            self.download_progress.emit(
+                spec_id,
+                dest_path,
+                filename,
+                0
+            )
+            self.download_status_detail.emit(
+                dest_path,
+                "Download Failed",
+                "download",
+                0,
+                True
+            )
+            raise
+
+        finally:
+            if transport and transport.is_active():
+                transport.close()
 
     
     # def _upload_to_nas(self, src_path, dest_path, item):
@@ -1737,153 +2236,371 @@ class FileWatcherWorker(QObject):
 #             raise
 
 
+    # def _upload_to_nas(self, src_path, dest_path, item):
+    #     task_id = item.get("id", '')
+    #     spec_id = str(item.get("spec_id"))
+    #     metadata_key = "uploaded_files_with_metadata"
+    #     cache = load_cache()
+    #     cache.setdefault(metadata_key, {})
+        
+    #     src_path = Path(src_path)
+    #     if not src_path.exists():
+    #         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+    #         save_cache(cache, significant_change=True)
+    #         update_download_upload_metadata(task_id, "failed")
+    #         show_alert_notification("Error (U1)", "Upload failed try again.")
+    #         raise FileNotFoundError(f"Source file does not exist: {src_path}")
+
+    #     dest_path = item.get("file_path", dest_path)
+    #     dest_dir = os.path.dirname(dest_path)
+        
+    #     sock = None
+    #     session = None
+    #     sftp = None
+    #     try:
+    #         # ---------- CONNECTION ----------
+    #         start_conn = time.time()
+    #         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #         sock.connect((NAS_IP, NAS_PORT))
+            
+    #         session = Session()
+    #         session.handshake(sock)
+            
+    #         session.userauth_password(NAS_USERNAME, NAS_PASSWORD)
+            
+    #         if not session.userauth_authenticated():
+    #             raise Exception("SSH authentication failed")
+            
+    #         end_conn = time.time()
+    #         print(f"Connection established in {(end_conn - start_conn) * 1000:.1f} ms")
+
+    #         # ---------- SFTP INIT ----------
+    #         sftp = session.sftp_init()
+
+    #         # ---------- NO DIRECTORY CREATION ----------
+    #         print(f"Directory creation skipped (as requested).")
+    #         print(f"Assuming destination directory already exists: {dest_dir}")
+    #         print(f"If upload fails with 'No such file or directory', create the folder manually on the NAS.\n")
+
+    #         # ---------- UPLOAD WITH LIVELY PROGRESS ----------
+    #         upload_start = time.time()
+            
+    #         flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
+    #         chunk_size = 4 * 1024 * 1024  # 4 MB chunks
+            
+    #         file_size = src_path.stat().st_size
+    #         total_mb = file_size / (1024 * 1024)
+            
+    #         # Throttling setup
+    #         bytes_per_second = None
+    #         if THROTTLE_MBPS is not None:
+    #             bytes_per_second = THROTTLE_MBPS * 1024 * 1024 / 8
+            
+    #         transferred = 0
+    #         last_print_time = time.time()
+    #         chunk_start_time = time.time()
+            
+    #         print(f"Uploading: {src_path.name} ({total_mb:.2f} MB)")
+    #         print(f"Destination: {dest_path}")
+    #         print("Progress: 0.0% | Speed: 0.00 MB/s | Transferred: 0.00 / {:.2f} MB".format(total_mb))
+            
+    #         with open(src_path, "rb") as local_file, \
+    #             sftp.open(dest_path, flags, 0o644) as remote_file:
+                
+    #             while True:
+    #                 data = local_file.read(chunk_size)
+    #                 if not data:
+    #                     break
+                    
+    #                 remote_file.write(data)
+    #                 transferred += len(data)
+                    
+    #                 # Throttling
+    #                 if bytes_per_second:
+    #                     chunk_end_time = time.time()
+    #                     elapsed = chunk_end_time - chunk_start_time
+    #                     expected = len(data) / bytes_per_second
+    #                     if elapsed < expected:
+    #                         time.sleep(expected - elapsed)
+    #                     chunk_start_time = time.time()
+                    
+    #                 # Real-time progress
+    #                 current_time = time.time()
+    #                 if current_time - last_print_time >= PRINT_INTERVAL:
+    #                     elapsed_total = current_time - upload_start
+    #                     transferred_mb = transferred / (1024 * 1024)
+    #                     percentage = (transferred / file_size) * 100 if file_size > 0 else 100
+    #                     speed = transferred_mb / elapsed_total if elapsed_total > 0 else 0
+                        
+    #                     print(f"Progress: {percentage:6.1f}% | Speed: {speed:6.2f} MB/s | "
+    #                         f"Transferred: {transferred_mb:8.2f} / {total_mb:.2f} MB", end="\r")
+                        
+    #                     last_print_time = current_time
+            
+    #         # Final results
+    #         upload_end = time.time()
+    #         duration = upload_end - upload_start
+    #         final_mb = file_size / (1024 * 1024)
+    #         final_speed = final_mb / duration if duration > 0 else 0
+            
+    #         print(f"\n\nUpload completed: {final_mb:.2f} MB in {duration:.2f}s ({final_speed:.2f} MB/s)")
+            
+    #         if MIN_REQUIRED_MBPS:
+    #             actual_mbps = final_speed * 8
+    #             if actual_mbps < MIN_REQUIRED_MBPS:
+    #                 print(f"WARNING: Upload speed {actual_mbps:.1f} Mbps is below required {MIN_REQUIRED_MBPS} Mbps!")
+    #             else:
+    #                 print(f"Speed {actual_mbps:.1f} Mbps meets minimum requirement ✓")
+
+    #     except Exception as e:
+    #         print("\nUpload failed!")
+    #         error_details = str(e)
+            
+    #         if sftp:
+    #             sftp_err = sftp.last_error()
+    #             if sftp_err != 0:
+    #                 error_details += f" | SFTP error code: {sftp_err}"
+    #                 if sftp_err == 2:
+    #                     error_details += " (No such file or directory – destination folder missing)"
+    #                 elif sftp_err == 3:
+    #                     error_details += " (Permission denied)"
+            
+    #         if session:
+    #             sess_err = session.last_errno()
+    #             if sess_err != 0:
+    #                 error_details += f" | Session error code: {sess_err}"
+            
+    #         print(f"Error: {error_details or 'Unknown error'}")
+    #         print("Tip: If 'No such file or directory', create the full destination folder manually on the NAS once.")
+    #         traceback.print_exc()
+            
+    #         cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
+    #         save_cache(cache, significant_change=True)
+    #         show_alert_notification("Error (U3)", "Upload failed – check if destination folder exists.")
+    #         raise
+    #     finally:
+    #         if session:
+    #             session.disconnect()
+    #         if sock:
+    #             sock.close()
+
+
+
+
+
     def _upload_to_nas(self, src_path, dest_path, item):
-        task_id = item.get("id", '')
+        task_id = item.get("id", "")
         spec_id = str(item.get("spec_id"))
+
         metadata_key = "uploaded_files_with_metadata"
         cache = load_cache()
         cache.setdefault(metadata_key, {})
-        
+
+        file_watcher = FileWatcherWorker.get_instance()
+
         src_path = Path(src_path)
+        filename = src_path.name
+
         if not src_path.exists():
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
             update_download_upload_metadata(task_id, "failed")
             show_alert_notification("Error (U1)", "Upload failed try again.")
+
+            file_watcher.upload_progress.emit(spec_id, dest_path, filename, 0)
+            file_watcher.upload_status_detail.emit(
+                dest_path, "Upload Failed", "upload", 0, True
+            )
+
             raise FileNotFoundError(f"Source file does not exist: {src_path}")
 
         dest_path = item.get("file_path", dest_path)
         dest_dir = os.path.dirname(dest_path)
-        
+
         sock = None
         session = None
         sftp = None
+
         try:
             # ---------- CONNECTION ----------
             start_conn = time.time()
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((NAS_IP, NAS_PORT))
-            
+
             session = Session()
             session.handshake(sock)
-            
             session.userauth_password(NAS_USERNAME, NAS_PASSWORD)
-            
+
             if not session.userauth_authenticated():
                 raise Exception("SSH authentication failed")
-            
+
             end_conn = time.time()
             print(f"Connection established in {(end_conn - start_conn) * 1000:.1f} ms")
 
             # ---------- SFTP INIT ----------
             sftp = session.sftp_init()
 
-            # ---------- NO DIRECTORY CREATION ----------
-            print(f"Directory creation skipped (as requested).")
-            print(f"Assuming destination directory already exists: {dest_dir}")
-            print(f"If upload fails with 'No such file or directory', create the folder manually on the NAS.\n")
+            print("Directory creation skipped.")
+            print(f"Assuming destination directory exists: {dest_dir}")
 
-            # ---------- UPLOAD WITH LIVELY PROGRESS ----------
+            # ---------- UPLOAD ----------
             upload_start = time.time()
-            
+
             flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
-            chunk_size = 4 * 1024 * 1024  # 4 MB chunks
-            
+            chunk_size = 4 * 1024 * 1024  # 4 MB
+
             file_size = src_path.stat().st_size
             total_mb = file_size / (1024 * 1024)
-            
-            # Throttling setup
+
             bytes_per_second = None
             if THROTTLE_MBPS is not None:
-                bytes_per_second = THROTTLE_MBPS * 1024 * 1024 / 8
-            
+                bytes_per_second = (THROTTLE_MBPS * 1024 * 1024) / 8
+
             transferred = 0
-            last_print_time = time.time()
+            last_emit = 0.0
             chunk_start_time = time.time()
-            
-            print(f"Uploading: {src_path.name} ({total_mb:.2f} MB)")
+
+            print(f"Uploading: {filename} ({total_mb:.2f} MB)")
             print(f"Destination: {dest_path}")
-            print("Progress: 0.0% | Speed: 0.00 MB/s | Transferred: 0.00 / {:.2f} MB".format(total_mb))
-            
+
             with open(src_path, "rb") as local_file, \
                 sftp.open(dest_path, flags, 0o644) as remote_file:
-                
+
                 while True:
                     data = local_file.read(chunk_size)
                     if not data:
                         break
-                    
+
                     remote_file.write(data)
                     transferred += len(data)
-                    
-                    # Throttling
+
+                    # ---- Throttling ----
                     if bytes_per_second:
-                        chunk_end_time = time.time()
-                        elapsed = chunk_end_time - chunk_start_time
+                        now = time.time()
+                        elapsed = now - chunk_start_time
                         expected = len(data) / bytes_per_second
                         if elapsed < expected:
                             time.sleep(expected - elapsed)
                         chunk_start_time = time.time()
-                    
-                    # Real-time progress
-                    current_time = time.time()
-                    if current_time - last_print_time >= PRINT_INTERVAL:
-                        elapsed_total = current_time - upload_start
-                        transferred_mb = transferred / (1024 * 1024)
-                        percentage = (transferred / file_size) * 100 if file_size > 0 else 100
-                        speed = transferred_mb / elapsed_total if elapsed_total > 0 else 0
-                        
-                        print(f"Progress: {percentage:6.1f}% | Speed: {speed:6.2f} MB/s | "
-                            f"Transferred: {transferred_mb:8.2f} / {total_mb:.2f} MB", end="\r")
-                        
-                        last_print_time = current_time
-            
-            # Final results
-            upload_end = time.time()
-            duration = upload_end - upload_start
-            final_mb = file_size / (1024 * 1024)
-            final_speed = final_mb / duration if duration > 0 else 0
-            
-            print(f"\n\nUpload completed: {final_mb:.2f} MB in {duration:.2f}s ({final_speed:.2f} MB/s)")
-            
+
+                    # ---- UI Progress Emit (throttled) ----
+                    now = time.time()
+                    if now - last_emit >= 0.5 or transferred == file_size:
+                        elapsed_total = now - upload_start
+                        percent = int((transferred / file_size) * 100) if file_size else 100
+
+                        speed_mbps = (
+                            (transferred / 1024 / 1024) / elapsed_total
+                            if elapsed_total > 0 else 0.0
+                        )
+
+                        remaining = file_size - transferred
+                        eta = (
+                            (remaining / 1024 / 1024) / speed_mbps
+                            if speed_mbps > 0 else float("inf")
+                        )
+
+                        status_text = (
+                            f"Uploading {percent}% • "
+                            f"{speed_mbps:.1f} MB/s • "
+                            f"ETA {int(eta)}s"
+                            if eta != float("inf") else
+                            f"Uploading {percent}% • {speed_mbps:.1f} MB/s • ETA —"
+                        )
+
+                        file_watcher.upload_progress.emit(
+                            spec_id,
+                            dest_path,
+                            filename,
+                            percent
+                        )
+
+                        file_watcher.upload_status_detail.emit(
+                            dest_path,
+                            status_text,
+                            "upload",
+                            percent,
+                            True
+                        )
+
+                        last_emit = now
+
+            # ---------- FINAL SUCCESS ----------
+            duration = time.time() - upload_start
+            final_speed = total_mb / duration if duration > 0 else 0.0
+
+            print(
+                f"\nUpload completed: {total_mb:.2f} MB "
+                f"in {duration:.2f}s ({final_speed:.2f} MB/s)"
+            )
+
+            file_watcher.upload_progress.emit(
+                spec_id,
+                dest_path,
+                filename,
+                100
+            )
+
+            file_watcher.upload_status_detail.emit(
+                dest_path,
+                "Upload Completed",
+                "upload",
+                100,
+                True
+            )
+
             if MIN_REQUIRED_MBPS:
                 actual_mbps = final_speed * 8
                 if actual_mbps < MIN_REQUIRED_MBPS:
-                    print(f"WARNING: Upload speed {actual_mbps:.1f} Mbps is below required {MIN_REQUIRED_MBPS} Mbps!")
-                else:
-                    print(f"Speed {actual_mbps:.1f} Mbps meets minimum requirement ✓")
+                    print(
+                        f"WARNING: Upload speed {actual_mbps:.1f} Mbps "
+                        f"is below required {MIN_REQUIRED_MBPS} Mbps"
+                    )
 
         except Exception as e:
-            print("\nUpload failed!")
             error_details = str(e)
-            
+
             if sftp:
-                sftp_err = sftp.last_error()
-                if sftp_err != 0:
-                    error_details += f" | SFTP error code: {sftp_err}"
-                    if sftp_err == 2:
-                        error_details += " (No such file or directory – destination folder missing)"
-                    elif sftp_err == 3:
-                        error_details += " (Permission denied)"
-            
+                err = sftp.last_error()
+                if err:
+                    error_details += f" | SFTP error code: {err}"
+
             if session:
-                sess_err = session.last_errno()
-                if sess_err != 0:
-                    error_details += f" | Session error code: {sess_err}"
-            
-            print(f"Error: {error_details or 'Unknown error'}")
-            print("Tip: If 'No such file or directory', create the full destination folder manually on the NAS once.")
+                err = session.last_errno()
+                if err:
+                    error_details += f" | Session error code: {err}"
+
+            print(f"Upload failed: {error_details}")
             traceback.print_exc()
-            
+
             cache[metadata_key][spec_id]["api_response"]["request_status"] = "Upload Failed"
             save_cache(cache, significant_change=True)
-            show_alert_notification("Error (U3)", "Upload failed – check if destination folder exists.")
+
+            file_watcher.upload_progress.emit(
+                spec_id,
+                dest_path,
+                filename,
+                0
+            )
+
+            file_watcher.upload_status_detail.emit(
+                dest_path,
+                "Upload Failed",
+                "upload",
+                0,
+                True
+            )
+
+            show_alert_notification("Error (U3)", "Upload failed – check destination path.")
             raise
+
         finally:
             if session:
                 session.disconnect()
             if sock:
                 sock.close()
+
 
 
         
@@ -2262,8 +2979,43 @@ class FileWatcherWorker(QObject):
             logger.error(error_message)
             self.log_update.emit(f"[Photoshop] {error_message}")
             raise
+    
+    @Slot(str, str, str, str, bool, bool)
+    def perform_file_transfer(self,src_path: str,dest_path: str,action_type: str,item,is_nas_src: bool,is_nas_dest: bool):
+    # def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
 
-    def perform_file_transfer(self, src_path, dest_path, action_type, item, is_nas_src, is_nas_dest):
+        # ============================================================
+        # 🔑 FIX: Normalize `item` for retry calls (CRITICAL)
+        # ============================================================
+        if not isinstance(item, dict):
+            cache = load_cache()
+            reconstructed = None
+
+            for _, meta in cache.get("downloaded_files_with_metadata", {}).items():
+                api = meta.get("api_response", {})
+                if not api:
+                    continue
+
+                if (
+                    api.get("file_path") == src_path
+                    or api.get("nas_path") == src_path
+                    or api.get("file_path") == dest_path
+                    or api.get("nas_path") == dest_path
+                ):
+                    reconstructed = api
+                    break
+
+            if not isinstance(reconstructed, dict):
+                raise RuntimeError(
+                    "[perform_file_transfer] Retry failed: unable to reconstruct item metadata"
+                )
+
+            item = reconstructed
+        # ============================================================
+        # 🔑 END FIX
+        # ============================================================
+
+
         """Perform file transfer (download/upload/replace) and update cache metadata reliably."""
         task_id = str(item.get('id'))
         spec_id = str(item.get("spec_id"))
@@ -2320,11 +3072,12 @@ class FileWatcherWorker(QObject):
             update_download_upload_metadata(task_id, "In Progress")
             logger.info(f"[{status_prefix} In Progress] Task {task_id}")
             self.progress_update.emit(f"{action_type} (Task {task_id}): {Path(src_path).name}", dest_path, 10)
-
+            self.download_status_detail.emit(dest_path, f"{action_type} (Task {task_id}): {Path(src_path).name}", action_type, 10, True)
             # ------------------------------
             # Handle Download
             # ------------------------------
             if action_type.lower() == "download":
+               
                 dest_path = self._prepare_download_path(item)
 
                 if is_nas_src:
@@ -2398,6 +3151,8 @@ class FileWatcherWorker(QObject):
                 save_cache(cache, significant_change=True)
                 update_download_upload_metadata(task_id, "completed")
                 self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {Path(src_path).name}", dest_path, 100)
+                self.download_status_detail.emit(dest_path, f"{action_type} (Task {task_id}): {Path(src_path).name}", action_type, 10, True)
+
 
                 try:
                     request_data = {
@@ -2447,6 +3202,8 @@ class FileWatcherWorker(QObject):
             logger.error(f"{status_prefix} error (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[Transfer] Failed (Task {task_id}): {str(e)}")
             self.progress_update.emit(f"{action_type} Failed (Task {task_id}): {Path(src_path).name}", dest_path, 0)
+            self.download_status_detail.emit(dest_path, f"{action_type} Failed (Task {task_id}): {Path(src_path).name}", action_type, 10, True)
+
             raise
 
 
@@ -2843,6 +3600,7 @@ class FileWatcherWorker(QObject):
         try:
             self.perform_file_transfer(src_path, dest_path, action_type, item, is_nas_src, is_nas_dest)
             self.progress_update.emit(f"{action_type} Completed (Task {task_id}): {original_filename}", dest_path, 100)
+            self.download_status_detail.emit(dest_path, f"{action_type} Completed (Task {task_id}): {original_filename}", action_type, 10, True)
         except Exception as e:
             logger.error(f"Progress error for {action_type} (Task {task_id}): {str(e)}")
             self.log_update.emit(f"[App] Progress update: {action_type} Failed (Task {task_id}): {original_filename}")
@@ -3063,478 +3821,431 @@ class LogWindow(QDialog):
 
 # ---------------------- NEW: Async Thumbnail Loader ----------------------
 
-class ThumbnailLoaderSignals(QObject):
-    """Signals for ThumbnailLoader to communicate with the main thread."""
-    loaded = Signal(QPixmap)  # Signal to send the loaded pixmap
-
-class ThumbnailLoader(QRunnable):
-    """Load a thumbnail in the background."""
-    def __init__(self, label: QLabel, url: str):
+class ThumbnailWorker(QRunnable):
+    def __init__(self, url, target_label):
         super().__init__()
-        self.label = label
         self.url = url
-        self.signals = ThumbnailLoaderSignals()
+        self.target_label = target_label
 
-        # Connect the signal to update the QLabel in the main thread
-        self.signals.loaded.connect(self.label.setPixmap)
-
-    @Slot()
     def run(self):
-        pixmap = QPixmap()
         try:
-            # Local file
-            if Path(self.url).exists():
-                pixmap.load(self.url)
-            # Remote URL
-            elif self.url.startswith("http"):
-                response = requests.get(self.url, timeout=3)
-                if response.status_code == 200:
-                    pixmap.loadFromData(response.content)
+            if not self.url:
+                return
+            r = requests.get(self.url, timeout=10)
+            if r.status_code != 200:
+                return
+            pix = QPixmap()
+            if not pix.loadFromData(r.content):
+                return
+            pix = pix.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            QMetaObject.invokeMethod(
+                self.target_label, "setPixmap", Qt.QueuedConnection, Q_ARG(QPixmap, pix)
+            )
         except Exception:
             pass
-        if pixmap.isNull():
-            pixmap.load("default_thumbnail.png")
-        # Emit the signal to update the GUI in the main thread
-        self.signals.loaded.emit(pixmap)
-# -------------------------------------------------------------------------
 
 
+class CardWidget(QFrame):
+    copyRequested = Signal(str)
+    retryRequested = Signal(dict)
+    def __init__(self, row_data, parent=None):
+        super().__init__(parent)
+        self.row_data = row_data
+
+        self.setObjectName("CardWidget")
+        self.setStyleSheet("""
+            QFrame#CardWidget {
+                background: #ffffff;
+                border: 1px solid #dcdcdc;
+                border-left: 4px solid #2ecc71;
+                border-radius: 8px;
+                padding: 12px;
+                margin: 4px;
+            }
+            QFrame#CardWidget:hover { background: #f8f9fa; }
+        """)
+
+        main = QHBoxLayout(self)
+        main.setSpacing(14)
+        main.setContentsMargins(10, 10, 10, 10)
+
+        # Thumbnail
+        self.thumb = QLabel()
+        self.thumb.setFixedSize(64, 64)
+        self.thumb.setAlignment(Qt.AlignCenter)
+        self.thumb.setStyleSheet("border:1px solid #ccc; border-radius:6px; background:#f0f0f0;")
+        placeholder = QPixmap(64, 64)
+        placeholder.fill(Qt.lightGray)
+        self.thumb.setPixmap(placeholder)
+        main.addWidget(self.thumb)
+        self._load_thumbnail(row_data.get("thumbnail"))
+
+        # Info
+        info = QVBoxLayout()
+        info.setSpacing(6)
+        self.project_lbl = QLabel(f"<b>Project:</b> {row_data.get('project_name', 'Loading...')}")
+        self.job_lbl = QLabel(f"<b>Job:</b> {row_data.get('job_name', 'Loading...')}")
+        self.file_lbl = QLabel(f"<b>File:</b> {row_data.get('file_name', 'Unknown')}")
+        self.date_lbl = QLabel(row_data.get("created_at", ""))
+        for lbl in (self.project_lbl, self.job_lbl, self.file_lbl, self.date_lbl):
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet("color: #444;")
+        info.addWidget(self.project_lbl)
+        info.addWidget(self.job_lbl)
+        info.addWidget(self.file_lbl)
+        info.addWidget(self.date_lbl)
+        main.addLayout(info, 1)
+
+        # Right side
+        right = QVBoxLayout()
+        right.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        right.setSpacing(8)
+
+        # Status label
+        self.status_lbl = QLabel("Download Completed")
+        self.status_lbl.setAlignment(Qt.AlignRight)
+        self.status_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        right.addWidget(self.status_lbl)
+
+        # Progress bar — always hidden on creation
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar { border: 1px solid #bbb; border-radius: 4px; background: #f0f0f0; }
+            QProgressBar::chunk { background: #2ecc71; border-radius: 3px; }
+        """)
+        self.progress_bar.hide()
+        self.progress_bar.setValue(0)
+        right.addWidget(self.progress_bar)
+
+        # Actions
+        self.actions_layout = QHBoxLayout()
+        self.actions_layout.setSpacing(8)
+
+        self.folder_btn = QPushButton()
+        self.folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+        self.folder_btn.clicked.connect(lambda: parent.open_folder(row_data.get("local_path", "")))
+        self.actions_layout.addWidget(self.folder_btn)
+
+        self.ps_btn = QPushButton()
+        self.ps_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "ps"))
+        self.ps_btn.clicked.connect(lambda: parent.open_with_photoshop(row_data.get("local_path", "")))
+        self.actions_layout.addWidget(self.ps_btn)
+
+        right.addLayout(self.actions_layout)
+        main.addLayout(right)
+
+        # Initial action buttons
+        self._update_action_buttons(row_data.get("status", "Download Completed"))
+
+    def _load_thumbnail(self, url):
+        if url:
+            worker = ThumbnailWorker(url, self.thumb)
+            QThreadPool.globalInstance().start(worker)
+
+    def update_progress(self, percent: int):
+        """Only live signals show the progress bar"""
+        self.progress_bar.show()
+        self.progress_bar.setValue(percent)
+
+    def update_status(self, text: str):
+        self.status_lbl.setText(text)
+        if "Completed" in text or "Failed" in text:
+            self.progress_bar.hide()
+            self.progress_bar.setValue(0)
+
+    def _update_action_buttons(self, status):
+        for i in reversed(range(self.actions_layout.count())):
+            widget = self.actions_layout.itemAt(i).widget()
+            if widget and widget not in (self.folder_btn, self.ps_btn):
+                widget.setParent(None)
+                widget.deleteLater()
+
+        if "Completed" in status:
+            # copy_btn = QPushButton()
+            # copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
+            # # copy_btn.clicked.connect(lambda: self.parent().copy_file_to_clipboard(self.row_data.get("local_path", "")))
+            # copy_btn.clicked.connect(
+            #         lambda: self.copyRequested.emit(
+            #             self.row_data.get("local_path", "")
+            #         )
+            #     )
+            # self.actions_layout.addWidget(copy_btn)
+            retry_btn = QPushButton()
+            retry_btn.setIcon(load_icon(RETRY_ICON_PATH, "retry"))
+            # retry_btn.clicked.connect(lambda: self.parent().retry_file_process(self.row_data))
+            retry_btn.clicked.connect(lambda: self.retryRequested.emit(self.row_data.copy()))
+
+            self.actions_layout.addWidget(retry_btn)
+
+
+        if "Failed" in status:
+            retry_btn = QPushButton()
+            retry_btn.setIcon(load_icon(RETRY_ICON_PATH, "retry"))
+            # retry_btn.clicked.connect(lambda: self.parent().retry_file_process(self.row_data))
+            retry_btn.clicked.connect(lambda: self.retryRequested.emit(self.row_data.copy()))
+            self.actions_layout.addWidget(retry_btn)
+
+    def update_row(self, new_row):
+        self.row_data.update(new_row)
+
+        self.project_lbl.setText(f"<b>Project:</b> {new_row.get('project_name', 'Unknown')}")
+        self.job_lbl.setText(f"<b>Job:</b> {new_row.get('job_name', 'Unknown')}")
+        self.file_lbl.setText(f"<b>File:</b> {new_row.get('file_name', 'Unknown')}")
+        self.date_lbl.setText(new_row.get("created_at", ""))
+
+        status = new_row.get("status", "Download Completed")
+        self.status_lbl.setText(status)
+
+        # NEVER show progress bar from cache data
+        if "Completed" in status or "Failed" in status:
+            self.progress_bar.hide()
+            self.progress_bar.setValue(0)
+
+        if new_row.get("thumbnail"):
+            self._load_thumbnail(new_row.get("thumbnail"))
+
+        self._update_action_buttons(status)
+ 
+    
 
 class FileDownloadListWindow(QDialog):
-    def __init__(self, file_type, parent=None):
+    def __init__(self, file_type="downloaded", parent=None):
         super().__init__(parent)
         self.file_type = file_type.lower()
-        self.setWindowTitle(f"{file_type.capitalize()} Files")
-        self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
-        self.setMinimumSize(800, 400)
-        self.resize(800, 400)
-        logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
-        app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
+        self.setWindowTitle(f"{self.file_type.capitalize()} Files")
+        self.setMinimumSize(1100, 700)
+        self.resize(1400, 900)
 
-        # Initialize search bar
+        # SINGLE KEY: spec_id → CardWidget
+        self.card_index = {}
+
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.timeout.connect(self.load_files)
+
+        # UI setup
         self.search_bar = QLineEdit(self)
-        self.search_bar.setPlaceholderText("Search by Project Name, Job Name, or File Name")
-        self.search_bar.setStyleSheet("""
-            QLineEdit {
-                background-color: #ffffff;
-                border: 1.5px solid #ccc;
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 14px;
-                color: #333;
-                selection-background-color: #0078d7;
-            }
+        self.search_bar.setPlaceholderText("Search by project, job or file name")
+        self.search_bar.textChanged.connect(self.filter_cards)
 
-            QLineEdit:hover {
-                border: 1.5px solid #999;
-                background-color: #f9f9f9;
-            }
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(lambda: self.filter_cards(self.search_bar.text()))
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.clicked.connect(self.clear_search)
 
-            QLineEdit:focus {
-                border: 1.5px solid #0078d7;
-                background-color: #ffffff;
-            }
-
-            QLineEdit::placeholder {
-                color: #888;
-                font-style: italic;
-            }
-        """)
-
-        # Initialize search button
-        self.search_button = QPushButton("Search", self)
-        self.search_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d7;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 6px 20px;
-                font-weight: 500;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #005fa3;
-            }
-            QPushButton:pressed {
-                background-color: #004b82;
-            }
-        """)
-        self.search_button.clicked.connect(lambda: self.filter_table(self.search_bar.text()))
-
-        # Initialize clear button
-        self.clear_button = QPushButton("Clear", self)
-        # --- QPushButton (Clear) Style ---
-        self.clear_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5;
-                color: #333;
-                border: 1.2px solid #ccc;
-                border-radius: 8px;
-                padding: 6px 20px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #eaeaea;
-                border-color: #999;
-            }
-            QPushButton:pressed {
-                background-color: #dcdcdc;
-            }
-        """)
-        self.clear_button.clicked.connect(self.clear_search)
-
-        # Initialize table
-        self.table = QTableWidget(self)
-        self.table.setColumnCount(8)
-        headers = ["Thumbnail", "Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status"]
-        if platform.system() == "Windows":
-            headers.append("Copy")
-        self.table.setHorizontalHeaderLabels(headers)
-        header = self.table.horizontalHeader()
-        header.setSectionsMovable(True)
-        header.setStretchLastSection(True)
-        for i in range(self.table.columnCount()):
-            header.setSectionResizeMode(i, QHeaderView.Interactive)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-
-        # Layout
         search_layout = QHBoxLayout()
-        search_layout.addWidget(self.search_bar)
-        search_layout.addWidget(self.search_button)
-        search_layout.addWidget(self.clear_button)
+        search_layout.addWidget(self.search_bar, 1)
+        search_layout.addWidget(self.search_btn)
+        search_layout.addWidget(self.clear_btn)
 
-        layout = QVBoxLayout()
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.cards_container = QWidget()
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setAlignment(Qt.AlignTop)
+        self.cards_layout.setSpacing(10)
+
+        self.scroll_area.setWidget(self.cards_container)
+
+        layout = QVBoxLayout(self)
         layout.addLayout(search_layout)
-        layout.addWidget(self.table)
-        self.setLayout(layout)
-        add_version_footer(self, APPVERSION)
+        layout.addWidget(self.scroll_area)
 
-        # Store original rows for filtering
-        self.original_rows = []
-
-        # Load files initially
-        self._load_files_with_logging()
+        # Load completed files on open
+        self.load_files()
 
         # Connect signals
-        self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
-        self.file_watcher = FileWatcherWorker.get_instance(parent=self)
-        self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+        watcher = FileWatcherWorker.get_instance(parent=self)
+        watcher.download_progress.connect(self.on_download_progress, Qt.QueuedConnection)
+        watcher.download_status_detail.connect(self.on_download_status_detail, Qt.QueuedConnection)
+        # Keep your existing update_file_list if needed
+        # app_signals.update_file_list.connect(self.on_file_update, Qt.QueuedConnection)
 
-    def keyPressEvent(self, event):
-        """Handle Enter key press in the search bar."""
-        super().keyPressEvent(event)
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.search_bar.hasFocus():
-            self.filter_table(self.search_bar.text())
-
-    def showEvent(self, event):
-        """Reload files when the window is shown."""
-        super().showEvent(event)
-        logger.debug(f"Window shown, reloading files for {self.file_type}")
-        self._load_files_with_logging()
-        app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
-
-    def closeEvent(self, event):
-        """Disconnect signals when the window is closed."""
-        try:
-            app_signals.update_file_list.disconnect(self.app_signals_connection)
-            self.file_watcher.progress_update.disconnect(self.progress_connection)
-            logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
-        except Exception as e:
-            logger.debug(f"Error disconnecting signals: {e}")
-        super().closeEvent(event)
-
-    def _load_files_with_logging(self):
-        """Wrapper for load_files with additional logging for debugging."""
-        try:
-            self.load_files()
-        except Exception as e:
-            logger.error(f"Error loading files in FileListWindow: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+    @staticmethod
+    def normalize_path(path: str) -> str:
+        return str(Path(path).resolve())
 
     def load_files(self):
-        """Load files into the table based on file_type."""
-        try:
-            cache = load_cache()
-            logger.debug(f"Cache contents: {cache}")
-            metadata_key = f"{self.file_type}_files_with_metadata"
-            logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+        cache = load_cache()
+        metadata = cache.get("downloaded_files_with_metadata", {})
+       
+        rows = []
 
-            metadata = cache.get(metadata_key, {})
-            files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
-            logger.debug(f"Files for {self.file_type}: {files}")
+        for spec_id, entry in metadata.items():
+            local_path = entry.get("local_path")
 
-            # Clear table
-            self.table.clearContents()
-            self.table.setRowCount(0)
+            # 🔴 FIX 1:
+            # Do NOT require file to exist on disk
+            # UI reflects metadata, not filesystem state
+            if not local_path:
+                continue
 
-            # Set headers
-            headers = [
-                "Thumbnail",
-                "Project Name",
-                "Job Name",
-                "File Name",
-                "Date",
-                "Open Folder",
-                "Open in Photoshop",
-                "Status",
-            ]
-            if platform.system() == "Windows":
-                headers.append("Copy")
+            api = entry.get("api_response", {})
 
-            self.table.setColumnCount(len(headers))
-            self.table.setHorizontalHeaderLabels(headers)
+            # Normalize status for UI
+            status = api.get("request_status", "Download Completed")
+            if "Downloading" in status:
+                status = "Download Completed"
 
-            # Collect rows
-            self.original_rows = []
-            file_list = files.items()
-            logger.debug(f"File list: {list(file_list)}")
+            rows.append({
+                "spec_id": str(spec_id),
+                "thumbnail": api.get("thumbnail"),
+                "project_name": api.get("project_name", "Unknown"),
+                "job_name": api.get("job_name", "Unknown"),
+                "file_name": Path(local_path).name,
+                "created_at": api.get("created_on", ""),
+                "local_path": local_path,
+                "status": status,
+            })
 
-            for task_id, file_path in file_list:
-                logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
-                if not file_path:
-                    logger.warning(f"Skipping task_id {task_id} due to empty file_path")
-                    continue
+        self._sync_cards(rows)
 
-                filename = Path(file_path).name
-                normalized_file_path = str(Path(file_path)).replace('\\', '/')
-                relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
 
-                meta = metadata.get(str(task_id), {})
-                if not meta:
-                    logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
-                    continue
-                thumbnail = meta.get("api_response", {}).get("thumbnail", "Unknown") or "Unknown"
-                project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
-                job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+    def _sync_cards(self, rows):
+        seen_spec_ids = set()
 
-                if project_name == "Unknown" or job_name == "Unknown":
-                    logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
-                    continue
+        # --- Create / Update cards ---
+        for row in rows:
+            spec_id = row["spec_id"]
+            seen_spec_ids.add(spec_id)
 
-                created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
-
-                dt = None
-                display_date = ""
-                if created_at_raw:
-                    try:
-                        ts = int(created_at_raw)
-                        if 0 < ts < 4102444800:
-                            dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
-                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                    except Exception:
-                        pass
-
-                    if not dt and isinstance(created_at_raw, str):
-                        s = created_at_raw.strip()
-                        try:
-                            dt = datetime.fromisoformat(s)
-                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                        except Exception:
-                            fmts = [
-                                "%d-%b-%Y %I:%M %p",
-                                "%Y-%m-%d %H:%M:%S",
-                                "%Y-%m-%dT%H:%M:%S%z",
-                                "%Y-%m-%dT%H:%M:%S",
-                            ]
-                            for f in fmts:
-                                try:
-                                    dt = datetime.strptime(s, f)
-                                    display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                                    break
-                                except Exception:
-                                    continue
-
-                status = meta.get("api_response", {}).get("request_status", "Unknown")
-                if status == "Unknown" and file_path:
-                    status = "Completed" if Path(file_path).exists() else "Failed"
-
-                meta_data_response = meta.get("api_response", {})
-
-                self.original_rows.append({
-                    "thumbnail": thumbnail,
-                    "project_name": project_name,
-                    "job_name": job_name,
-                    "file_name": filename,
-                    "created_at": display_date or created_at_raw,
-                    "folder_path": file_path,
-                    "photoshop_path": file_path,
-                    "Copy_path": file_path,
-                    "status": status,
-                    "dt": dt,
-                    "meta_data_response": meta_data_response
-                })
-
-            # Sort rows by date (latest first)
-            self.original_rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
-
-            # Populate table with all rows initially
-            self._populate_table(self.original_rows)
-
-            app_signals.append_log.emit(f"[Files] Loaded {len(self.original_rows)} {self.file_type} files")
-
-        except Exception as e:
-            logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
-            app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
-            raise
-
-    def _populate_table(self, rows):
-        """Populate the table with the given rows."""
-        self.table.clearContents()
-        self.table.setRowCount(0)
-
-        for row_data in rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            logger.debug(f"Inserting row {row} with data: {row_data}")
-
-            thumb_label = QLabel()
-            thumb_label.setFixedSize(24, 24)
-            thumb_label.setScaledContents(True)
-            thumb_label.setPixmap(QPixmap("default_thumbnail.png"))
-            self.table.setCellWidget(row, 0, thumb_label)
-
-            loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])
-            pool = QThreadPool.globalInstance()
-            pool.start(loader)
-
-            self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
-            self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
-            self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
-            self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
-
-            folder_btn = QPushButton()
-            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-            folder_btn.setIconSize(QSize(24, 24))
-            folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
-            self.table.setCellWidget(row, 5, folder_btn)
-
-            photoshop_btn = QPushButton()
-            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-            photoshop_btn.setIconSize(QSize(24, 24))
-            photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
-            self.table.setCellWidget(row, 6, photoshop_btn)
-
-            if row_data["status"] == 'Failed' or row_data["status"] == 'Download Failed':
-                status_btn = QPushButton(row_data["status"])
-                status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
-                status_btn.setIconSize(QSize(24, 24))
-                status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
-                self.table.setCellWidget(row, 7, status_btn)
+            if spec_id in self.card_index:
+                self.card_index[spec_id].update_row(row)
             else:
-                self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+                card = CardWidget(row, self)
+                card.copyRequested.connect(self.copy_file_to_clipboard) 
+                card.retryRequested.connect(self.retry_file_process)
+                self.card_index[spec_id] = card
+                self.cards_layout.addWidget(card)
 
-            if platform.system() == "Windows":
-                copy_btn = QPushButton()
-                copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
-                copy_btn.setIconSize(QSize(24, 24))
-                copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
-                self.table.setCellWidget(row, 8, copy_btn)
 
-        self.table.resizeColumnsToContents()
+        # --- 🔴 FIX 2: DO NOT DELETE COMPLETED CARDS ---
+        for spec_id in list(self.card_index.keys()):
+            if spec_id not in seen_spec_ids:
+                card = self.card_index[spec_id]
+                status = card.row_data.get("status", "")
 
-    def filter_table(self, search_text):
-        """Filter table rows based on search text."""
-        search_text = search_text.lower().strip()
-        filtered_rows = []
+                # Only remove cards that are NOT completed or failed
+                if status not in ("Download Completed", "Download Failed"):
+                    self.card_index.pop(spec_id)
+                    card.setParent(None)
+                    card.deleteLater()
 
-        for row_data in self.original_rows:
-            if (search_text in row_data["project_name"].lower() or
-                search_text in row_data["job_name"].lower() or
-                search_text in row_data["file_name"].lower()):
-                filtered_rows.append(row_data)
+        # --- Reorder cards: active downloads at top ---
+        all_cards = []
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                all_cards.append(item.widget())
 
-        if not filtered_rows:
-            # Clear table and show "Content not available" message
-            self.table.clearContents()
-            self.table.setRowCount(1)
-            label = QLabel("Content not available")
-            label.setAlignment(Qt.AlignCenter)
-            self.table.setCellWidget(0, 0, label)
-            self.table.setSpan(0, 0, 1, self.table.columnCount())
-            logger.debug("No matching rows found, displaying 'Content not available'")
-            app_signals.append_log.emit(f"[Files] No {self.file_type} files match the search: {search_text}")
-        else:
-            self._populate_table(filtered_rows)
-            logger.debug(f"Filtered table to {len(filtered_rows)} rows with search: {search_text}")
-            app_signals.append_log.emit(f"[Files] Filtered {self.file_type} files to {len(filtered_rows)} rows")
+        active = [
+            c for c in all_cards
+            if c.progress_bar.isVisible() and 0 < c.progress_bar.value() < 100
+        ]
+        completed = [c for c in all_cards if c not in active]
+
+        for card in active:
+            self.cards_layout.addWidget(card)
+        for card in completed:
+            self.cards_layout.addWidget(card)
+
+
+    def on_download_progress(self, spec_id: str, file_path: str, filename: str, percent: int):
+        spec_id = str(spec_id)
+
+        card = self.card_index.get(spec_id)
+        if not card:
+            temp_row = {
+                "spec_id": spec_id,
+                "local_path": file_path,
+                "file_name": filename,
+                "project_name": "Loading...",
+                "job_name": "Loading...",
+                "thumbnail": None,
+                "created_at": "",
+                "status": "Downloading",
+            }
+            card = CardWidget(temp_row, self)
+            card.copyRequested.connect(self.copy_file_to_clipboard)
+            card.retryRequested.connect(self.retry_file_process)
+
+            self.card_index[spec_id] = card
+            self.cards_layout.insertWidget(0, card)
+            card._promoted = False
+
+        # ---- HARD GUARD: avoid repaint storms ----
+        if percent == card.progress_bar.value():
+            return
+
+        # ---- Update progress ----
+        card.update_progress(percent)
+
+        if file_path:
+            card.row_data["local_path"] = file_path
+
+        if filename:
+            card.row_data["file_name"] = filename
+            card.file_lbl.setText(f"<b>File:</b> {filename}")
+
+        # ---- Load metadata ONCE ----
+        if not card.row_data.get("_meta_loaded"):
+            cache = load_cache()
+            meta = cache.get("downloaded_files_with_metadata", {}).get(spec_id)
+
+            if meta:
+                api = meta.get("api_response", {})
+                if api.get("project_name"):
+                    card.project_lbl.setText(f"<b>Project:</b> {api['project_name']}")
+                if api.get("job_name"):
+                    card.job_lbl.setText(f"<b>Job:</b> {api['job_name']}")
+                if api.get("thumbnail"):
+                    card._load_thumbnail(api["thumbnail"])
+
+            card.row_data["_meta_loaded"] = True
+
+        # ---- Promote ONLY ONCE ----
+        if not getattr(card, "_promoted", False):
+            self.cards_layout.removeWidget(card)
+            self.cards_layout.insertWidget(0, card)
+            card._promoted = True
+
+
+
+    def on_download_status_detail(self, file_path: str, text: str, action_type: str, percent: int, is_nas_src: bool):
+        if action_type != "download":
+            return
+
+        # Find card by local_path or filename
+        for card in self.card_index.values():
+            if card.row_data.get("local_path") == file_path or card.row_data.get("file_name") == Path(file_path).name:
+                card.update_status(text)
+                break
+
+    def filter_cards(self, text: str = None):
+        if text is None:
+            text = self.search_bar.text()
+        text = text.lower().strip()
+        for card in self.card_index.values():
+            row = card.row_data
+            visible = (
+                not text or
+                text in str(row.get("project_name", "")).lower() or
+                text in str(row.get("job_name", "")).lower() or
+                text in str(row.get("file_name", "")).lower()
+            )
+            card.setVisible(visible)
 
     def clear_search(self):
-        """Clear the search bar and repopulate the table with all rows."""
         self.search_bar.clear()
-        self._populate_table(self.original_rows)
-        logger.debug(f"Cleared search and restored {len(self.original_rows)} rows")
-        app_signals.append_log.emit(f"[Files] Cleared search and restored {len(self.original_rows)} {self.file_type} files")
+        self.filter_cards("")
 
-    def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
-        """Refresh the file list if the action_type matches file_type."""
-        try:
-            if action_type == self.file_type:
-                logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
-                self._load_files_with_logging()
-                # Reapply filter after refresh
-                self.filter_table(self.search_bar.text())
-                app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
-        except Exception as e:
-            logger.error(f"Error refreshing file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
-
-    def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
-        """Update the table with file transfer status."""
-        if action_type != self.file_type or not file_path:
-            return
-        try:
-            logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
-                    status_col = 7
-                    progress_col = 4
-                    self.table.setItem(row, status_col, QTableWidgetItem(status))
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not isinstance(progress_bar, QProgressBar):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    self.table.resizeColumnsToContents()
-                    app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
-                    return
-
-            # If file not found, reload the entire table
-            logger.debug(f"File {file_path} not found in table, reloading full list")
-            self._load_files_with_logging()
-            self.filter_table(self.search_bar.text())
-            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
-        except Exception as e:
-            logger.error(f"Error updating file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
-
-    def update_progress(self, file_path, progress):
-        """Update progress for a file in the table."""
-        try:
-            logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
-                    progress_col = 4
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not isinstance(progress_bar, QProgressBar):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
-                    return
-            logger.debug(f"File {file_path} not found for progress update, reloading table")
-            self._load_files_with_logging()
-            self.filter_table(self.search_bar.text())
-        except Exception as e:
-            logger.error(f"Error updating progress: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.load_files()  # Refresh when shown
 
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
@@ -3857,512 +4568,388 @@ class FileDownloadListWindow(QDialog):
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
-    def copy_file_to_clipboard(self, file_path):
-        """Copy the file path to the clipboard."""
-        try:
-            file_path = os.path.join(BASE_TARGET_DIR, file_path)
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(file_path)
+    def copy_file_to_clipboard(self, file_path: str):
+        print("copy_file_to_clipboard CALLED")  # you will now see this
 
-            system = platform.system()
-            if system == "Windows":
-                import pyautogui
-                import ctypes
-                import pygetwindow as gw
+        path = Path(file_path).resolve()
+        clipboard = QApplication.clipboard()
 
-            folder, filename = os.path.split(os.path.abspath(file_path))
-            if system == "Windows":
-                SW_SHOWNOACTIVATE = 4
-                ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
-            elif system == "Darwin":
-                subprocess.run(["open", folder])
-            else:
-                raise NotImplementedError(f"Unsupported OS: {system}")
+        mime = QMimeData()
+        mime.setText(str(path))
+        mime.setUrls([QUrl.fromLocalFile(str(path))])
 
-            time.sleep(0.1)
-            pyautogui.typewrite(filename)
-            time.sleep(0.1)
+        clipboard.setMimeData(mime)
 
-            if system == "Windows":
-                pyautogui.hotkey('ctrl', 'c')
-                pyautogui.hotkey('alt', 'f4')
-            elif system == "Darwin":
-                pyautogui.hotkey('command', 'c')
-                pyautogui.hotkey('command', 'w')
-            else:
-                raise NotImplementedError(f"Copy not supported on {system}")
-        except Exception as e:
-            print(f"An error occurred: {e}")
-        finally:
-            print("Cleanup or final steps executed.")
-
-    def retry_file_process(self, meta_data_response):
-        """Retry a failed file process."""
-        print(f"meta_data_response===={meta_data_response}")
-        action_type = meta_data_response.get("request_type", "Unknown")
-        if action_type == 'download':
-            src_path = meta_data_response.get("file_path", "")
-            dest_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
-            is_nas_src = True
-            is_nas_dest = False
-            print(f"===={src_path}==={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
-        if action_type == 'upload':
-            dest_path = meta_data_response.get("file_path", "")
-            src_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
-            is_nas_src = False
-            is_nas_dest = True
-        file_worker = FileWatcherWorker.get_instance()
-
-        file_worker.perform_file_transfer(
-            src_path,
-            dest_path,
-            action_type,
-            meta_data_response,
-            is_nas_src,
-            is_nas_dest
+        QMessageBox.information(
+            self,
+            "Copied",
+            f"File path copied to clipboard:\n{path}"
         )
-        
+
+
+
+    def retry_file_process(self, row_data: dict):
+   
+        logger.info("========== RETRY START ==========")
+
+        # ------------------------------------------------------------------
+        # 1. Validate row identity
+        # ------------------------------------------------------------------
+        spec_id = str(row_data.get("spec_id"))
+        status = row_data.get("status")
+
+        if not spec_id:
+            logger.error("[Retry] Missing spec_id in row_data")
+            return
+
+        # if status not in ("Download Failed", "Upload Failed"):
+        #     logger.warning(
+        #         f"[Retry] Ignored retry for spec_id={spec_id}, status={status}"
+        #     )
+        #     return
+
+        # ------------------------------------------------------------------
+        # 2. Load authoritative cache metadata (SOURCE OF TRUTH)
+        # ------------------------------------------------------------------
+        cache = load_cache()
+        meta = cache.get("downloaded_files_with_metadata", {}).get(spec_id)
+
+        if not meta or "api_response" not in meta:
+            logger.error(f"[Retry] No cached api_response for spec_id={spec_id}")
+            return
+
+        api = meta["api_response"]
+
+        # ------------------------------------------------------------------
+        # 3. Validate API payload (STRICT)
+        # ------------------------------------------------------------------
+        request_type = api.get("request_type")
+        nas_file_path = api.get("file_path")   # NAS REMOTE PATH
+        nas_path = api.get("nas_path")
+        task_id = api.get("id")
+
+        if request_type != "download":
+            logger.error(
+                f"[Retry] Unsupported retry type={request_type} for spec_id={spec_id}"
+            )
+            return
+
+        if not nas_file_path or not task_id:
+            logger.error(
+                f"[Retry] Invalid API data for spec_id={spec_id} "
+                f"(file_path={nas_file_path}, id={task_id})"
+            )
+            return
+
+        # ------------------------------------------------------------------
+        # 4. Resolve transfer paths (NAS → LOCAL)
+        # ------------------------------------------------------------------
+        src_path = nas_file_path                    # NAS SOURCE
+        dest_path = os.path.join(BASE_TARGET_DIR, nas_path)
+
+        is_nas_src = True
+        is_nas_dest = False
+
+        # ------------------------------------------------------------------
+        # 5. Reset SAME card UI (NO recreation)
+        # ------------------------------------------------------------------
+        card = self.card_index.get(spec_id)
+        if card:
+            card.update_status("Retrying...")
+            card.progress_bar.setValue(0)
+            card.progress_bar.show()
+
+            # Promote ONCE
+            self.cards_layout.removeWidget(card)
+            self.cards_layout.insertWidget(0, card)
+
+        # ------------------------------------------------------------------
+        # 6. Build CLEAN retry item (CRITICAL FIX)
+        #    SCP requires NAS file_path, NOT local path
+        # ------------------------------------------------------------------
+        retry_item = {
+            "id": api["id"],
+            "spec_id": api["spec_id"],
+            "file_path": api["file_path"],     # NAS PATH (MANDATORY)
+            "nas_path": api["nas_path"],
+            "file_name": api.get("file_name"),
+            "job_id": api.get("job_id"),
+            "job_name": api.get("job_name"),
+            "project_id": api.get("project_id"),
+            "project_name": api.get("project_name"),
+            "client_name": api.get("client_name"),
+            "user_id": api.get("user_id"),
+            "user_type": api.get("user_type"),
+            "creative_id": api.get("creative_id"),
+            "inventory_id": api.get("inventory_id"),
+            "thumbnail": api.get("thumbnail"),
+            "created_on": api.get("created_on"),
+            "updated_date": api.get("updated_date"),
+            "request_type": "download",
+        }
+
+        # ------------------------------------------------------------------
+        # 7. Dispatch retry to worker (NON-BLOCKING)
+        # ------------------------------------------------------------------
+        try:
+            file_worker = FileWatcherWorker.get_instance()
+
+            file_worker.perform_file_transfer(
+                src_path,
+                dest_path,
+                "download",
+                retry_item,       # 🔑 CORRECT ITEM PAYLOAD
+                is_nas_src,
+                is_nas_dest
+            )
+
+            logger.info(
+                f"[Retry] Download retry dispatched "
+                f"(spec_id={spec_id}, task_id={task_id})"
+            )
+
+        except Exception as e:
+            logger.exception(
+                f"[Retry] Failed to dispatch retry for spec_id={spec_id}: {e}"
+            )
+
+        logger.info("========== RETRY END ==========")
+
+
+    
+    
+
 
 class FileUploadListWindow(QDialog):
-    def __init__(self, file_type, parent=None):
+    def __init__(self, file_type="uploaded", parent=None):
         super().__init__(parent)
         self.file_type = file_type.lower()
-        self.setWindowTitle(f"{file_type.capitalize()} Files")
-        self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
-        self.setMinimumSize(800, 400)
-        self.resize(800, 400)
-        logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
-        app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
+        self.setWindowTitle(f"{self.file_type.capitalize()} Files")
+        self.setMinimumSize(1100, 700)
+        self.resize(1400, 900)
 
-        # Initialize search bar
+        # SINGLE KEY: spec_id → CardWidget
+        self.card_index = {}
+
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.timeout.connect(self.load_files)
+
+        # UI setup
         self.search_bar = QLineEdit(self)
-        self.search_bar.setPlaceholderText("Search by Project Name, Job Name, or File Name")
-        # --- QLineEdit Style ---
-        self.search_bar.setStyleSheet("""
-            QLineEdit {
-                background-color: #ffffff;
-                border: 1.5px solid #ccc;
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 14px;
-                color: #333;
-                selection-background-color: #0078d7;
-            }
+        self.search_bar.setPlaceholderText("Search by project, job or file name")
+        self.search_bar.textChanged.connect(self.filter_cards)
 
-            QLineEdit:hover {
-                border: 1.5px solid #999;
-                background-color: #f9f9f9;
-            }
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(lambda: self.filter_cards(self.search_bar.text()))
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.clicked.connect(self.clear_search)
 
-            QLineEdit:focus {
-                border: 1.5px solid #0078d7;
-                background-color: #ffffff;
-            }
-
-            QLineEdit::placeholder {
-                color: #888;
-                font-style: italic;
-            }
-        """)
-
-
-        # Initialize search button
-        self.search_button = QPushButton("Search", self)
-        # --- QPushButton (Search) Style ---
-        self.search_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d7;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 6px 20px;
-                font-weight: 500;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #005fa3;
-            }
-            QPushButton:pressed {
-                background-color: #004b82;
-            }
-        """)
-        self.search_button.clicked.connect(lambda: self.filter_table(self.search_bar.text()))
-
-        # Initialize clear button
-        self.clear_button = QPushButton("Clear", self)
-        # --- QPushButton (Clear) Style ---
-        self.clear_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f5f5f5;
-                color: #333;
-                border: 1.2px solid #ccc;
-                border-radius: 8px;
-                padding: 6px 20px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #eaeaea;
-                border-color: #999;
-            }
-            QPushButton:pressed {
-                background-color: #dcdcdc;
-            }
-        """)
-        self.clear_button.clicked.connect(self.clear_search)
-
-        # Initialize table
-        self.table = QTableWidget(self)
-        self.table.setColumnCount(8)
-        headers = ["Thumbnail", "Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status"]
-        if platform.system() == "Windows":
-            headers.append("Copy")
-        self.table.setHorizontalHeaderLabels(headers)
-        header = self.table.horizontalHeader()
-        header.setSectionsMovable(True)
-        header.setStretchLastSection(True)
-        for i in range(self.table.columnCount()):
-            header.setSectionResizeMode(i, QHeaderView.Interactive)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-
-        # Layout
         search_layout = QHBoxLayout()
-        search_layout.addWidget(self.search_bar)
-        search_layout.addWidget(self.search_button)
-        search_layout.addWidget(self.clear_button)
+        search_layout.addWidget(self.search_bar, 1)
+        search_layout.addWidget(self.search_btn)
+        search_layout.addWidget(self.clear_btn)
 
-        layout = QVBoxLayout()
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.cards_container = QWidget()
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setAlignment(Qt.AlignTop)
+        self.cards_layout.setSpacing(10)
+
+        self.scroll_area.setWidget(self.cards_container)
+
+        layout = QVBoxLayout(self)
         layout.addLayout(search_layout)
-        layout.addWidget(self.table)
-        self.setLayout(layout)
-        add_version_footer(self, APPVERSION)
+        layout.addWidget(self.scroll_area)
 
-        # Store original rows for filtering
-        self.original_rows = []
-
-        # Load files initially
-        self._load_files_with_logging()
+        # Load uploaded files on open
+        self.load_files()
 
         # Connect signals
-        self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
-        self.file_watcher = FileWatcherWorker.get_instance(parent=self)
-        self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+        watcher = FileWatcherWorker.get_instance(parent=self)
+        watcher.upload_progress.connect(self.on_upload_progress, Qt.QueuedConnection)
+        watcher.upload_status_detail.connect(self.on_upload_status_detail, Qt.QueuedConnection)
 
-    def keyPressEvent(self, event):
-        """Handle Enter key press in the search bar."""
-        super().keyPressEvent(event)
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.search_bar.hasFocus():
-            self.filter_table(self.search_bar.text())
-
-    def showEvent(self, event):
-        """Reload files when the window is shown."""
-        super().showEvent(event)
-        logger.debug(f"Window shown, reloading files for {self.file_type}")
-        self._load_files_with_logging()
-        app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
-
-    def closeEvent(self, event):
-        """Disconnect signals when the window is closed."""
-        try:
-            app_signals.update_file_list.disconnect(self.app_signals_connection)
-            self.file_watcher.progress_update.disconnect(self.progress_connection)
-            logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
-        except Exception as e:
-            logger.debug(f"Error disconnecting signals: {e}")
-        super().closeEvent(event)
-
-    def _load_files_with_logging(self):
-        """Wrapper for load_files with additional logging for debugging."""
-        try:
-            self.load_files()
-        except Exception as e:
-            logger.error(f"Error loading files in FileListWindow: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+    @staticmethod
+    def normalize_path(path: str) -> str:
+        return str(Path(path).resolve())
 
     def load_files(self):
-        """Load files into the table based on file_type."""
-        try:
-            cache = load_cache()
-            logger.debug(f"Cache contents: {cache}")
-            metadata_key = f"{self.file_type}_files_with_metadata"
-            logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+        cache = load_cache()
+        metadata = cache.get("uploaded_files_with_metadata", {})  # Changed key for uploads
+       
+        rows = []
 
-            metadata = cache.get(metadata_key, {})
-            files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
-            logger.debug(f"Files for {self.file_type}: {files}")
+        for spec_id, entry in metadata.items():
+            local_path = entry.get("local_path")
 
-            # Clear table
-            self.table.clearContents()
-            self.table.setRowCount(0)
+            # Do NOT require file to exist on disk
+            # UI reflects metadata, not filesystem state
+            if not local_path:
+                continue
 
-            # Set headers
-            headers = [
-                "Thumbnail",
-                "Project Name",
-                "Job Name",
-                "File Name",
-                "Date",
-                "Open Folder",
-                "Open in Photoshop",
-                "Status",
-            ]
-            if platform.system() == "Windows":
-                headers.append("Copy")
+            api = entry.get("api_response", {})
 
-            self.table.setColumnCount(len(headers))
-            self.table.setHorizontalHeaderLabels(headers)
+            # Normalize status for UI
+            status = api.get("request_status", "Upload Completed")
+            if "Uploading" in status:
+                status = "Upload Completed"
 
-            # Collect rows
-            self.original_rows = []
-            file_list = files.items()
-            logger.debug(f"File list: {list(file_list)}")
+            rows.append({
+                "spec_id": str(spec_id),
+                "thumbnail": api.get("thumbnail"),
+                "project_name": api.get("project_name", "Unknown"),
+                "job_name": api.get("job_name", "Unknown"),
+                "file_name": Path(local_path).name,
+                "created_at": api.get("created_on", ""),
+                "local_path": local_path,
+                "status": status,
+            })
 
-            for task_id, file_path in file_list:
-                logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
-                if not file_path:
-                    logger.warning(f"Skipping task_id {task_id} due to empty file_path")
-                    continue
+        self._sync_cards(rows)
 
-                filename = Path(file_path).name
-                normalized_file_path = str(Path(file_path)).replace('\\', '/')
-                relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
+    def _sync_cards(self, rows):
+        seen_spec_ids = set()
 
-                meta = metadata.get(str(task_id), {})
-                if not meta:
-                    logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
-                    continue
-                thumbnail = meta.get("api_response", {}).get("thumbnail", "Unknown") or "Unknown"
-                project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
-                job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+        # --- Create / Update cards ---
+        for row in rows:
+            spec_id = row["spec_id"]
+            seen_spec_ids.add(spec_id)
 
-                if project_name == "Unknown" or job_name == "Unknown":
-                    logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
-                    continue
-
-                created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
-
-                dt = None
-                display_date = ""
-                if created_at_raw:
-                    try:
-                        ts = int(created_at_raw)
-                        if 0 < ts < 4102444800:
-                            dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
-                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                    except Exception:
-                        pass
-
-                    if not dt and isinstance(created_at_raw, str):
-                        s = created_at_raw.strip()
-                        try:
-                            dt = datetime.fromisoformat(s)
-                            display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                        except Exception:
-                            fmts = [
-                                "%d-%b-%Y %I:%M %p",
-                                "%Y-%m-%d %H:%M:%S",
-                                "%Y-%m-%dT%H:%M:%S%z",
-                                "%Y-%m-%dT%H:%M:%S",
-                            ]
-                            for f in fmts:
-                                try:
-                                    dt = datetime.strptime(s, f)
-                                    display_date = dt.strftime("%d-%b-%Y %I:%M %p")
-                                    break
-                                except Exception:
-                                    continue
-
-                status = meta.get("api_response", {}).get("request_status", "Unknown")
-                if status == "Unknown" and file_path:
-                    status = "Completed" if Path(file_path).exists() else "Failed"
-
-                meta_data_response = meta.get("api_response", {})
-
-                row_data = {
-                    "thumbnail": thumbnail,
-                    "project_name": project_name,
-                    "job_name": job_name,
-                    "file_name": filename,
-                    "created_at": display_date or created_at_raw,
-                    "folder_path": file_path,
-                    "photoshop_path": file_path,
-                    "Copy_path": file_path,
-                    "status": status,
-                    "dt": dt,
-                    "meta_data_response": meta_data_response
-                }
-                self.original_rows.append(row_data)
-
-            # Sort rows by date (latest first)
-            self.original_rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
-
-            # Populate table with all rows initially
-            self._populate_table(self.original_rows)
-
-            app_signals.append_log.emit(f"[Files] Loaded {len(self.original_rows)} {self.file_type} files")
-
-        except Exception as e:
-            logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
-            app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
-            raise
-
-    def _populate_table(self, rows):
-        """Populate the table with the given rows."""
-        self.table.clearContents()
-        self.table.setRowCount(0)
-
-        for row_data in rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            logger.debug(f"Inserting row {row} with data: {row_data}")
-
-            thumb_label = QLabel()
-            thumb_label.setFixedSize(24, 24)
-            thumb_label.setScaledContents(True)
-            thumb_label.setPixmap(QPixmap("default_thumbnail.png"))
-            self.table.setCellWidget(row, 0, thumb_label)
-
-            loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])
-            pool = QThreadPool.globalInstance()
-            pool.start(loader)
-
-            self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
-            self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
-            self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
-            self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
-
-            folder_btn = QPushButton()
-            folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
-            folder_btn.setIconSize(QSize(24, 24))
-            folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
-            self.table.setCellWidget(row, 5, folder_btn)
-
-            photoshop_btn = QPushButton()
-            photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
-            photoshop_btn.setIconSize(QSize(24, 24))
-            photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
-            self.table.setCellWidget(row, 6, photoshop_btn)
-
-            if row_data["status"] == 'Failed' or row_data["status"] == 'Upload Failed':
-                status_btn = QPushButton("Failed")
-                status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
-                status_btn.setIconSize(QSize(24, 24))
-                status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
-                self.table.setCellWidget(row, 7, status_btn)
+            if spec_id in self.card_index:
+                self.card_index[spec_id].update_row(row)
             else:
-                self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+                card = CardWidget(row, self)
+                card.copyRequested.connect(self.copy_file_to_clipboard) 
+                card.retryRequested.connect(self.retry_file_process)
+                self.card_index[spec_id] = card
+                self.cards_layout.addWidget(card)
 
-            if platform.system() == "Windows":
-                copy_btn = QPushButton()
-                copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
-                copy_btn.setIconSize(QSize(24, 24))
-                copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
-                self.table.setCellWidget(row, 8, copy_btn)
+        # --- DO NOT DELETE COMPLETED CARDS ---
+        for spec_id in list(self.card_index.keys()):
+            if spec_id not in seen_spec_ids:
+                card = self.card_index[spec_id]
+                status = card.row_data.get("status", "")
 
-        self.table.resizeColumnsToContents()
+                # Only remove cards that are NOT completed or failed
+                if status not in ("Upload Completed", "Upload Failed"):
+                    self.card_index.pop(spec_id)
+                    card.setParent(None)
+                    card.deleteLater()
 
-    def filter_table(self, search_text):
-        """Filter table rows based on search text."""
-        search_text = search_text.lower().strip()
-        filtered_rows = []
+        # --- Reorder cards: active uploads at top ---
+        all_cards = []
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                all_cards.append(item.widget())
 
-        for row_data in self.original_rows:
-            if (search_text in row_data["project_name"].lower() or
-                search_text in row_data["job_name"].lower() or
-                search_text in row_data["file_name"].lower()):
-                filtered_rows.append(row_data)
+        active = [
+            c for c in all_cards
+            if c.progress_bar.isVisible() and 0 < c.progress_bar.value() < 100
+        ]
+        completed = [c for c in all_cards if c not in active]
 
-        if not filtered_rows:
-            # Clear table and show "Content not available" message
-            self.table.clearContents()
-            self.table.setRowCount(1)
-            label = QLabel("Content not available")
-            label.setAlignment(Qt.AlignCenter)
-            self.table.setCellWidget(0, 0, label)
-            self.table.setSpan(0, 0, 1, self.table.columnCount())
-            logger.debug("No matching rows found, displaying 'Content not available'")
-            app_signals.append_log.emit(f"[Files] No {self.file_type} files match the search: {search_text}")
-        else:
-            self._populate_table(filtered_rows)
-            logger.debug(f"Filtered table to {len(filtered_rows)} rows with search: {search_text}")
-            app_signals.append_log.emit(f"[Files] Filtered {self.file_type} files to {len(filtered_rows)} rows")
+        for card in active:
+            self.cards_layout.addWidget(card)
+        for card in completed:
+            self.cards_layout.addWidget(card)
+
+    def on_upload_progress(self, spec_id: str, file_path: str, filename: str, percent: int):
+        spec_id = str(spec_id)
+
+        card = self.card_index.get(spec_id)
+        if not card:
+            temp_row = {
+                "spec_id": spec_id,
+                "local_path": file_path,
+                "file_name": filename,
+                "project_name": "Loading...",
+                "job_name": "Loading...",
+                "thumbnail": None,
+                "created_at": "",
+                "status": "Uploading",
+            }
+            card = CardWidget(temp_row, self)
+            card.copyRequested.connect(self.copy_file_to_clipboard)
+            card.retryRequested.connect(self.retry_file_process)
+
+            self.card_index[spec_id] = card
+            self.cards_layout.insertWidget(0, card)
+            card._promoted = False
+
+        # ---- HARD GUARD: avoid repaint storms ----
+        if percent == card.progress_bar.value():
+            return
+
+        # ---- Update progress ----
+        card.update_progress(percent)
+
+        if file_path:
+            card.row_data["local_path"] = file_path
+
+        if filename:
+            card.row_data["file_name"] = filename
+            card.file_lbl.setText(f"<b>File:</b> {filename}")
+
+        # ---- Load metadata ONCE ----
+        if not card.row_data.get("_meta_loaded"):
+            cache = load_cache()
+            meta = cache.get("uploaded_files_with_metadata", {}).get(spec_id)
+
+            if meta:
+                api = meta.get("api_response", {})
+                if api.get("project_name"):
+                    card.project_lbl.setText(f"<b>Project:</b> {api['project_name']}")
+                if api.get("job_name"):
+                    card.job_lbl.setText(f"<b>Job:</b> {api['job_name']}")
+                if api.get("thumbnail"):
+                    card._load_thumbnail(api["thumbnail"])
+
+            card.row_data["_meta_loaded"] = True
+
+        # ---- Promote ONLY ONCE ----
+        if not getattr(card, "_promoted", False):
+            self.cards_layout.removeWidget(card)
+            self.cards_layout.insertWidget(0, card)
+            card._promoted = True
+
+    def on_upload_status_detail(self, file_path: str, text: str, action_type: str, percent: int, is_nas_src: bool):
+        if action_type != "upload":
+            return
+
+        # Find card by local_path or filename
+        for card in self.card_index.values():
+            if card.row_data.get("local_path") == file_path or card.row_data.get("file_name") == Path(file_path).name:
+                card.update_status(text)
+                break
+
+    def filter_cards(self, text: str = None):
+        if text is None:
+            text = self.search_bar.text()
+        text = text.lower().strip()
+        for card in self.card_index.values():
+            row = card.row_data
+            visible = (
+                not text or
+                text in str(row.get("project_name", "")).lower() or
+                text in str(row.get("job_name", "")).lower() or
+                text in str(row.get("file_name", "")).lower()
+            )
+            card.setVisible(visible)
 
     def clear_search(self):
-        """Clear the search bar and repopulate the table with all rows."""
         self.search_bar.clear()
-        self._populate_table(self.original_rows)
-        logger.debug(f"Cleared search and restored {len(self.original_rows)} rows")
-        app_signals.append_log.emit(f"[Files] Cleared search and restored {len(self.original_rows)} {self.file_type} files")
+        self.filter_cards("")
 
-    def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
-        """Refresh the file list if the action_type matches file_type."""
-        try:
-            if action_type == self.file_type:
-                logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
-                self._load_files_with_logging()
-                # Reapply filter after refresh
-                self.filter_table(self.search_bar.text())
-                app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
-        except Exception as e:
-            logger.error(f"Error refreshing file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.load_files()  # Refresh when shown
 
-    def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
-        """Update the table with file transfer status."""
-        if action_type != self.file_type or not file_path:
-            return
-        try:
-            logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
-                    status_col = 7
-                    progress_col = 4
-                    self.table.setItem(row, status_col, QTableWidgetItem(status))
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not isinstance(progress_bar, QProgressBar):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    self.table.resizeColumnsToContents()
-                    app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
-                    return
-
-            # If file not found, reload the entire table
-            logger.debug(f"File {file_path} not found in table, reloading full list")
-            self._load_files_with_logging()
-            self.filter_table(self.search_bar.text())
-            app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
-        except Exception as e:
-            logger.error(f"Error updating file list: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
-
-    def update_progress(self, file_path, progress):
-        """Update progress for a file in the table."""
-        try:
-            logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
-            for row in range(self.table.rowCount()):
-                if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
-                    progress_col = 4
-                    progress_bar = self.table.cellWidget(row, progress_col)
-                    if not isinstance(progress_bar, QProgressBar):
-                        progress_bar = QProgressBar(self)
-                        progress_bar.setMinimum(0)
-                        progress_bar.setMaximum(100)
-                        progress_bar.setFixedHeight(20)
-                        self.table.setCellWidget(row, progress_col, progress_bar)
-                    progress_bar.setValue(progress)
-                    app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
-                    return
-            logger.debug(f"File {file_path} not found for progress update, reloading table")
-            self._load_files_with_logging()
-            self.filter_table(self.search_bar.text())
-        except Exception as e:
-            logger.error(f"Error updating progress: {e}")
-            app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
-
+    
     def open_with_photoshop(self, file_path):
         """Dynamically find Adobe Photoshop path and open the specified file."""
         try:
@@ -4661,8 +5248,9 @@ class FileUploadListWindow(QDialog):
             print(f"[Photoshop] {error_message}")
             raise
 
+
     def open_folder(self, file_path):
-        """Open the folder containing the file."""
+        # Exact same as in FileDownloadListWindow
         try:
             folder_path = str(Path(file_path).parent)
             system = platform.system()
@@ -4684,70 +5272,979 @@ class FileUploadListWindow(QDialog):
             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
 
-    def copy_file_to_clipboard(self, file_path):
-        """Copy the file path to the clipboard."""
-        try:
-            file_path = os.path.join(BASE_TARGET_DIR, file_path)
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(file_path)
+    def copy_file_to_clipboard(self, file_path: str):
+        print("copy_file_to_clipboard CALLED")
 
-            system = platform.system()
-            if system == "Windows":
-                import pyautogui
-                import ctypes
-                import pygetwindow as gw
+        path = Path(file_path).resolve()
+        clipboard = QApplication.clipboard()
 
-            folder, filename = os.path.split(os.path.abspath(file_path))
-            if system == "Windows":
-                SW_SHOWNOACTIVATE = 4
-                ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
-            elif system == "Darwin":
-                subprocess.run(["open", folder])
-            else:
-                raise NotImplementedError(f"Unsupported OS: {system}")
+        mime = QMimeData()
+        mime.setText(str(path))
+        mime.setUrls([QUrl.fromLocalFile(str(path))])
 
-            time.sleep(0.1)
-            pyautogui.typewrite(filename)
-            time.sleep(0.1)
+        clipboard.setMimeData(mime)
 
-            if system == "Windows":
-                pyautogui.hotkey('ctrl', 'c')
-                pyautogui.hotkey('alt', 'f4')
-            elif system == "Darwin":
-                pyautogui.hotkey('command', 'c')
-                pyautogui.hotkey('command', 'w')
-            else:
-                raise NotImplementedError(f"Copy not supported on {system}")
-        except Exception as e:
-            print(f"An error occurred: {e}")
-        finally:
-            print("Cleanup or final steps executed.")
-
-    def retry_file_process(self, meta_data_response):
-        """Retry a failed file process."""
-        print(f"meta_data_response===={meta_data_response}")
-        action_type = meta_data_response.get("request_type", "Unknown")
-        if action_type == 'download':
-            src_path = meta_data_response.get("file_path", "")
-            dest_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
-            is_nas_src = True
-            is_nas_dest = False
-            print(f"===={src_path}==={dest_path}===={action_type}========{is_nas_src}=========={is_nas_dest}=======")
-        if action_type == 'upload':
-            dest_path = meta_data_response.get("file_path", "")
-            src_path = os.path.join(BASE_TARGET_DIR, meta_data_response.get("nas_path", ""))
-            is_nas_src = False
-            is_nas_dest = True
-        file_worker = FileWatcherWorker.get_instance()
-
-        file_worker.perform_file_transfer(
-            src_path,
-            dest_path,
-            action_type,
-            meta_data_response,
-            is_nas_src,
-            is_nas_dest
+        QMessageBox.information(
+            self,
+            "Copied",
+            f"File path copied to clipboard:\n{path}"
         )
+
+    def retry_file_process(self, row_data: dict):
+        logger.info("========== UPLOAD RETRY START ==========")
+
+        spec_id = str(row_data.get("spec_id"))
+        status = row_data.get("status")
+
+        if not spec_id:
+            logger.error("[Upload Retry] Missing spec_id in row_data")
+            return
+
+        cache = load_cache()
+        meta = cache.get("uploaded_files_with_metadata", {}).get(spec_id)
+
+        if not meta or "api_response" not in meta:
+            logger.error(f"[Upload Retry] No cached api_response for spec_id={spec_id}")
+            return
+
+        api = meta["api_response"]
+
+        request_type = api.get("request_type")
+        local_file_path = api.get("file_path")     # Local source path
+        nas_path = api.get("nas_path")
+        task_id = api.get("id")
+
+        if request_type != "upload":
+            logger.error(f"[Upload Retry] Unsupported retry type={request_type} for spec_id={spec_id}")
+            return
+
+        if not local_file_path or not task_id:
+            logger.error(f"[Upload Retry] Invalid API data for spec_id={spec_id}")
+            return
+
+        src_path = local_file_path
+        dest_path = os.path.join(BASE_TARGET_DIR, nas_path)
+
+        is_nas_src = False
+        is_nas_dest = True
+
+        card = self.card_index.get(spec_id)
+        if card:
+            card.update_status("Retrying upload...")
+            card.progress_bar.setValue(0)
+            card.progress_bar.show()
+
+            self.cards_layout.removeWidget(card)
+            self.cards_layout.insertWidget(0, card)
+
+        retry_item = {
+            "id": api["id"],
+            "spec_id": api["spec_id"],
+            "file_path": api["file_path"],
+            "nas_path": api["nas_path"],
+            "file_name": api.get("file_name"),
+            "job_id": api.get("job_id"),
+            "job_name": api.get("job_name"),
+            "project_id": api.get("project_id"),
+            "project_name": api.get("project_name"),
+            "client_name": api.get("client_name"),
+            "user_id": api.get("user_id"),
+            "user_type": api.get("user_type"),
+            "creative_id": api.get("creative_id"),
+            "inventory_id": api.get("inventory_id"),
+            "thumbnail": api.get("thumbnail"),
+            "created_on": api.get("created_on"),
+            "updated_date": api.get("updated_date"),
+            "request_type": "upload",
+        }
+
+        try:
+            file_worker = FileWatcherWorker.get_instance()
+
+            file_worker.perform_file_transfer(
+                src_path,
+                dest_path,
+                "upload",
+                retry_item,
+                is_nas_src,
+                is_nas_dest
+            )
+
+            logger.info(f"[Upload Retry] Upload retry dispatched (spec_id={spec_id}, task_id={task_id})")
+
+        except Exception as e:
+            logger.exception(f"[Upload Retry] Failed to dispatch retry for spec_id={spec_id}: {e}")
+
+        logger.info("========== UPLOAD RETRY END ==========")
+
+
+
+# class FileUploadListWindow(QDialog):
+#     def __init__(self, file_type, parent=None):
+#         super().__init__(parent)
+#         self.file_type = file_type.lower()
+#         self.setWindowTitle(f"{file_type.capitalize()} Files")
+#         self.setWindowIcon(load_icon(ICON_PATH, f"{file_type} files window"))
+#         self.setMinimumSize(800, 400)
+#         self.resize(800, 400)
+#         logger.debug(f"Initializing FileListWindow for file_type: {self.file_type}")
+#         app_signals.append_log.emit(f"[Files] Initializing FileListWindow for {self.file_type}")
+
+#         # Initialize search bar
+#         self.search_bar = QLineEdit(self)
+#         self.search_bar.setPlaceholderText("Search by Project Name, Job Name, or File Name")
+#         # --- QLineEdit Style ---
+#         self.search_bar.setStyleSheet("""
+#             QLineEdit {
+#                 background-color: #ffffff;
+#                 border: 1.5px solid #ccc;
+#                 border-radius: 8px;
+#                 padding: 6px 12px;
+#                 font-size: 14px;
+#                 color: #333;
+#                 selection-background-color: #0078d7;
+#             }
+
+#             QLineEdit:hover {
+#                 border: 1.5px solid #999;
+#                 background-color: #f9f9f9;
+#             }
+
+#             QLineEdit:focus {
+#                 border: 1.5px solid #0078d7;
+#                 background-color: #ffffff;
+#             }
+
+#             QLineEdit::placeholder {
+#                 color: #888;
+#                 font-style: italic;
+#             }
+#         """)
+
+
+#         # Initialize search button
+#         self.search_button = QPushButton("Search", self)
+#         # --- QPushButton (Search) Style ---
+#         self.search_button.setStyleSheet("""
+#             QPushButton {
+#                 background-color: #0078d7;
+#                 color: white;
+#                 border: none;
+#                 border-radius: 8px;
+#                 padding: 6px 20px;
+#                 font-weight: 500;
+#                 font-size: 14px;
+#             }
+#             QPushButton:hover {
+#                 background-color: #005fa3;
+#             }
+#             QPushButton:pressed {
+#                 background-color: #004b82;
+#             }
+#         """)
+#         self.search_button.clicked.connect(lambda: self.filter_table(self.search_bar.text()))
+
+#         # Initialize clear button
+#         self.clear_button = QPushButton("Clear", self)
+#         # --- QPushButton (Clear) Style ---
+#         self.clear_button.setStyleSheet("""
+#             QPushButton {
+#                 background-color: #f5f5f5;
+#                 color: #333;
+#                 border: 1.2px solid #ccc;
+#                 border-radius: 8px;
+#                 padding: 6px 20px;
+#                 font-size: 14px;
+#             }
+#             QPushButton:hover {
+#                 background-color: #eaeaea;
+#                 border-color: #999;
+#             }
+#             QPushButton:pressed {
+#                 background-color: #dcdcdc;
+#             }
+#         """)
+#         self.clear_button.clicked.connect(self.clear_search)
+
+#         # Initialize table
+#         self.table = QTableWidget(self)
+#         self.table.setColumnCount(8)
+#         headers = ["Thumbnail", "Project Name", "Job Name", "File Name", "Date", "Open Folder", "Open in Photoshop", "Status"]
+#         if platform.system() == "Windows":
+#             headers.append("Copy")
+#         self.table.setHorizontalHeaderLabels(headers)
+#         header = self.table.horizontalHeader()
+#         header.setSectionsMovable(True)
+#         header.setStretchLastSection(True)
+#         for i in range(self.table.columnCount()):
+#             header.setSectionResizeMode(i, QHeaderView.Interactive)
+#         self.table.setSelectionMode(QTableWidget.SingleSelection)
+#         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+#         # Layout
+#         search_layout = QHBoxLayout()
+#         search_layout.addWidget(self.search_bar)
+#         search_layout.addWidget(self.search_button)
+#         search_layout.addWidget(self.clear_button)
+
+#         layout = QVBoxLayout()
+#         layout.addLayout(search_layout)
+#         layout.addWidget(self.table)
+#         self.setLayout(layout)
+#         add_version_footer(self, APPVERSION)
+
+#         # Store original rows for filtering
+#         self.original_rows = []
+
+#         # Load files initially
+#         self._load_files_with_logging()
+
+#         # Connect signals
+#         self.app_signals_connection = app_signals.update_file_list.connect(self.refresh_files, Qt.QueuedConnection)
+#         self.file_watcher = FileWatcherWorker.get_instance(parent=self)
+#         self.progress_connection = self.file_watcher.progress_update.connect(self.update_progress, Qt.QueuedConnection)
+
+#     def keyPressEvent(self, event):
+#         """Handle Enter key press in the search bar."""
+#         super().keyPressEvent(event)
+#         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.search_bar.hasFocus():
+#             self.filter_table(self.search_bar.text())
+
+#     def showEvent(self, event):
+#         """Reload files when the window is shown."""
+#         super().showEvent(event)
+#         logger.debug(f"Window shown, reloading files for {self.file_type}")
+#         self._load_files_with_logging()
+#         app_signals.append_log.emit(f"[Files] Reloaded {self.file_type} files on window show")
+
+#     def closeEvent(self, event):
+#         """Disconnect signals when the window is closed."""
+#         try:
+#             app_signals.update_file_list.disconnect(self.app_signals_connection)
+#             self.file_watcher.progress_update.disconnect(self.progress_connection)
+#             logger.debug(f"Disconnected signals for {self.file_type} FileListWindow")
+#         except Exception as e:
+#             logger.debug(f"Error disconnecting signals: {e}")
+#         super().closeEvent(event)
+
+#     def _load_files_with_logging(self):
+#         """Wrapper for load_files with additional logging for debugging."""
+#         try:
+#             self.load_files()
+#         except Exception as e:
+#             logger.error(f"Error loading files in FileListWindow: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to load files for {self.file_type}: {str(e)}")
+
+#     def load_files(self):
+#         """Load files into the table based on file_type."""
+#         try:
+#             cache = load_cache()
+#             logger.debug(f"Cache contents: {cache}")
+#             metadata_key = f"{self.file_type}_files_with_metadata"
+#             logger.debug(f"Metadata for {metadata_key}: {cache.get(metadata_key, {})}")
+
+#             metadata = cache.get(metadata_key, {})
+#             files = {task_id: data.get("local_path", "") for task_id, data in metadata.items() if data.get("local_path")}
+#             logger.debug(f"Files for {self.file_type}: {files}")
+
+#             # Clear table
+#             self.table.clearContents()
+#             self.table.setRowCount(0)
+
+#             # Set headers
+#             headers = [
+#                 "Thumbnail",
+#                 "Project Name",
+#                 "Job Name",
+#                 "File Name",
+#                 "Date",
+#                 "Open Folder",
+#                 "Open in Photoshop",
+#                 "Status",
+#             ]
+#             if platform.system() == "Windows":
+#                 headers.append("Copy")
+
+#             self.table.setColumnCount(len(headers))
+#             self.table.setHorizontalHeaderLabels(headers)
+
+#             # Collect rows
+#             self.original_rows = []
+#             file_list = files.items()
+#             logger.debug(f"File list: {list(file_list)}")
+
+#             for task_id, file_path in file_list:
+#                 logger.debug(f"Processing task_id: {task_id}, file_path: {file_path}")
+#                 if not file_path:
+#                     logger.warning(f"Skipping task_id {task_id} due to empty file_path")
+#                     continue
+
+#                 filename = Path(file_path).name
+#                 normalized_file_path = str(Path(file_path)).replace('\\', '/')
+#                 relative_file_path = normalized_file_path.split('premedia.irtest/')[-1] if 'premedia.irtest/' in normalized_file_path else normalized_file_path
+
+#                 meta = metadata.get(str(task_id), {})
+#                 if not meta:
+#                     logger.warning(f"No metadata found for task_id: {task_id}, file_path: {file_path}")
+#                     continue
+#                 thumbnail = meta.get("api_response", {}).get("thumbnail", "Unknown") or "Unknown"
+#                 project_name = meta.get("api_response", {}).get("project_name", "Unknown") or "Unknown"
+#                 job_name = meta.get("api_response", {}).get("job_name", "Unknown") or "Unknown"
+
+#                 if project_name == "Unknown" or job_name == "Unknown":
+#                     logger.debug(f"Skipping file {filename} due to project_name: {project_name}, job_name: {job_name}, meta: {meta}")
+#                     continue
+
+#                 created_at_raw = meta.get("api_response", {}).get("created_on", "") or meta.get("created_at") or meta.get("date", "")
+
+#                 dt = None
+#                 display_date = ""
+#                 if created_at_raw:
+#                     try:
+#                         ts = int(created_at_raw)
+#                         if 0 < ts < 4102444800:
+#                             dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                     except Exception:
+#                         pass
+
+#                     if not dt and isinstance(created_at_raw, str):
+#                         s = created_at_raw.strip()
+#                         try:
+#                             dt = datetime.fromisoformat(s)
+#                             display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                         except Exception:
+#                             fmts = [
+#                                 "%d-%b-%Y %I:%M %p",
+#                                 "%Y-%m-%d %H:%M:%S",
+#                                 "%Y-%m-%dT%H:%M:%S%z",
+#                                 "%Y-%m-%dT%H:%M:%S",
+#                             ]
+#                             for f in fmts:
+#                                 try:
+#                                     dt = datetime.strptime(s, f)
+#                                     display_date = dt.strftime("%d-%b-%Y %I:%M %p")
+#                                     break
+#                                 except Exception:
+#                                     continue
+
+#                 status = meta.get("api_response", {}).get("request_status", "Unknown")
+#                 if status == "Unknown" and file_path:
+#                     status = "Completed" if Path(file_path).exists() else "Failed"
+
+#                 meta_data_response = meta.get("api_response", {})
+
+#                 row_data = {
+#                     "thumbnail": thumbnail,
+#                     "project_name": project_name,
+#                     "job_name": job_name,
+#                     "file_name": filename,
+#                     "created_at": display_date or created_at_raw,
+#                     "folder_path": file_path,
+#                     "photoshop_path": file_path,
+#                     "Copy_path": file_path,
+#                     "status": status,
+#                     "dt": dt,
+#                     "meta_data_response": meta_data_response
+#                 }
+#                 self.original_rows.append(row_data)
+
+#             # Sort rows by date (latest first)
+#             self.original_rows.sort(key=lambda r: (1 if r["dt"] is None else 0, -r["dt"].timestamp() if r["dt"] else 0))
+
+#             # Populate table with all rows initially
+#             self._populate_table(self.original_rows)
+
+#             app_signals.append_log.emit(f"[Files] Loaded {len(self.original_rows)} {self.file_type} files")
+
+#         except Exception as e:
+#             logger.error(f"Error in load_files for {self.file_type}: {str(e)}")
+#             app_signals.append_log.emit(f"[Files] Failed to load {self.file_type} files: {str(e)}")
+#             raise
+
+#     def _populate_table(self, rows):
+#         """Populate the table with the given rows."""
+#         self.table.clearContents()
+#         self.table.setRowCount(0)
+
+#         for row_data in rows:
+#             row = self.table.rowCount()
+#             self.table.insertRow(row)
+#             logger.debug(f"Inserting row {row} with data: {row_data}")
+
+#             thumb_label = QLabel()
+#             thumb_label.setFixedSize(24, 24)
+#             thumb_label.setScaledContents(True)
+#             thumb_label.setPixmap(QPixmap("default_thumbnail.png"))
+#             self.table.setCellWidget(row, 0, thumb_label)
+
+#             loader = ThumbnailLoader(thumb_label, row_data["thumbnail"])
+#             pool = QThreadPool.globalInstance()
+#             pool.start(loader)
+
+#             self.table.setItem(row, 1, QTableWidgetItem(row_data["project_name"]))
+#             self.table.setItem(row, 2, QTableWidgetItem(row_data["job_name"]))
+#             self.table.setItem(row, 3, QTableWidgetItem(row_data["file_name"]))
+#             self.table.setItem(row, 4, QTableWidgetItem(row_data["created_at"]))
+
+#             folder_btn = QPushButton()
+#             folder_btn.setIcon(load_icon(FOLDER_ICON_PATH, "folder"))
+#             folder_btn.setIconSize(QSize(24, 24))
+#             folder_btn.clicked.connect(lambda _, p=row_data["folder_path"]: self.open_folder(p))
+#             self.table.setCellWidget(row, 5, folder_btn)
+
+#             photoshop_btn = QPushButton()
+#             photoshop_btn.setIcon(load_icon(PHOTOSHOP_ICON_PATH, "photoshop"))
+#             photoshop_btn.setIconSize(QSize(24, 24))
+#             photoshop_btn.clicked.connect(lambda _, p=row_data["photoshop_path"]: self.open_with_photoshop(p))
+#             self.table.setCellWidget(row, 6, photoshop_btn)
+
+#             if row_data["status"] == 'Failed' or row_data["status"] == 'Upload Failed':
+#                 status_btn = QPushButton("Failed")
+#                 status_btn.setIcon(load_icon(RETRY_ICON_PATH, "status"))
+#                 status_btn.setIconSize(QSize(24, 24))
+#                 status_btn.clicked.connect(lambda _, p=row_data["meta_data_response"]: self.retry_file_process(p))
+#                 self.table.setCellWidget(row, 7, status_btn)
+#             else:
+#                 self.table.setItem(row, 7, QTableWidgetItem(row_data["status"]))
+
+#             if platform.system() == "Windows":
+#                 copy_btn = QPushButton()
+#                 copy_btn.setIcon(load_icon(COPY_ICON_PATH, "copy"))
+#                 copy_btn.setIconSize(QSize(24, 24))
+#                 copy_btn.clicked.connect(lambda _, p=row_data["Copy_path"]: self.copy_file_to_clipboard(p))
+#                 self.table.setCellWidget(row, 8, copy_btn)
+
+#         self.table.resizeColumnsToContents()
+
+#     def filter_table(self, search_text):
+#         """Filter table rows based on search text."""
+#         search_text = search_text.lower().strip()
+#         filtered_rows = []
+
+#         for row_data in self.original_rows:
+#             if (search_text in row_data["project_name"].lower() or
+#                 search_text in row_data["job_name"].lower() or
+#                 search_text in row_data["file_name"].lower()):
+#                 filtered_rows.append(row_data)
+
+#         if not filtered_rows:
+#             # Clear table and show "Content not available" message
+#             self.table.clearContents()
+#             self.table.setRowCount(1)
+#             label = QLabel("Content not available")
+#             label.setAlignment(Qt.AlignCenter)
+#             self.table.setCellWidget(0, 0, label)
+#             self.table.setSpan(0, 0, 1, self.table.columnCount())
+#             logger.debug("No matching rows found, displaying 'Content not available'")
+#             app_signals.append_log.emit(f"[Files] No {self.file_type} files match the search: {search_text}")
+#         else:
+#             self._populate_table(filtered_rows)
+#             logger.debug(f"Filtered table to {len(filtered_rows)} rows with search: {search_text}")
+#             app_signals.append_log.emit(f"[Files] Filtered {self.file_type} files to {len(filtered_rows)} rows")
+
+#     def clear_search(self):
+#         """Clear the search bar and repopulate the table with all rows."""
+#         self.search_bar.clear()
+#         self._populate_table(self.original_rows)
+#         logger.debug(f"Cleared search and restored {len(self.original_rows)} rows")
+#         app_signals.append_log.emit(f"[Files] Cleared search and restored {len(self.original_rows)} {self.file_type} files")
+
+#     def refresh_files(self, file_path, status, action_type, progress, is_nas_src):
+#         """Refresh the file list if the action_type matches file_type."""
+#         try:
+#             if action_type == self.file_type:
+#                 logger.debug(f"Refreshing files for {self.file_type} due to update: {file_path}, status: {status}, progress: {progress}")
+#                 self._load_files_with_logging()
+#                 # Reapply filter after refresh
+#                 self.filter_table(self.search_bar.text())
+#                 app_signals.append_log.emit(f"[Files] Refreshed {self.file_type} file list")
+#         except Exception as e:
+#             logger.error(f"Error refreshing file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to refresh {self.file_type} file list: {str(e)}")
+
+#     def update_file_list(self, file_path, status, action_type, progress, is_nas_src):
+#         """Update the table with file transfer status."""
+#         if action_type != self.file_type or not file_path:
+#             return
+#         try:
+#             logger.debug(f"Updating file list for {self.file_type}: {file_path}, status: {status}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
+#                     status_col = 7
+#                     progress_col = 4
+#                     self.table.setItem(row, status_col, QTableWidgetItem(status))
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                     progress_bar.setValue(progress)
+#                     self.table.resizeColumnsToContents()
+#                     app_signals.append_log.emit(f"[Files] Updated {self.file_type} file list: {Path(file_path).name}")
+#                     return
+
+#             # If file not found, reload the entire table
+#             logger.debug(f"File {file_path} not found in table, reloading full list")
+#             self._load_files_with_logging()
+#             self.filter_table(self.search_bar.text())
+#             app_signals.append_log.emit(f"[Files] Added {Path(file_path).name} to {self.file_type} list by refreshing")
+#         except Exception as e:
+#             logger.error(f"Error updating file list: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update {self.file_type} file list: {str(e)}")
+
+#     def update_progress(self, file_path, progress):
+#         """Update progress for a file in the table."""
+#         try:
+#             logger.debug(f"Updating progress for {self.file_type}: {file_path}, progress: {progress}")
+#             for row in range(self.table.rowCount()):
+#                 if self.table.item(row, 3) and self.table.item(row, 3).text() == Path(file_path).name:
+#                     progress_col = 4
+#                     progress_bar = self.table.cellWidget(row, progress_col)
+#                     if not isinstance(progress_bar, QProgressBar):
+#                         progress_bar = QProgressBar(self)
+#                         progress_bar.setMinimum(0)
+#                         progress_bar.setMaximum(100)
+#                         progress_bar.setFixedHeight(20)
+#                         self.table.setCellWidget(row, progress_col, progress_bar)
+#                     progress_bar.setValue(progress)
+#                     app_signals.append_log.emit(f"[Files] Progress updated for {Path(file_path).name}: {progress}%")
+#                     return
+#             logger.debug(f"File {file_path} not found for progress update, reloading table")
+#             self._load_files_with_logging()
+#             self.filter_table(self.search_bar.text())
+#         except Exception as e:
+#             logger.error(f"Error updating progress: {e}")
+#             app_signals.append_log.emit(f"[Files] Failed to update progress: {str(e)}")
+
+#     def open_with_photoshop(self, file_path):
+#         """Dynamically find Adobe Photoshop path and open the specified file."""
+#         try:
+#             import platform
+#             import subprocess
+#             import time
+#             import logging
+#             import os
+#             from pathlib import Path
+
+#             logger = logging.getLogger(__name__)
+#             system = platform.system()
+#             file_path = str(Path(file_path).resolve())
+
+#             if not Path(file_path).exists():
+#                 raise FileNotFoundError(f"File does not exist: {file_path}")
+
+#             logger.debug(f"System: {system}, File path: {file_path}")
+#             photoshop_path = None
+
+#             if system == "Windows":
+#                 try:
+#                     import win32gui
+#                     import win32con
+#                     import win32com.client
+#                     import win32api
+#                     import win32process
+#                     import ctypes
+#                 except ImportError as e:
+#                     raise ImportError("Required pywin32 modules not found. Run: pip install pywin32") from e
+
+#                 photoshop_path = os.getenv("PHOTOSHOP_PATH")
+#                 if photoshop_path and Path(photoshop_path).exists():
+#                     logger.debug(f"Using Photoshop path from PHOTOSHOP_PATH: {photoshop_path}")
+#                 else:
+#                     search_dirs = [
+#                         Path("C:/Program Files/Adobe"),
+#                         Path("C:/Program Files (x86)/Adobe")
+#                     ]
+#                     for base_dir in search_dirs:
+#                         if not base_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {base_dir}")
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             logger.debug(f"Found Photoshop at: {photoshop_path}")
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Adobe Photoshop executable not found in Program Files")
+
+#                 if not os.access(photoshop_path, os.X_OK):
+#                     raise PermissionError(f"Photoshop executable is not accessible: {photoshop_path}")
+
+#                 com_success = False
+#                 try:
+#                     logger.debug("Attempting to open via COM")
+#                     ps_app = win32com.client.Dispatch("Photoshop.Application")
+#                     ps_app.Visible = True
+#                     ps_app.Open(file_path)
+
+#                     def bring_to_front(title_contains="Adobe Photoshop"):
+#                         def enum_handler(hwnd, _):
+#                             if win32gui.IsWindowVisible(hwnd):
+#                                 title = win32gui.GetWindowText(hwnd)
+#                                 if title_contains.lower() in title.lower():
+#                                     try:
+#                                         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+#                                         fg_thread = win32process.GetWindowThreadProcessId(
+#                                             win32gui.GetForegroundWindow())[0]
+#                                         target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+#                                         this_thread = win32api.GetCurrentThreadId()
+#                                         if ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, True):
+#                                             win32gui.SetForegroundWindow(hwnd)
+#                                             ctypes.windll.user32.AttachThreadInput(this_thread, target_thread, False)
+#                                     except Exception as e:
+#                                         logger.debug(f"Window activation failed: {e}")
+#                         win32gui.EnumWindows(enum_handler, None)
+
+#                     time.sleep(1.5)
+#                     bring_to_front()
+#                     logger.info(f"Opened {Path(file_path).name} via COM")
+#                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                     com_success = True
+#                 except Exception as e:
+#                     logger.debug(f"COM attempt failed: {e}. Falling back to subprocess.")
+
+#                 if not com_success:
+#                     for attempt in range(3):
+#                         try:
+#                             cmd = [photoshop_path, file_path]
+#                             logger.debug(f"Executing subprocess command: {cmd}")
+#                             result = subprocess.run(cmd, check=True, stderr=subprocess.PIPE, text=True)
+#                             time.sleep(2)
+#                             def enum_windows_callback(hwnd, hwnds):
+#                                 if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                     hwnds.append(hwnd)
+#                             hwnds = []
+#                             win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                             if hwnds:
+#                                 win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                 win32gui.SetForegroundWindow(hwnds[0])
+#                             logger.info(f"Opened {Path(file_path).name} via subprocess")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Subprocess attempt {attempt+1} failed: {e}, stderr: {e.stderr}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 logger.debug(f"Subprocess failed after retries: {e}, stderr: {e.stderr}")
+#                                 try:
+#                                     process = subprocess.Popen([photoshop_path, file_path], stderr=subprocess.PIPE, text=True)
+#                                     time.sleep(2)
+#                                     def enum_windows_callback(hwnd, hwnds):
+#                                         if win32gui.IsWindowVisible(hwnd) and 'Adobe Photoshop' in win32gui.GetWindowText(hwnd):
+#                                             hwnds.append(hwnd)
+#                                     hwnds = []
+#                                     win32gui.EnumWindows(enum_windows_callback, hwnds)
+#                                     if hwnds:
+#                                         win32gui.ShowWindow(hwnds[0], win32con.SW_RESTORE)
+#                                         win32gui.SetForegroundWindow(hwnds[0])
+#                                     logger.info(f"Opened {Path(file_path).name} via Popen fallback")
+#                                     print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                                 except Exception as e2:
+#                                     raise RuntimeError(f"Failed to open file after 3 attempts: {e}, Popen fallback failed: {e2}")
+
+#             elif system == "Darwin":
+#                 custom_path = os.getenv("PHOTOSHOP_PATH")
+#                 if custom_path and Path(custom_path).exists():
+#                     photoshop_path = str(Path(custom_path).resolve())
+#                     logger.debug(f"Found Photoshop via environment variable: {photoshop_path}")
+
+#                 if not photoshop_path:
+#                     try:
+#                         result = subprocess.run(
+#                             ["mdfind", "kMDItemKind == 'Application' && (kMDItemFSName == 'Adobe Photoshop*.app' || kMDItemFSName == 'Photoshop*.app' || kMDItemFSName == 'Adobe*Photoshop*.app')"],
+#                             capture_output=True, text=True, check=True
+#                         )
+#                         if result.stdout.strip():
+#                             photoshop_path = result.stdout.strip().split("\n")[0]
+#                             logger.debug(f"Found Photoshop via mdfind: {photoshop_path}")
+#                     except subprocess.CalledProcessError as e:
+#                         logger.debug(f"mdfind failed with error: {e}, stderr: {e.stderr}")
+
+#                 if not photoshop_path:
+#                     search_locations = [
+#                         Path("/Applications"),
+#                         Path("~/Applications").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud"),
+#                         Path("~/Applications/Adobe Creative Cloud").expanduser(),
+#                         Path("/Applications/Adobe"),
+#                         Path("~/Applications/Adobe").expanduser(),
+#                         Path("/Applications/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Photoshop*").expanduser(),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop*"),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop*").expanduser(),
+#                     ]
+#                     for search_dir in search_locations:
+#                         if not search_dir.exists():
+#                             logger.debug(f"Search directory does not exist: {search_dir}")
+#                             continue
+#                         logger.debug(f"Searching for Photoshop in: {search_dir}")
+#                         photoshop_apps = (
+#                             list(search_dir.glob("Adobe*Photoshop*.app")) +
+#                             list(search_dir.glob("Photoshop*.app")) +
+#                             list(search_dir.glob("*/Adobe*Photoshop*.app"))
+#                         )
+#                         if photoshop_apps:
+#                             logger.debug(f"Found potential Photoshop apps: {[str(app) for app in photoshop_apps]}")
+#                             photoshop_apps.sort(key=lambda x: x.name, reverse=True)
+#                             photoshop_path = str(photoshop_apps[0])
+#                             logger.debug(f"Selected Photoshop via glob in {search_dir}: {photoshop_path}")
+#                             break
+
+#                 if not photoshop_path:
+#                     versioned_paths = [
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop 2025.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2025/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop 2024.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2024/Adobe Photoshop.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop 2023.app"),
+#                         Path("/Applications/Adobe/Adobe Photoshop 2023/Adobe Photoshop.app"),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop 2025.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2025/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop 2024.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2024/Adobe Photoshop.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop 2023.app").expanduser(),
+#                         Path("~/Applications/Adobe Creative Cloud/Adobe Photoshop 2023/Adobe Photoshop.app").expanduser(),
+#                     ]
+#                     for path in versioned_paths:
+#                         if path.exists():
+#                             photoshop_path = str(path)
+#                             logger.debug(f"Found Photoshop in versioned path: {photoshop_path}")
+#                             break
+
+#                 if not photoshop_path and hasattr(self, 'window'):
+#                     from PySide6.QtWidgets import QFileDialog
+#                     logger.debug("Prompting user to select Photoshop application")
+#                     photoshop_path, _ = QFileDialog.getOpenFileName(
+#                         self.window(), "Locate Adobe Photoshop", "/Applications", "Applications (*.app)"
+#                     )
+#                     if photoshop_path:
+#                         logger.debug(f"User-selected Photoshop path: {photoshop_path}")
+#                     else:
+#                         logger.debug("User cancelled Photoshop path selection")
+
+#                 if not photoshop_path:
+#                     error_msg = (
+#                         "Adobe Photoshop application not found in /Applications, ~/Applications, "
+#                         "Adobe Creative Cloud, or Adobe directories. Please set PHOTOSHOP_PATH environment variable."
+#                     )
+#                     logger.error(error_msg)
+#                     raise FileNotFoundError(error_msg)
+
+#                 for attempt in range(3):
+#                     try:
+#                         subprocess.run(["open", "-a", photoshop_path, file_path], check=True)
+#                         applescript = f'tell application "{Path(photoshop_path).name}" to activate'
+#                         subprocess.run(["osascript", "-e", applescript], check=True)
+#                         logger.info(f"Opened {Path(file_path).name} via open -a at {photoshop_path}")
+#                         print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                         break
+#                     except subprocess.CalledProcessError as e:
+#                         if attempt < 2:
+#                             logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                             time.sleep(2)
+#                         else:
+#                             raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+
+#             elif system == "Linux":
+#                 try:
+#                     subprocess.run(["wine", "--version"], capture_output=True, check=True)
+#                     wine_dirs = [
+#                         Path.home() / ".wine/drive_c/Program Files/Adobe",
+#                         Path.home() / ".wine/drive_c/Program Files (x86)/Adobe"
+#                     ]
+#                     for base_dir in wine_dirs:
+#                         if not base_dir.exists():
+#                             continue
+#                         photoshop_exes = list(base_dir.glob("Adobe Photoshop */Photoshop.exe"))
+#                         if photoshop_exes:
+#                             photoshop_exes.sort(key=lambda x: x.parent.name, reverse=True)
+#                             photoshop_path = str(photoshop_exes[0])
+#                             break
+#                     if not photoshop_path:
+#                         raise FileNotFoundError("Photoshop.exe not found in Wine directories")
+
+#                     for attempt in range(3):
+#                         try:
+#                             subprocess.run(["wine", photoshop_path, file_path], check=True)
+#                             try:
+#                                 subprocess.run(["wmctrl", "-a", "Adobe Photoshop"], check=False)
+#                             except Exception as e:
+#                                 logger.debug(f"Could not raise Photoshop window: {e}")
+#                             logger.info(f"Opened {Path(file_path).name} via wine")
+#                             print(f"[Photoshop] Opened {Path(file_path).name} at {photoshop_path}")
+#                             break
+#                         except subprocess.CalledProcessError as e:
+#                             if attempt < 2:
+#                                 logger.debug(f"Attempt {attempt+1} failed: {e}. Retrying...")
+#                                 time.sleep(2)
+#                             else:
+#                                 raise RuntimeError(f"Failed to open file after 3 attempts: {e}")
+#                 except subprocess.CalledProcessError:
+#                     raise FileNotFoundError("Wine is not installed or not functioning")
+
+#             else:
+#                 error_message = f"Unsupported platform for Photoshop: {system}"
+#                 logger.warning(error_message)
+#                 print(f"[Photoshop] {error_message}")
+#                 raise ValueError(error_message)
+
+#         except Exception as e:
+#             error_message = f"Failed to open {Path(file_path).name} in Photoshop: {str(e)}"
+#             logger.error(error_message)
+#             print(f"[Photoshop] {error_message}")
+#             raise
+
+#     def open_folder(self, file_path):
+#         """Open the folder containing the file."""
+#         try:
+#             folder_path = str(Path(file_path).parent)
+#             system = platform.system()
+#             if system == "Windows":
+#                 subprocess.run(["explorer", folder_path], check=True)
+#             elif system == "Darwin":
+#                 subprocess.run(["open", folder_path], check=True)
+#             elif system == "Linux":
+#                 subprocess.run(["xdg-open", folder_path], check=True)
+#             else:
+#                 logger.warning(f"Unsupported platform for opening folder: {system}")
+#                 app_signals.append_log.emit(f"[Folder] Unsupported platform for opening folder: {system}")
+#                 app_signals.update_status.emit(f"Unsupported platform for opening folder: {system}")
+#                 return
+#             app_signals.update_status.emit(f"Opened folder for {Path(file_path).name}")
+#             app_signals.append_log.emit(f"[Folder] Opened folder for {Path(file_path).name}")
+#         except Exception as e:
+#             logger.error(f"Failed to open folder {file_path}: {e}")
+#             app_signals.append_log.emit(f"[Folder] Failed to open folder: {str(e)}")
+#             app_signals.update_status.emit(f"Failed to open folder for {Path(file_path).name}: {str(e)}")
+
+#     def copy_file_to_clipboard(self, file_path):
+#         """Copy the file path to the clipboard."""
+#         try:
+#             file_path = os.path.join(BASE_TARGET_DIR, file_path)
+#             if not os.path.exists(file_path):
+#                 raise FileNotFoundError(file_path)
+
+#             system = platform.system()
+#             if system == "Windows":
+#                 import pyautogui
+#                 import ctypes
+#                 import pygetwindow as gw
+
+#             folder, filename = os.path.split(os.path.abspath(file_path))
+#             if system == "Windows":
+#                 SW_SHOWNOACTIVATE = 4
+#                 ctypes.windll.shell32.ShellExecuteW(None, "open", folder, None, None, SW_SHOWNOACTIVATE)
+#             elif system == "Darwin":
+#                 subprocess.run(["open", folder])
+#             else:
+#                 raise NotImplementedError(f"Unsupported OS: {system}")
+
+#             time.sleep(0.1)
+#             pyautogui.typewrite(filename)
+#             time.sleep(0.1)
+
+#             if system == "Windows":
+#                 pyautogui.hotkey('ctrl', 'c')
+#                 pyautogui.hotkey('alt', 'f4')
+#             elif system == "Darwin":
+#                 pyautogui.hotkey('command', 'c')
+#                 pyautogui.hotkey('command', 'w')
+#             else:
+#                 raise NotImplementedError(f"Copy not supported on {system}")
+#         except Exception as e:
+#             print(f"An error occurred: {e}")
+#         finally:
+#             print("Cleanup or final steps executed.")
+
+#     def retry_file_process(self, row_data: dict):
+#         """
+#         Retry a failed file process using cached API metadata.
+#         """
+
+#         # ---- Guard: retry only failed jobs ----
+#         status = row_data.get("status")
+#         if status not in ("Download Failed", "Upload Failed"):
+#             logger.warning(
+#                 f"[Retry] Blocked retry for spec_id={row_data.get('spec_id')} "
+#                 f"because status={status}"
+#             )
+#             return
+
+#         # ---- Get spec_id ----
+#         spec_id = str(row_data.get("spec_id"))
+#         if not spec_id:
+#             raise ValueError("Retry failed: spec_id missing")
+
+#         # ---- Load authoritative metadata from cache ----
+#         cache = load_cache()
+#         meta = cache.get("downloaded_files_with_metadata", {}).get(spec_id)
+
+#         if not meta or "api_response" not in meta:
+#             raise ValueError(f"Retry failed: no cached api_response for spec_id={spec_id}")
+
+#         api = meta["api_response"]
+
+#         # ---- Validate API contract ----
+#         action_type = api.get("request_type")
+#         file_path = api.get("file_path")
+#         nas_path = api.get("nas_path")
+
+#         if action_type not in ("download", "upload"):
+#             raise ValueError(f"Invalid request_type: {action_type}")
+
+#         if not file_path or not nas_path:
+#             raise ValueError(
+#                 f"Retry aborted: missing file_path or nas_path "
+#                 f"(file_path={file_path}, nas_path={nas_path})"
+#             )
+
+#         # ---- Resolve paths ----
+#         if action_type == "download":
+#             src_path = file_path
+#             dest_path = os.path.join(BASE_TARGET_DIR, nas_path)
+#             is_nas_src = True
+#             is_nas_dest = False
+#         else:  # upload
+#             src_path = os.path.join(BASE_TARGET_DIR, nas_path)
+#             dest_path = file_path
+#             is_nas_src = False
+#             is_nas_dest = True
+
+#         # ---- Execute retry ----
+#         file_worker = FileWatcherWorker.get_instance()
+
+#         return file_worker.perform_file_transfer(
+#             src_path,
+#             dest_path,
+#             action_type,
+#             api,            # ✅ PASS api_response, NOT wrapper
+#             is_nas_src,
+#             is_nas_dest
+#         )
+
     
     
 
@@ -4910,7 +6407,7 @@ class LoginWorker(QObject):
                 save_cache(cache_data)
                 logger.debug(f"Cache saved: {cache_data}")
                 app_signals.append_log.emit(f"[Login] Cache saved for user: {self.username}")
-
+                
             elif self.username == cached_user and not cached_token:
                 # Same user but token empty → only update token
                 logger.debug("Same user re-login detected. Updating token only.")
@@ -4922,6 +6419,17 @@ class LoginWorker(QObject):
             
             logger.debug("Emitting success signal")
             self.success.emit(user_info, access_token)
+            if self.rememberme:
+                keyring.set_password(
+                    "PremediaApp",      # service name
+                    self.username,      # account
+                    self.password       # secret (securely stored)
+                )
+            else:
+                try:
+                    keyring.delete_password("PremediaApp", self.username)
+                except keyring.errors.PasswordDeleteError:
+                    pass
             app_signals.append_log.emit(f"[Login] Successful login for user: {self.username}")
             if self.status_bar:
                 self.status_bar.showMessage(f"Successful login for {self.username}")
@@ -5104,14 +6612,30 @@ class LoginDialog(QDialog):
                     # Call your existing on_login_failed (dialog remains open)
                     QTimer.singleShot(100, lambda: self.on_login_failed(error_msg))
 
-            if cache.get("saved_username") and cache.get("saved_password"):
-                self.ui.usernametxt.setText(cache["saved_username"])
-                self.ui.passwordtxt.setText(cache["saved_password"])
-                self.ui.rememberme.setChecked(True)
-                app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
-                self.status_bar.showMessage("Loaded saved credentials")
+            # if cache.get("saved_username") and cache.get("saved_password"):
+            #     self.ui.usernametxt.setText(cache["saved_username"])
+            #     self.ui.passwordtxt.setText(cache["saved_password"])
+            #     self.ui.rememberme.setChecked(True)
+            #     app_signals.append_log.emit("[Login] Loaded saved credentials from cache")
+            #     self.status_bar.showMessage("Loaded saved credentials")
+            # else:
+            #     app_signals.append_log.emit("[Login] No saved credentials found in cache")
+            #     self.status_bar.showMessage("No saved credentials found")
+
+            saved_username = cache.get("saved_username")
+
+            if saved_username:
+                saved_password = keyring.get_password("PremediaApp", saved_username)
+
+                if saved_password:
+                    self.ui.usernametxt.setText(saved_username)
+                    self.ui.passwordtxt.setText(saved_password)
+                    self.ui.rememberme.setChecked(True)
+                    self.status_bar.showMessage("Loaded saved credentials")
+                else:
+                    self.ui.rememberme.setChecked(False)
+                    self.status_bar.showMessage("Saved username found, but no password stored")
             else:
-                app_signals.append_log.emit("[Login] No saved credentials found in cache")
                 self.status_bar.showMessage("No saved credentials found")
 
             app_signals.update_status.connect(self.status_bar.showMessage, Qt.QueuedConnection)
@@ -5124,11 +6648,37 @@ class LoginDialog(QDialog):
             self.status_bar.showMessage("Login dialog initialized")
 
             self.resize(764, 669)
+
+            self.ui.passwordtxt.setEchoMode(QLineEdit.Password)
+
+            # Wire show-password radio button
+            self.ui.showPasswordRadioButton.toggled.connect(
+                self.toggle_password_visibility
+            )
         except Exception as e:
             logger.error(f"Failed to initialize LoginDialog: {e}")
             app_signals.append_log.emit(f"[Login] Failed to initialize LoginDialog: {str(e)}")
             QMessageBox.critical(None, "Initialization Error", f"Failed to initialize login dialog: {str(e)}")
             raise
+
+    def toggle_password_visibility(self, checked: bool):
+        """
+        Toggle password visibility safely (Qt Designer compatible).
+        """
+        try:
+            if checked:
+                self.ui.passwordtxt.setEchoMode(QLineEdit.Normal)
+                self.status_bar.showMessage("Password visible")
+                app_signals.append_log.emit("[Login] Password visibility enabled")
+            else:
+                self.ui.passwordtxt.setEchoMode(QLineEdit.Password)
+                self.status_bar.showMessage("Password hidden")
+                app_signals.append_log.emit("[Login] Password visibility disabled")
+        except Exception as e:
+            logger.error(f"Password toggle failed: {e}")
+            app_signals.append_log.emit(f"[Login] Password toggle error: {str(e)}")
+
+
 
     def show_progress(self, message):
         try:
@@ -6746,30 +8296,34 @@ class PremediaApp(QApplication):
 
 get_system_info()
 
-# if __name__ == "__main__":
-#     try:
-#         key = parse_custom_url()
-#         app = PremediaApp(key)
-        
-#         sys.exit(app.exec())
-#     except Exception as e:
-#         print(f"Application crashed: {e}")
-#         import traceback
-#         traceback.print_exc()
+
+def run_updater(new_exe_path):
+    """Launch the updater.exe with paths, then exit current app."""
+    current_exe = sys.executable  # Path of the running PremediaApp.exe
+    updater_path = os.path.join(os.path.dirname(current_exe), "updater.exe")
+
+    if not os.path.exists(updater_path):
+        print("❌ updater.exe missing")
+        return
+
+    print(f"🚀 Launching updater: {updater_path}")
+    subprocess.Popen([updater_path, new_exe_path, current_exe], shell=False)
+    os._exit(0)  # Hard exit to release file lock
+
+
 
 if __name__ == "__main__":
     lock_handle = ensure_single_instance("PremediaApp")
-
     try:
+        # 🔹 Step 1: Check for updates before launching GUI
+        exe_path = sys.executable
+        # check_for_update(APPVERSION, exe_path)
+
+        # 🔹 Step 2: Launch your main GUI
         key = parse_custom_url()
-
         app = PremediaApp(key)
-        exit_code = app.exec()
-
-        sys.exit(exit_code)
-
+        sys.exit(app.exec())
     except Exception as e:
-        print(f"Application crashed: {e}", file=sys.stderr)
+        print(f"Application crashed: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
