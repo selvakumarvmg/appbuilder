@@ -334,7 +334,7 @@ S3_DOWNLOAD_CONNECT_TIMEOUT_SEC = 8
 S3_DOWNLOAD_READ_TIMEOUT_SEC = 30
 S3_DOWNLOAD_BOTO_RETRIES = 1
 
-S3_ENDPOINT = os.getenv("PREMEDIA_S3_ENDPOINT", "http://s3uat.vmgpremedia.com").rstrip("/")
+S3_ENDPOINT = os.getenv("PREMEDIA_S3_ENDPOINT", "https://s3uat.vmgpremedia.com").rstrip("/")
 S3_ACCESS_KEY = os.getenv("PREMEDIA_S3_ACCESS_KEY", "premediaadmin")
 S3_SECRET_KEY = os.getenv("PREMEDIA_S3_SECRET_KEY", "KJDSKJNOIWEBNSSDEW")
 S3_REGION = os.getenv("PREMEDIA_S3_REGION", "us-east-1")
